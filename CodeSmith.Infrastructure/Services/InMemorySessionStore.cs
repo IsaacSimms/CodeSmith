@@ -13,14 +13,12 @@ public class InMemorySessionStore : ISessionStore
 {
     private readonly ConcurrentDictionary<Guid, ProblemSession> _sessions = new();
 
-    /// <inheritdoc />
     public ProblemSession? Get(Guid sessionId)
     {
         _sessions.TryGetValue(sessionId, out var session);
         return session;
     }
 
-    /// <inheritdoc />
     public void Set(ProblemSession session)
     {
         _sessions[session.SessionId] = session;

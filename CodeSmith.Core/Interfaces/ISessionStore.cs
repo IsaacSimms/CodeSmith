@@ -8,16 +8,6 @@ namespace CodeSmith.Core.Interfaces;
 /// </summary>
 public interface ISessionStore
 {
-    /// <summary>
-    /// Retrieves a session by its identifier.
-    /// </summary>
-    /// <param name="sessionId">The session identifier.</param>
-    /// <returns>The session if found; otherwise <c>null</c>.</returns>
-    ProblemSession? Get(Guid sessionId);
-
-    /// <summary>
-    /// Stores or updates a session.
-    /// </summary>
-    /// <param name="session">The session to store.</param>
-    void Set(ProblemSession session);
+    ProblemSession? Get(Guid sessionId);      // Retrieves a session by its identifier, or null if not found
+    void Set(ProblemSession session);            // Stores or updates a session
 }

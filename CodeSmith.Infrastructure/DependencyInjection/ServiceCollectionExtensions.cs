@@ -12,10 +12,7 @@ namespace CodeSmith.Infrastructure.DependencyInjection;
 /// </summary>
 public static class ServiceCollectionExtensions
 {
-    /// <summary>
-    /// Registers all CodeSmith Infrastructure services including Anthropic API client,
-    /// session store, and HTTP resilience pipeline.
-    /// </summary>
+    // Registers all CodeSmith Infrastructure services including Anthropic API client, session store, and HTTP resilience pipeline
     public static IServiceCollection AddCodeSmithInfrastructure(
         this IServiceCollection services,
         IConfiguration configuration)

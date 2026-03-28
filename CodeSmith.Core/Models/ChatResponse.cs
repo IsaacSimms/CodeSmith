@@ -6,6 +6,5 @@ namespace CodeSmith.Core.Models;
 /// </summary>
 public class ChatResponse
 {
-    /// <summary>The assistant's response text.</summary>
-    public string Response { get; set; } = string.Empty;
+    public string Response { get; set; } = string.Empty;  // The assistant's response text
 }

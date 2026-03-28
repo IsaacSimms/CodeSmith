@@ -7,9 +7,6 @@ namespace CodeSmith.Infrastructure.Configuration;
 /// </summary>
 public class AnthropicOptions
 {
-    /// <summary>Configuration section name.</summary>
-    public const string SectionName = "Anthropic";
-
-    /// <summary>The Anthropic API key. Must be provided via configuration, never hardcoded.</summary>
-    public string ApiKey { get; set; } = string.Empty;
+    public const string SectionName = "Anthropic";                // Configuration section name
+    public string ApiKey { get; set; } = string.Empty;             // The Anthropic API key. Must be provided via configuration, never hardcoded.
 }

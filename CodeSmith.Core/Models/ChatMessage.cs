@@ -8,12 +8,7 @@ namespace CodeSmith.Core.Models;
 /// </summary>
 public class ChatMessage
 {
-    /// <summary>The role of the message sender.</summary>
-    public MessageRole Role { get; set; }
-
-    /// <summary>The text content of the message.</summary>
-    public string Content { get; set; } = string.Empty;
-
-    /// <summary>The UTC timestamp when the message was created.</summary>
-    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+    public MessageRole Role { get; set; }                       // The role of the message sender
+    public string Content { get; set; } = string.Empty;           // The text content of the message
+    public DateTime Timestamp { get; set; } = DateTime.UtcNow;    // The UTC timestamp when the message was created
 }

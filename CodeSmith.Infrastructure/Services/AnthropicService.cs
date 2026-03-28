@@ -62,7 +62,6 @@ public class AnthropicService : IAnthropicService
         _logger = logger;
     }
 
-    /// <inheritdoc />
     public async Task<ProblemSession> GenerateProblemAsync(Difficulty difficulty, CancellationToken ct = default)
     {
         _logger.LogInformation("Generating {Difficulty} problem", difficulty);
@@ -106,7 +105,6 @@ public class AnthropicService : IAnthropicService
         }
     }
 
-    /// <inheritdoc />
     public async Task<string> GetGuidanceAsync(Guid sessionId, string userMessage, CancellationToken ct = default)
     {
         var session = _sessionStore.Get(sessionId)
@@ -167,10 +165,7 @@ public class AnthropicService : IAnthropicService
 
     // == Response Parsing Helpers == //
 
-    /// <summary>
-    /// Extracts text content from an Anthropic message response.
-    /// </summary>
-    internal static string ExtractTextContent(Message response)
+    internal static string ExtractTextContent(Message response)  // Extracts text content from an Anthropic message response
     {
         var texts = new List<string>();
         foreach (var block in response.Content)
@@ -183,10 +178,7 @@ public class AnthropicService : IAnthropicService
         return string.Join("", texts);
     }
 
-    /// <summary>
-    /// Parses the structured problem response into description and starter code.
-    /// </summary>
-    internal static (string Description, string StarterCode) ParseProblemResponse(string responseText)
+    internal static (string Description, string StarterCode) ParseProblemResponse(string responseText)  // Parses the structured problem response into description and starter code
     {
         var description = string.Empty;
         var starterCode = string.Empty;

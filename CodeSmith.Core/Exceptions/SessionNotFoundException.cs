@@ -6,8 +6,7 @@ namespace CodeSmith.Core.Exceptions;
 /// </summary>
 public class SessionNotFoundException : Exception
 {
-    /// <summary>The session ID that was not found.</summary>
-    public Guid SessionId { get; }
+    public Guid SessionId { get; }  // The session ID that was not found
 
     public SessionNotFoundException(Guid sessionId)
         : base($"Session '{sessionId}' not found.")

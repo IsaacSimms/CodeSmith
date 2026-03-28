@@ -9,7 +9,6 @@ namespace CodeSmith.Api.DTOs;
 /// </summary>
 public class CreateSessionRequest
 {
-    /// <summary>The desired difficulty level for the coding problem.</summary>
     [JsonConverter(typeof(JsonStringEnumConverter))]
-    public Difficulty Difficulty { get; set; }
+    public Difficulty Difficulty { get; set; }  // The desired difficulty level for the coding problem
 }

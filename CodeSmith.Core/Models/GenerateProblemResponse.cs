@@ -6,9 +6,6 @@ namespace CodeSmith.Core.Models;
 /// </summary>
 public class GenerateProblemResponse
 {
-    /// <summary>The problem description.</summary>
-    public string ProblemDescription { get; set; } = string.Empty;
-
-    /// <summary>The starter code template.</summary>
-    public string StarterCode { get; set; } = string.Empty;
+    public string ProblemDescription { get; set; } = string.Empty;  // The problem description
+    public string StarterCode { get; set; } = string.Empty;         // The starter code template
 }

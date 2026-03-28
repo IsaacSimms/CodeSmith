@@ -35,9 +35,7 @@ public class RequestLoggingMiddleware
     }
 }
 
-/// <summary>
-/// Extension method to register the request logging middleware.
-/// </summary>
+// Extension method to register the request logging middleware
 public static class RequestLoggingMiddlewareExtensions
 {
     public static IApplicationBuilder UseRequestLogging(this IApplicationBuilder app)

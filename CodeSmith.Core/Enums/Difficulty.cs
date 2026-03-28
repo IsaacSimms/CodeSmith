@@ -6,12 +6,7 @@ namespace CodeSmith.Core.Enums;
 /// </summary>
 public enum Difficulty
 {
-    /// <summary>Beginner-friendly problems.</summary>
-    Easy,
-
-    /// <summary>Intermediate-level problems.</summary>
-    Medium,
-
-    /// <summary>Advanced problems requiring deeper understanding.</summary>
-    Hard
+    Easy,      // Beginner-friendly problems
+    Medium,    // Intermediate-level problems
+    Hard       // Advanced problems requiring deeper understanding
 }

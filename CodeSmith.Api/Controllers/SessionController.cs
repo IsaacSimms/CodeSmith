@@ -23,10 +23,7 @@ public class SessionController : ControllerBase
 
     // == Create Session Endpoint == //
 
-    /// <summary>
-    /// Creates a new coding problem session at the specified difficulty level.
-    /// </summary>
-    [HttpPost]
+    [HttpPost]  // Creates a new coding problem session at the specified difficulty level
     [ProducesResponseType(typeof(ProblemSession), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> CreateSession(
@@ -45,10 +42,7 @@ public class SessionController : ControllerBase
 
     // == Chat Endpoint == //
 
-    /// <summary>
-    /// Sends a message within an existing session and receives guided assistance.
-    /// </summary>
-    [HttpPost("{sessionId:guid}/chat")]
+    [HttpPost("{sessionId:guid}/chat")]  // Sends a message within an existing session and receives guided assistance
     [ProducesResponseType(typeof(ChatResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

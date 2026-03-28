@@ -58,9 +58,7 @@ public class ExceptionHandlingMiddleware
     }
 }
 
-/// <summary>
-/// Extension method to register the exception handling middleware.
-/// </summary>
+// Extension method to register the exception handling middleware
 public static class ExceptionHandlingMiddlewareExtensions
 {
     public static IApplicationBuilder UseExceptionHandling(this IApplicationBuilder app)

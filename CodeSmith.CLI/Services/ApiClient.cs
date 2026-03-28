@@ -26,10 +26,7 @@ public class ApiClient
 
     // == Create Session == //
 
-    /// <summary>
-    /// Creates a new coding problem session at the specified difficulty.
-    /// </summary>
-    public async Task<ProblemSession> CreateSessionAsync(Difficulty difficulty, CancellationToken ct = default)
+    public async Task<ProblemSession> CreateSessionAsync(Difficulty difficulty, CancellationToken ct = default)  // Creates a new coding problem session at the specified difficulty
     {
         var response = await _httpClient.PostAsJsonAsync(
             "api/session",
@@ -44,10 +41,7 @@ public class ApiClient
 
     // == Send Chat Message == //
 
-    /// <summary>
-    /// Sends a chat message within an existing session and returns the assistant's response.
-    /// </summary>
-    public async Task<string> SendChatAsync(Guid sessionId, string message, CancellationToken ct = default)
+    public async Task<string> SendChatAsync(Guid sessionId, string message, CancellationToken ct = default)  // Sends a chat message within an existing session and returns the assistant's response
     {
         var response = await _httpClient.PostAsJsonAsync(
             $"api/session/{sessionId}/chat",

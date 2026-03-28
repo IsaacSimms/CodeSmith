@@ -6,9 +6,6 @@ namespace CodeSmith.Core.Enums;
 /// </summary>
 public enum MessageRole
 {
-    /// <summary>A message from the user.</summary>
-    User,
-
-    /// <summary>A message from the assistant.</summary>
-    Assistant
+    User,      // A message from the user
+    Assistant  // A message from the assistant
 }
