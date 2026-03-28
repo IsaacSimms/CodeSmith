@@ -53,8 +53,10 @@ export Anthropic__ApiKey="sk-ant-your-key-here"
 
 ### 3. Run the API
 
+The CLI expects the API on HTTPS (`https://localhost:7111`). Launch with the `https` profile:
+
 ```bash
-dotnet run --project CodeSmith.Api
+dotnet run --project CodeSmith.Api --launch-profile https
 ```
 
 The API starts on:
@@ -115,7 +117,7 @@ dotnet test CodeSmith.slnx --verbosity normal
 | Command | Purpose |
 |---------|---------|
 | `dotnet build CodeSmith.slnx` | Build the entire solution |
-| `dotnet run --project CodeSmith.Api` | Start the API server |
+| `dotnet run --project CodeSmith.Api --launch-profile https` | Start the API server (HTTPS) |
 | `dotnet run --project CodeSmith.CLI` | Start the CLI client |
 | `dotnet test CodeSmith.slnx` | Run all tests |
 | `dotnet test --filter "FullyQualifiedName~Core"` | Run only Core tests |
