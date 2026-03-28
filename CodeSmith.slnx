@@ -1,3 +1,7 @@
 <Solution>
+  <Project Path="CodeSmith.Core/CodeSmith.Core.csproj" />
+  <Project Path="CodeSmith.Infrastructure/CodeSmith.Infrastructure.csproj" />
   <Project Path="CodeSmith.Api/CodeSmith.Api.csproj" />
+  <Project Path="CodeSmith.CLI/CodeSmith.CLI.csproj" />
+  <Project Path="CodeSmith.Tests/CodeSmith.Tests.csproj" />
 </Solution>

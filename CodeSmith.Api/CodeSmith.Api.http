@@ -1,6 +1,17 @@
-@CodeSmith.Api_HostAddress = http://localhost:5175
+@CodeSmith.Api_HostAddress = https://localhost:7111
 
-GET {{CodeSmith.Api_HostAddress}}/weatherforecast/
-Accept: application/json
+### Create a new session
+POST {{CodeSmith.Api_HostAddress}}/api/session
+Content-Type: application/json
 
-###
+{
+  "difficulty": "Easy"
+}
+
+### Chat with session (replace sessionId with actual value)
+POST {{CodeSmith.Api_HostAddress}}/api/session/00000000-0000-0000-0000-000000000000/chat
+Content-Type: application/json
+
+{
+  "message": "I'm not sure how to approach this problem. Can you give me a hint?"
+}
