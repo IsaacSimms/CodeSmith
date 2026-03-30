@@ -35,7 +35,9 @@ public class AnthropicService : IAnthropicService
         STARTER_CODE:
         (Write a C# code stub/template here)
 
-        Do not include solutions or hints. The starter code should compile but be incomplete.
+        Do not include solutions or hints. The starter code should compile but be incomplete. You could choose for the prompt to have
+        a bug or bugs the user needs to solve. It could also be complete, but the prompt could be for a user to add a new feature or block of code for a specific functionailty. 
+        Starter code can also involve a class for unit testing, if applicable. 
         """;
 
     private const string GuidanceSystemPromptTemplate =
