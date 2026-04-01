@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm create:*)",
+      "Bash(cmd.exe /c \"where npm\")",
+      "Bash(cmd.exe /c \"where node\")",
+      "Bash(cmd.exe /c \"npm --version\" 2>&1)",
+      "Bash(export PATH=\"$PATH:/c/Program Files/nodejs:/c/Users/primi/AppData/Roaming/npm\")",
+      "Bash(npm --version)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Program Files \\(x86\\)/**)",
+      "Read(//c/Users/primi/AppData/Roaming/**)",
+      "Read(//c/Users/primi/AppData/Local/**)",
+      "Read(//c/Users/primi/**)",
+      "Bash(tr ';' '\\\\n')",
+      "Bash(powershell.exe -Command \"[System.Environment]::GetEnvironmentVariable\\(''''Path'''', ''''Machine''''\\)\")",
+      "Bash(export PATH=\"$PATH:/c/Program Files/nodejs\")",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(npm test:*)"
+    ]
+  }
+}

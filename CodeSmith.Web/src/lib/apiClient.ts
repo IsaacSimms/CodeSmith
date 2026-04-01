@@ -1,0 +1,53 @@
+// == API Client == //
+import type {
+  CreateSessionRequest,
+  ProblemSession,
+  ChatRequest,
+  ChatResponse,
+  ApiError,
+} from "../features/chat/types";
+
+class ApiClientError extends Error {
+  statusCode: number;
+  apiError: ApiError;
+
+  constructor(statusCode: number, apiError: ApiError) {
+    super(apiError.error);
+    this.name = "ApiClientError";
+    this.statusCode = statusCode;
+    this.apiError = apiError;
+  }
+}
+
+async function request<T>(url: string, options: RequestInit): Promise<T> {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    const errorBody = (await response.json()) as ApiError;
+    throw new ApiClientError(response.status, errorBody);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+export function createSession(body: CreateSessionRequest): Promise<ProblemSession> {
+  return request<ProblemSession>("/api/session", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function sendMessage(sessionId: string, body: ChatRequest): Promise<ChatResponse> {
+  return request<ChatResponse>(`/api/session/${sessionId}/chat`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export { ApiClientError };

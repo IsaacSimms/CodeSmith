@@ -362,6 +362,11 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
+# Frontend (CodeSmith.Web)
+CodeSmith.Web/dist/
+CodeSmith.Web/test-results/
+CodeSmith.Web/playwright-report/
+
 # Environment-specific config (may contain secrets)
 appsettings.Development.json
 appsettings.*.json

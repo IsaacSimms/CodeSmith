@@ -4,4 +4,5 @@
   <Project Path="CodeSmith.Api/CodeSmith.Api.csproj" />
   <Project Path="CodeSmith.CLI/CodeSmith.CLI.csproj" />
   <Project Path="CodeSmith.Tests/CodeSmith.Tests.csproj" />
+  <Project Path="CodeSmith.Web/CodeSmith.Web.esproj" />
 </Solution>
