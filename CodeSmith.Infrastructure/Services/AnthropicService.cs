@@ -36,7 +36,8 @@ public class AnthropicService : IAnthropicService
         (Write a C# code stub/template here)
 
         Do not include solutions or hints. The starter code should compile but be incomplete. You could choose for the prompt to have
-        a bug or bugs the user needs to solve. It could also be complete, but the prompt could be for a user to add a new feature or block of code for a specific functionailty. 
+        a bug or bugs the user needs to solve. It could also be complete, but the prompt could be for a user to add a new feature or block of code for a specific functionailty.
+        Only output the required code in the STARTER_CODE section. Do not output ''' or any other formatting.
         Starter code can also involve a class for unit testing, if applicable. 
         """;
 
