@@ -1,23 +1,18 @@
 // == Chat Window Component == //
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import type { ProblemSession, Difficulty, ChatMessage } from "../types";
 import { useCreateSession } from "../hooks/useCreateSession";
 import { useSendMessage } from "../hooks/useSendMessage";
 import { DifficultySelector } from "./DifficultySelector";
-import { MessageBubble } from "./MessageBubble";
-import { ChatInput } from "./ChatInput";
+import { CodePanel } from "./CodePanel";
+import { ChatPanel } from "./ChatPanel";
 
 export function ChatWindow() {
   const [session, setSession] = useState<ProblemSession | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const createSession = useCreateSession();
   const sendMessage = useSendMessage();
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
 
   function handleSelectDifficulty(difficulty: Difficulty) {
     createSession.mutate(
@@ -77,29 +72,23 @@ export function ChatWindow() {
         <span className="rounded bg-gray-700 px-3 py-1 text-sm text-gray-300">{session.difficulty}</span>
       </header>
 
-      {/* == Problem Description == */}
-      <div className="border-b border-gray-700 bg-gray-800 px-6 py-4">
-        <h2 className="mb-2 font-semibold text-white">Problem</h2>
-        <p className="whitespace-pre-wrap text-gray-300">{session.problemDescription}</p>
-        {session.starterCode && (
-          <pre className="mt-3 overflow-x-auto rounded bg-gray-900 p-3 text-sm text-green-400">
-            {session.starterCode}
-          </pre>
-        )}
-      </div>
+      {/* == Split Screen Body == */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* == Left Panel: Code (75%) == */}
+        <div className="w-3/4">
+          <CodePanel starterCode={session.starterCode} />
+        </div>
 
-      {/* == Messages == */}
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="flex flex-col gap-3">
-          {messages.map((msg, i) => (
-            <MessageBubble key={i} role={msg.role} content={msg.content} />
-          ))}
-          <div ref={messagesEndRef} />
+        {/* == Right Panel: Chat (25%) == */}
+        <div className="w-1/4">
+          <ChatPanel
+            problemDescription={session.problemDescription}
+            messages={messages}
+            onSendMessage={handleSendMessage}
+            isSending={sendMessage.isPending}
+          />
         </div>
       </div>
-
-      {/* == Input == */}
-      <ChatInput onSend={handleSendMessage} isLoading={sendMessage.isPending} />
     </div>
   );
 }
