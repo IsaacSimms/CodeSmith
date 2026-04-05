@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import basicSsl from "@vitejs/plugin-basic-ssl";
@@ -14,6 +14,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    open: true,
     proxy: {
       "/api": {
         target: "https://localhost:7111",
