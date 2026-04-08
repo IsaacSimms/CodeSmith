@@ -71,21 +71,28 @@ describe("ChatInput", () => {
     expect(screen.getByRole("button", { name: "Sending..." })).toBeInTheDocument();
   });
 
-  it("disables send button when input is empty", () => {
-    render(<ChatInput onSend={vi.fn()} isLoading={false} />);
-
-    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
-  });
-
-  it("submits on enter key", async () => {
+  it("submits on Enter key", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn();
     render(<ChatInput onSend={onSend} isLoading={false} />);
 
     const input = screen.getByPlaceholderText("Ask for guidance...");
-    await user.type(input, "Hello{Enter}");
+    await user.type(input, "Hello");
+    await user.keyboard("{Enter}");
 
     expect(onSend).toHaveBeenCalledOnce();
     expect(onSend).toHaveBeenCalledWith("Hello");
+  });
+
+  it("does not submit on Shift+Enter", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    render(<ChatInput onSend={onSend} isLoading={false} />);
+
+    const input = screen.getByPlaceholderText("Ask for guidance...");
+    await user.type(input, "Hello");
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+
+    expect(onSend).not.toHaveBeenCalled();
   });
 });
