@@ -53,7 +53,7 @@ export function ChatInput({ onSend, isLoading }: ChatInputProps) {
         disabled={isLoading}
         className="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
       >
-        {isLoading ? "Sending..." : "Send"}
+        {isLoading ? "Building..." : "Send"}
       </button>
     </form>
   );
