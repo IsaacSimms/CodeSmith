@@ -1,6 +1,6 @@
 # CodeSmith
 
-AI-powered coding interview practice tool. Users select a difficulty, receive a C# problem, and get guided assistance through chat.
+AI-powered coding interview practice tool. Users select a language and difficulty, receive a coding problem with starter code in a split-screen editor, and get guided assistance through an AI pair programmer. The AI always has access to the current editor contents.
 
 ## Stack
 
@@ -32,13 +32,14 @@ AI-powered coding interview practice tool. Users select a difficulty, receive a 
 
 ### POST /api/session
 Create a new coding problem session.
-- Request: `{ "difficulty": "Easy" | "Medium" | "Hard" }`
-- Response (201): `{ sessionId, difficulty, problemDescription, starterCode, messages: [], createdAt }`
+- Request: `{ "difficulty": "Easy" | "Medium" | "Hard", "language": "CSharp" | "Cpp" | "Go" | "Rust" | "Python" | "Java" }`
+- Response (201): `{ sessionId, difficulty, language, problemDescription, starterCode, messages: [], createdAt }`
 
 ### POST /api/session/{sessionId}/chat
 Send a message in an existing session.
-- Request: `{ "message": "..." }` (1-2000 chars)
+- Request: `{ "message": "..." (1-2000 chars), "editorContent?": "..." (optional, max 50000 chars) }`
 - Response (200): `{ "response": "..." }`
+- `editorContent` passes the current code editor contents so the AI can reference the student's actual code
 - Errors: 400, 404, 429, 502
 
 ## Dev Commands

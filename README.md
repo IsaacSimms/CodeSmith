@@ -1,6 +1,6 @@
 # CodeSmith
 
-An AI-powered coding tutor that generates C# programming problems and provides guided assistance through the Anthropic Claude API.
+An AI-powered coding interview practice tool. Users pick a programming language and difficulty, receive a tailored coding problem with starter code in a split-screen editor, and get guided assistance from an AI pair programmer powered by the Anthropic Claude API. The AI always has access to the current contents of the code editor, so it can reference and reason about the student's actual code.
 
 ## Prerequisites
 
@@ -16,8 +16,8 @@ An AI-powered coding tutor that generates C# programming problems and provides g
 | `CodeSmith.Infrastructure` | Anthropic SDK integration and in-memory session storage |
 | `CodeSmith.Api` | ASP.NET Core Web API with rate limiting, CORS, and middleware |
 | `CodeSmith.CLI` | Interactive console client for the API |
-| `CodeSmith.Web` | React 19 frontend (Vite, TypeScript, Tailwind CSS, TanStack Query) |
-| `CodeSmith.Tests` | xUnit backend test suite |
+| `CodeSmith.Web` | React 19 frontend (Vite, TypeScript, Tailwind CSS v4, TanStack Query v5) |
+| `CodeSmith.Tests` | xUnit + NSubstitute backend test suite |
 
 ## Setup
 
@@ -79,7 +79,7 @@ npm run dev
 
 The frontend starts on `https://localhost:5173` and automatically proxies `/api/*` requests to the backend at `https://localhost:7111`.
 
-Open `https://localhost:5173` in your browser, select a difficulty, and start chatting with the tutor.
+Open `https://localhost:5173` in your browser, pick a language and difficulty, and start coding with the AI pair programmer.
 
 ### 5. Run the CLI
 
@@ -103,18 +103,22 @@ Follow the prompts to select a difficulty, view the problem, and chat with the t
 ```bash
 curl -X POST https://localhost:7111/api/session \
   -H "Content-Type: application/json" \
-  -d '{"difficulty": "Easy"}'
+  -d '{"difficulty": "Easy", "language": "CSharp"}'
 ```
 
 Difficulty values: `Easy`, `Medium`, `Hard`.
+
+Language values: `CSharp`, `Cpp`, `Go`, `Rust`, `Python`, `Java`.
 
 ### Chat within a session
 
 ```bash
 curl -X POST https://localhost:7111/api/session/{sessionId}/chat \
   -H "Content-Type: application/json" \
-  -d '{"message": "Can you give me a hint?"}'
+  -d '{"message": "Can you give me a hint?", "editorContent": "public int Add(int a, int b) { return 0; }"}'
 ```
+
+`editorContent` is optional. When provided, the AI uses it as context to reference the student's current code in the editor. When omitted, the AI only sees the original starter code.
 
 ## Running Tests
 
@@ -136,6 +140,13 @@ dotnet test CodeSmith.slnx --verbosity normal
 cd CodeSmith.Web
 npm test            # single run
 npm run test:watch  # watch mode
+```
+
+### Playwright E2E tests
+
+```bash
+cd CodeSmith.Web
+npx playwright test
 ```
 
 ### Browser E2E testing
