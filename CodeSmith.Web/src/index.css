@@ -1,1 +1,22 @@
 @import "tailwindcss";
+
+/* == Monokai Theme Tokens == */
+@theme {
+  --color-monokai-pink: #F92672;
+  --color-monokai-pink-dark: #d11e5c;
+  --color-monokai-pink-light: #ff4d8e;
+  --color-monokai-cyan: #66D9EF;
+
+  /* == Monokai Gray Scale (warm greenish tint, replaces Tailwind's cool blue grays) == */
+  --color-gray-950: #141411;
+  --color-gray-900: #1e1f1a;
+  --color-gray-800: #272822;
+  --color-gray-700: #3E3D32;
+  --color-gray-600: #49483E;
+  --color-gray-500: #75715E;
+  --color-gray-400: #908c75;
+  --color-gray-300: #c4c0a9;
+  --color-gray-200: #d8d5c4;
+  --color-gray-100: #F8F8F2;
+  --color-gray-50: #fdfdf5;
+}

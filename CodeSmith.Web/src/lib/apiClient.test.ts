@@ -11,6 +11,7 @@ describe("createSession", () => {
     const mockSession = {
       sessionId: "abc-123",
       difficulty: "Easy",
+      language: "CSharp",
       problemDescription: "Write a function",
       starterCode: "public void Solve() {}",
       messages: [],
@@ -25,12 +26,12 @@ describe("createSession", () => {
       })
     );
 
-    const result = await createSession({ difficulty: "Easy" });
+    const result = await createSession({ difficulty: "Easy", language: "CSharp" });
 
     expect(fetch).toHaveBeenCalledWith("/api/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ difficulty: "Easy" }),
+      body: JSON.stringify({ difficulty: "Easy", language: "CSharp" }),
     });
     expect(result).toEqual(mockSession);
   });
@@ -48,7 +49,7 @@ describe("createSession", () => {
     );
 
     try {
-      await createSession({ difficulty: "Easy" });
+      await createSession({ difficulty: "Easy", language: "CSharp" });
       expect.fail("Should have thrown");
     } catch (err) {
       expect(err).toBeInstanceOf(ApiClientError);
@@ -72,12 +73,12 @@ describe("sendMessage", () => {
       })
     );
 
-    const result = await sendMessage("abc-123", { message: "Help me" });
+    const result = await sendMessage("abc-123", { message: "Help me", editorContent: "int x = 1;" });
 
     expect(fetch).toHaveBeenCalledWith("/api/session/abc-123/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "Help me" }),
+      body: JSON.stringify({ message: "Help me", editorContent: "int x = 1;" }),
     });
     expect(result).toEqual(mockResponse);
   });

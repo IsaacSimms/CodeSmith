@@ -11,4 +11,7 @@ public class CreateSessionRequest
 {
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public Difficulty Difficulty { get; set; }  // The desired difficulty level for the coding problem
+
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public Language Language { get; set; }      // The desired programming language for the coding problem
 }

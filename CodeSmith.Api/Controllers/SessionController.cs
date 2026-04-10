@@ -35,7 +35,12 @@ public class SessionController : ControllerBase
             return BadRequest(new { error = "Invalid difficulty value. Use Easy, Medium, or Hard." });
         }
 
-        var session = await _anthropicService.GenerateProblemAsync(request.Difficulty, ct);
+        if (!Enum.IsDefined(typeof(Language), request.Language))
+        {
+            return BadRequest(new { error = "Invalid language value. Use CSharp, Cpp, Go, Rust, Python, or Java." });
+        }
+
+        var session = await _anthropicService.GenerateProblemAsync(request.Difficulty, request.Language, ct);
 
         return CreatedAtAction(nameof(CreateSession), new { sessionId = session.SessionId }, session);
     }
@@ -51,7 +56,7 @@ public class SessionController : ControllerBase
         [FromBody] ChatRequest request,
         CancellationToken ct)
     {
-        var response = await _anthropicService.GetGuidanceAsync(sessionId, request.Message, ct);
+        var response = await _anthropicService.GetGuidanceAsync(sessionId, request.Message, request.EditorContent, ct);
 
         return Ok(new ChatResponse { Response = response });
     }

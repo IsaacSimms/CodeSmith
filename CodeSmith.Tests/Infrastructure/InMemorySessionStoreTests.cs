@@ -66,8 +66,9 @@ public class InMemorySessionStoreTests
         var session = new ProblemSession
         {
             Difficulty = Difficulty.Hard,
+            Language = Language.Rust,
             ProblemDescription = "Hard problem",
-            StarterCode = "public class Solution { }",
+            StarterCode = "fn solution() {}",
             Messages = [new ChatMessage { Role = CodeSmith.Core.Enums.MessageRole.User, Content = "Help" }]
         };
 
@@ -75,8 +76,9 @@ public class InMemorySessionStoreTests
         var retrieved = _store.Get(session.SessionId);
 
         Assert.Equal(Difficulty.Hard, retrieved!.Difficulty);
+        Assert.Equal(Language.Rust, retrieved.Language);
         Assert.Equal("Hard problem", retrieved.ProblemDescription);
-        Assert.Equal("public class Solution { }", retrieved.StarterCode);
+        Assert.Equal("fn solution() {}", retrieved.StarterCode);
         Assert.Single(retrieved.Messages);
     }
 }

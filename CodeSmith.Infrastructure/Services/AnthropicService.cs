@@ -24,35 +24,44 @@ public class AnthropicService : IAnthropicService
     private const string Model = "claude-sonnet-4-20250514";
 
     // == System Prompts == //
-    private const string ProblemGenerationSystemPrompt =
+    private const string ProblemGenerationSystemPromptTemplate =
         """
-        You are an expert coding tutor who creates C# programming problems.
+        You are an expert coding tutor who creates {0} programming problems.
         When asked to generate a problem, respond with exactly two sections:
 
         DESCRIPTION:
         (Write a clear problem description here)
 
         STARTER_CODE:
-        (Write a C# code stub/template here)
+        (Write a {0} code stub/template here using idiomatic syntax for the language)
 
         Do not include solutions or hints. The starter code should compile but be incomplete. You could choose for the prompt to have
         a bug or bugs the user needs to solve. It could also be complete, but the prompt could be for a user to add a new feature or block of code for a specific functionailty.
         Only output the required code in the STARTER_CODE section. Do not output ''' or any other formatting.
-        Starter code can also involve a class for unit testing, if applicable. 
+        Starter code can also involve a class for unit testing, if applicable.
         """;
 
     private const string GuidanceSystemPromptTemplate =
         """
-        You are an expert coding tutor helping a student solve a C# programming problem.
+        You are an expert coding tutor helping a student solve a {0} programming problem.
         Guide the student toward the solution without giving away the answer directly.
         Ask leading questions, point out relevant concepts, and help them think through the problem.
         If they are stuck, give small hints rather than full solutions.
+        Use {0} syntax and idioms in any code examples or snippets you provide.
 
         The problem they are working on:
-        {0}
+        {1}
 
         The starter code provided:
-        {1}
+        {2}
+        """;
+
+    private const string EditorContentSection =
+        """
+
+
+        The student's current code in the editor:
+        {0}
         """;
 
     public AnthropicService(
@@ -65,23 +74,26 @@ public class AnthropicService : IAnthropicService
         _logger = logger;
     }
 
-    public async Task<ProblemSession> GenerateProblemAsync(Difficulty difficulty, CancellationToken ct = default)
+    public async Task<ProblemSession> GenerateProblemAsync(Difficulty difficulty, Language language, CancellationToken ct = default)
     {
-        _logger.LogInformation("Generating {Difficulty} problem", difficulty);
+        var languageLabel = GetLanguageLabel(language);
+        _logger.LogInformation("Generating {Difficulty} {Language} problem", difficulty, languageLabel);
 
         try
         {
+            var systemPrompt = string.Format(ProblemGenerationSystemPromptTemplate, languageLabel);
+
             var response = await _client.Messages.Create(new MessageCreateParams
             {
                 Model = Model,
                 MaxTokens = 2048,
-                System = ProblemGenerationSystemPrompt,
+                System = systemPrompt,
                 Messages =
                 [
                     new()
                     {
                         Role = Role.User,
-                        Content = $"Generate a {difficulty} difficulty C# coding problem."
+                        Content = $"Generate a {difficulty} difficulty {languageLabel} coding problem."
                     }
                 ]
             }, ct);
@@ -92,13 +104,14 @@ public class AnthropicService : IAnthropicService
             var session = new ProblemSession
             {
                 Difficulty = difficulty,
+                Language = language,
                 ProblemDescription = description,
                 StarterCode = starterCode
             };
 
             _sessionStore.Set(session);
 
-            _logger.LogInformation("Created session {SessionId} with {Difficulty} problem", session.SessionId, difficulty);
+            _logger.LogInformation("Created session {SessionId} with {Difficulty} {Language} problem", session.SessionId, difficulty, languageLabel);
             return session;
         }
         catch (Exception ex) when (ex is not AnthropicApiException)
@@ -108,7 +121,7 @@ public class AnthropicService : IAnthropicService
         }
     }
 
-    public async Task<string> GetGuidanceAsync(Guid sessionId, string userMessage, CancellationToken ct = default)
+    public async Task<string> GetGuidanceAsync(Guid sessionId, string userMessage, string? editorContent = null, CancellationToken ct = default)
     {
         var session = _sessionStore.Get(sessionId)
             ?? throw new SessionNotFoundException(sessionId);
@@ -134,8 +147,13 @@ public class AnthropicService : IAnthropicService
 
             var systemPrompt = string.Format(
                 GuidanceSystemPromptTemplate,
+                GetLanguageLabel(session.Language),
                 session.ProblemDescription,
                 session.StarterCode);
+
+            // Append the student's current editor content when available
+            if (!string.IsNullOrWhiteSpace(editorContent))
+                systemPrompt += string.Format(EditorContentSection, editorContent);
 
             var response = await _client.Messages.Create(new MessageCreateParams
             {
@@ -165,6 +183,19 @@ public class AnthropicService : IAnthropicService
             throw new AnthropicApiException("Failed to get guidance. Please try again.", ex);
         }
     }
+
+    // == Language Helpers == //
+
+    internal static string GetLanguageLabel(Language language) => language switch  // Maps the Language enum to the human-readable label used in prompts and user messages
+    {
+        Language.CSharp => "C#",
+        Language.Cpp    => "C++",
+        Language.Go     => "Go",
+        Language.Rust   => "Rust",
+        Language.Python => "Python",
+        Language.Java   => "Java",
+        _ => throw new ArgumentOutOfRangeException(nameof(language), language, "Unknown language")
+    };
 
     // == Response Parsing Helpers == //
 

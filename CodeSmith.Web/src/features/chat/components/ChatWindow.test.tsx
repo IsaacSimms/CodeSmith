@@ -13,6 +13,7 @@ vi.mock("../../../lib/apiClient");
 const mockSession: ProblemSession = {
   sessionId: "test-session-id",
   difficulty: "Easy",
+  language: "CSharp",
   problemDescription: "Write a function that adds two numbers.",
   starterCode: "public int Add(int a, int b) {}",
   messages: [],
@@ -67,7 +68,7 @@ describe("ChatWindow", () => {
         expect(screen.getByText("Write a function that adds two numbers.")).toBeInTheDocument();
       });
 
-      expect(vi.mocked(apiClient.createSession).mock.calls[0]?.[0]).toEqual({ difficulty: "Easy" });
+      expect(vi.mocked(apiClient.createSession).mock.calls[0]?.[0]).toEqual({ difficulty: "Easy", language: "CSharp" });
     });
 
     it("displays the starter code after session creation", async () => {
@@ -122,6 +123,14 @@ describe("ChatWindow", () => {
       expect(screen.getByText("Easy")).toBeInTheDocument();
     });
 
+    it("renders a draggable separator between the code and chat panels", async () => {
+      await renderWithSession();
+
+      const separator = screen.getByRole("separator");
+      expect(separator).toBeInTheDocument();
+      expect(separator).toHaveAttribute("aria-orientation", "vertical");
+    });
+
     it("shows user message immediately after sending", async () => {
       vi.mocked(apiClient.sendMessage).mockResolvedValue({ response: "Try a for loop" });
       const user = await renderWithSession();
@@ -145,7 +154,7 @@ describe("ChatWindow", () => {
 
       const sendCall = vi.mocked(apiClient.sendMessage).mock.calls[0];
       expect(sendCall?.[0]).toBe("test-session-id");
-      expect(sendCall?.[1]).toEqual({ message: "How do I start?" });
+      expect(sendCall?.[1]).toEqual({ message: "How do I start?", editorContent: "public int Add(int a, int b) {}" });
     });
   });
 });

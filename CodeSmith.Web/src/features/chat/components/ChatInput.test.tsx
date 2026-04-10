@@ -62,13 +62,13 @@ describe("ChatInput", () => {
     render(<ChatInput onSend={vi.fn()} isLoading={true} />);
 
     expect(screen.getByPlaceholderText("Ask for guidance...")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Sending..." })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Building..." })).toBeDisabled();
   });
 
-  it("shows 'Sending...' text when loading", () => {
+  it("shows 'Building...' text when loading", () => {
     render(<ChatInput onSend={vi.fn()} isLoading={true} />);
 
-    expect(screen.getByRole("button", { name: "Sending..." })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Building..." })).toBeInTheDocument();
   });
 
   it("submits on Enter key", async () => {

@@ -1,4 +1,5 @@
 // == Anthropic Service Tests == //
+using CodeSmith.Core.Enums;
 using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Models;
 using CodeSmith.Infrastructure.Configuration;
@@ -12,6 +13,29 @@ namespace CodeSmith.Tests.Infrastructure;
 
 public class AnthropicServiceTests
 {
+    // == Language Label Tests == //
+
+    [Theory]
+    [InlineData(Language.CSharp, "C#")]
+    [InlineData(Language.Cpp,    "C++")]
+    [InlineData(Language.Go,     "Go")]
+    [InlineData(Language.Rust,   "Rust")]
+    [InlineData(Language.Python, "Python")]
+    [InlineData(Language.Java,   "Java")]
+    public void GetLanguageLabel_ReturnsHumanReadableLabel(Language language, string expected)
+    {
+        var label = AnthropicService.GetLanguageLabel(language);
+
+        Assert.Equal(expected, label);
+    }
+
+    [Fact]
+    public void GetLanguageLabel_WithUnknownLanguage_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => AnthropicService.GetLanguageLabel((Language)999));
+    }
+
     // == Response Parsing Tests == //
 
     [Fact]
@@ -79,6 +103,21 @@ public class AnthropicServiceTests
         var service = new AnthropicService(options, sessionStore, logger);
 
         await Assert.ThrowsAsync<SessionNotFoundException>(
-            () => service.GetGuidanceAsync(Guid.NewGuid(), "help me", CancellationToken.None));
+            () => service.GetGuidanceAsync(Guid.NewGuid(), "help me", null, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetGuidanceAsync_WithEditorContent_ThrowsSessionNotFoundButAcceptsParam()
+    {
+        var sessionStore = Substitute.For<ISessionStore>();
+        sessionStore.Get(Arg.Any<Guid>()).Returns((ProblemSession?)null);
+
+        var options = Options.Create(new AnthropicOptions { ApiKey = "test-key" });
+        var logger = Substitute.For<ILogger<AnthropicService>>();
+
+        var service = new AnthropicService(options, sessionStore, logger);
+
+        await Assert.ThrowsAsync<SessionNotFoundException>(
+            () => service.GetGuidanceAsync(Guid.NewGuid(), "help me", "int x = 42;", CancellationToken.None));
     }
 }

@@ -31,10 +31,34 @@ public class ApiClientTests
 
         var client = new ApiClient(CreateMockHttpClient(HttpStatusCode.OK, responseObj));
 
-        var session = await client.CreateSessionAsync(Difficulty.Easy);
+        var session = await client.CreateSessionAsync(Difficulty.Easy, Language.CSharp);
 
         Assert.Equal("Test problem", session.ProblemDescription);
         Assert.Equal("public class Solution { }", session.StarterCode);
+    }
+
+    [Fact]
+    public async Task CreateSessionAsync_ForwardsLanguageInRequestBody()
+    {
+        var responseObj = new
+        {
+            sessionId = Guid.NewGuid(),
+            difficulty = "Medium",
+            language = "Rust",
+            problemDescription = "Test",
+            starterCode = "fn solve() {}",
+            messages = Array.Empty<object>(),
+            createdAt = DateTime.UtcNow
+        };
+
+        var handler = new CapturingHttpMessageHandler(HttpStatusCode.OK, responseObj);
+        var client = new ApiClient(new HttpClient(handler) { BaseAddress = new Uri("https://localhost:7111") });
+
+        await client.CreateSessionAsync(Difficulty.Medium, Language.Rust);
+
+        Assert.NotNull(handler.LastRequestBody);
+        Assert.Contains("\"difficulty\":\"Medium\"", handler.LastRequestBody);
+        Assert.Contains("\"language\":\"Rust\"", handler.LastRequestBody);
     }
 
     [Fact]
@@ -45,7 +69,7 @@ public class ApiClientTests
             new { error = "Invalid difficulty" }));
 
         await Assert.ThrowsAsync<HttpRequestException>(
-            () => client.CreateSessionAsync(Difficulty.Easy));
+            () => client.CreateSessionAsync(Difficulty.Easy, Language.CSharp));
     }
 
     [Fact]
@@ -68,6 +92,41 @@ public class ApiClientTests
 
         await Assert.ThrowsAsync<HttpRequestException>(
             () => client.SendChatAsync(Guid.NewGuid(), "help"));
+    }
+
+    // == Capturing Mock Handler == //
+
+    private class CapturingHttpMessageHandler : HttpMessageHandler
+    {
+        private readonly HttpStatusCode _statusCode;
+        private readonly object? _responseBody;
+
+        public string? LastRequestBody { get; private set; }
+
+        public CapturingHttpMessageHandler(HttpStatusCode statusCode, object? responseBody)
+        {
+            _statusCode = statusCode;
+            _responseBody = responseBody;
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Content != null)
+            {
+                LastRequestBody = await request.Content.ReadAsStringAsync(cancellationToken);
+            }
+
+            var response = new HttpResponseMessage(_statusCode);
+            if (_responseBody != null)
+            {
+                response.Content = new StringContent(
+                    JsonSerializer.Serialize(_responseBody),
+                    System.Text.Encoding.UTF8,
+                    "application/json");
+            }
+            return response;
+        }
     }
 
     // == Mock Handler Implementation == //

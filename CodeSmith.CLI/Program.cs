@@ -62,8 +62,8 @@ static async Task RunAsync(ApiClient apiClient, CancellationToken ct)
     Console.WriteLine("  3. Hard");
     Console.Write("\nYour choice (1-3): ");
 
-    var choice = Console.ReadLine()?.Trim();
-    var difficulty = choice switch
+    var difficultyChoice = Console.ReadLine()?.Trim();
+    var difficulty = difficultyChoice switch
     {
         "1" => Difficulty.Easy,
         "2" => Difficulty.Medium,
@@ -71,9 +71,31 @@ static async Task RunAsync(ApiClient apiClient, CancellationToken ct)
         _   => throw new InvalidOperationException("Invalid choice. Please enter 1, 2, or 3.")
     };
 
-    Console.WriteLine($"\nGenerating {difficulty} problem...\n");
+    // == Language Selection == //
+    Console.WriteLine("\nSelect language:");
+    Console.WriteLine("  1. C#");
+    Console.WriteLine("  2. C++");
+    Console.WriteLine("  3. Go");
+    Console.WriteLine("  4. Rust");
+    Console.WriteLine("  5. Python");
+    Console.WriteLine("  6. Java");
+    Console.Write("\nYour choice (1-6): ");
 
-    var session = await apiClient.CreateSessionAsync(difficulty, ct);
+    var languageChoice = Console.ReadLine()?.Trim();
+    var language = languageChoice switch
+    {
+        "1" => Language.CSharp,
+        "2" => Language.Cpp,
+        "3" => Language.Go,
+        "4" => Language.Rust,
+        "5" => Language.Python,
+        "6" => Language.Java,
+        _   => throw new InvalidOperationException("Invalid choice. Please enter 1-6.")
+    };
+
+    Console.WriteLine($"\nGenerating {difficulty} {language} problem...\n");
+
+    var session = await apiClient.CreateSessionAsync(difficulty, language, ct);
 
     // == Display Problem == //
     Console.ForegroundColor = ConsoleColor.Cyan;

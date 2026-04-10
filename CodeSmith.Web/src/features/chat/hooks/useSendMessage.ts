@@ -6,10 +6,11 @@ import type { ChatResponse } from "../types";
 interface SendMessageVariables {
   sessionId: string;
   message: string;
+  editorContent?: string;
 }
 
 export function useSendMessage() {
   return useMutation<ChatResponse, Error, SendMessageVariables>({
-    mutationFn: ({ sessionId, message }) => sendMessage(sessionId, { message }),
+    mutationFn: ({ sessionId, message, editorContent }) => sendMessage(sessionId, { message, editorContent }),
   });
 }

@@ -11,4 +11,7 @@ public class ChatRequest
     [Required(ErrorMessage = "Message is required.")]
     [StringLength(2000, MinimumLength = 1, ErrorMessage = "Message must be between 1 and 2000 characters.")]
     public string Message { get; set; } = string.Empty;  // The user's message text
+
+    [StringLength(50000, ErrorMessage = "Editor content must not exceed 50000 characters.")]
+    public string? EditorContent { get; set; }  // Current contents of the code editor
 }

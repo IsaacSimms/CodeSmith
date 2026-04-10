@@ -1,30 +1,56 @@
 // == Chat Window Component == //
-import { useState } from "react";
-import type { ProblemSession, Difficulty, ChatMessage } from "../types";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import type { ProblemSession, Difficulty, Language, ChatMessage } from "../types";
+import { isDifficulty, isLanguage, languageLabels } from "../types";
 import { useCreateSession } from "../hooks/useCreateSession";
 import { useSendMessage } from "../hooks/useSendMessage";
+import { useResizableSplit } from "../hooks/useResizableSplit";
 import { DifficultySelector } from "./DifficultySelector";
 import { CodePanel } from "./CodePanel";
 import { ChatPanel } from "./ChatPanel";
 
 export function ChatWindow() {
+  const [searchParams] = useSearchParams();
   const [session, setSession] = useState<ProblemSession | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [code, setCode] = useState("");
 
   const createSession = useCreateSession();
   const sendMessage = useSendMessage();
+  const { leftPercent, dividerProps, containerRef } = useResizableSplit(75);
 
-  function handleSelectDifficulty(difficulty: Difficulty) {
+  // == URL Param Seeding (Option A) == //
+  const urlLangRaw = searchParams.get("lang");
+  const urlDifficultyRaw = searchParams.get("difficulty");
+  const initialLanguage: Language | undefined = isLanguage(urlLangRaw) ? urlLangRaw : undefined;
+  const initialDifficulty: Difficulty | undefined = isDifficulty(urlDifficultyRaw) ? urlDifficultyRaw : undefined;
+
+  function handleStart(difficulty: Difficulty, language: Language) {
     createSession.mutate(
-      { difficulty },
+      { difficulty, language },
       {
         onSuccess: (data) => {
           setSession(data);
           setMessages(data.messages);
+          setCode(data.starterCode);
         },
       }
     );
   }
+
+  // == Auto-start when both URL params are present == //
+  // One-shot ref guard prevents StrictMode double-fire and retry loops on error.
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (autoStartedRef.current) return;
+    if (session) return;
+    if (!initialDifficulty || !initialLanguage) return;
+
+    autoStartedRef.current = true;
+    handleStart(initialDifficulty, initialLanguage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function handleSendMessage(message: string) {
     if (!session) return;
@@ -37,7 +63,7 @@ export function ChatWindow() {
     setMessages((prev) => [...prev, userMessage]);
 
     sendMessage.mutate(
-      { sessionId: session.sessionId, message },
+      { sessionId: session.sessionId, message, editorContent: code },
       {
         onSuccess: (data) => {
           const assistantMessage: ChatMessage = {
@@ -53,9 +79,13 @@ export function ChatWindow() {
 
   if (!session) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gray-900">
+      <div className="flex h-full items-center justify-center">
         <div>
-          <DifficultySelector onSelect={handleSelectDifficulty} isLoading={createSession.isPending} />
+          <DifficultySelector
+            onSelect={handleStart}
+            isLoading={createSession.isPending}
+            initialLanguage={initialLanguage}
+          />
           {createSession.isError && (
             <p className="mt-4 text-center text-red-400">{createSession.error.message}</p>
           )}
@@ -65,22 +95,30 @@ export function ChatWindow() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-gray-900">
-      {/* == Header == */}
-      <header className="flex items-center justify-between border-b border-gray-700 px-6 py-4">
-        <h1 className="text-lg font-bold text-white">CodeSmith</h1>
+    <div className="flex h-full flex-col">
+      {/* == Session Badge Row == */}
+      <div className="flex items-center justify-end gap-2 border-b border-gray-700 px-6 py-2">
         <span className="rounded bg-gray-700 px-3 py-1 text-sm text-gray-300">{session.difficulty}</span>
-      </header>
+        <span className="rounded bg-gray-700 px-3 py-1 text-sm text-gray-300">{languageLabels[session.language]}</span>
+      </div>
 
       {/* == Split Screen Body == */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* == Left Panel: Code (75%) == */}
-        <div className="w-3/4">
-          <CodePanel starterCode={session.starterCode} />
+      <div ref={containerRef} className="flex flex-1 overflow-hidden">
+        {/* == Left Panel: Code == */}
+        <div style={{ width: `${leftPercent}%` }}>
+          <CodePanel key={session.sessionId} code={code} onCodeChange={setCode} language={session.language} />
         </div>
 
-        {/* == Right Panel: Chat (25%) == */}
-        <div className="w-1/4">
+        {/* == Draggable Divider == */}
+        <div
+          {...dividerProps}
+          role="separator"
+          aria-orientation="vertical"
+          className="w-1.5 shrink-0 cursor-col-resize bg-gray-700 transition-colors hover:bg-monokai-pink active:bg-monokai-pink"
+        />
+
+        {/* == Right Panel: Chat == */}
+        <div className="min-w-0" style={{ width: `${100 - leftPercent}%` }}>
           <ChatPanel
             problemDescription={session.problemDescription}
             messages={messages}

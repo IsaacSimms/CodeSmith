@@ -1,16 +1,18 @@
 // == Code Panel Component == //
-import { useState } from "react";
 import Editor from "@monaco-editor/react";
+import type { Language } from "../types";
+import { monacoLanguageIds } from "../types";
 
 interface CodePanelProps {
-  starterCode: string;
+  code: string;
+  onCodeChange: (value: string) => void;
+  language: Language;
 }
 
-export function CodePanel({ starterCode }: CodePanelProps) {
-  const [code, setCode] = useState(starterCode);
+export function CodePanel({ code, onCodeChange, language }: CodePanelProps) {
 
   return (
-    <div className="flex h-full flex-col overflow-hidden border-r border-gray-700">
+    <div className="flex h-full flex-col overflow-hidden">
       {/* == Panel Header == */}
       <div className="border-b border-gray-700 px-4 py-2">
         <h2 className="text-sm font-semibold text-gray-400">Code</h2>
@@ -20,10 +22,10 @@ export function CodePanel({ starterCode }: CodePanelProps) {
       <div className="flex-1">
         <Editor
           height="100%"
-          defaultLanguage="csharp"
+          language={monacoLanguageIds[language]}
           theme="vs-dark"
           value={code}
-          onChange={(value) => setCode(value ?? "")}
+          onChange={(value) => onCodeChange(value ?? "")}
           beforeMount={(monaco) => {
             monaco.editor.defineTheme("monokai", {
               base: "vs-dark",

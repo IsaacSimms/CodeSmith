@@ -26,11 +26,11 @@ public class ApiClient
 
     // == Create Session == //
 
-    public async Task<ProblemSession> CreateSessionAsync(Difficulty difficulty, CancellationToken ct = default)  // Creates a new coding problem session at the specified difficulty
+    public async Task<ProblemSession> CreateSessionAsync(Difficulty difficulty, Language language, CancellationToken ct = default)  // Creates a new coding problem session at the specified difficulty and language
     {
         var response = await _httpClient.PostAsJsonAsync(
             "api/session",
-            new { difficulty = difficulty.ToString() },
+            new { difficulty = difficulty.ToString(), language = language.ToString() },
             ct);
 
         await EnsureSuccessAsync(response, ct);
