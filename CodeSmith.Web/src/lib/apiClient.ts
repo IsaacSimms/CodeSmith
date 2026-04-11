@@ -4,6 +4,8 @@ import type {
   ProblemSession,
   ChatRequest,
   ChatResponse,
+  RunCodeRequest,
+  RunCodeResponse,
   ApiError,
 } from "../features/chat/types";
 
@@ -45,6 +47,13 @@ export function createSession(body: CreateSessionRequest): Promise<ProblemSessio
 
 export function sendMessage(sessionId: string, body: ChatRequest): Promise<ChatResponse> {
   return request<ChatResponse>(`/api/session/${sessionId}/chat`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function runCode(sessionId: string, body: RunCodeRequest): Promise<RunCodeResponse> {
+  return request<RunCodeResponse>(`/api/session/${sessionId}/run`, {
     method: "POST",
     body: JSON.stringify(body),
   });

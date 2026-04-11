@@ -66,6 +66,18 @@ export interface ChatResponse {
   response: string;
 }
 
+export interface RunCodeRequest {
+  code: string;
+  language: Language;
+}
+
+export interface RunCodeResponse {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  timedOut: boolean;
+}
+
 export interface ApiError {
   error: string;
   statusCode: number;

@@ -27,6 +27,9 @@ public static class ServiceCollectionExtensions
         // Register Anthropic service as scoped
         services.AddScoped<IAnthropicService, AnthropicService>();
 
+        // Register code execution service as scoped
+        services.AddScoped<ICodeExecutionService, CodeExecutionService>();
+
         // Register a named HttpClient with resilience for any direct HTTP needs
         services.AddHttpClient("Anthropic")
             .AddStandardResilienceHandler();

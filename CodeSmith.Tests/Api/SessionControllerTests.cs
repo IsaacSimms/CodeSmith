@@ -2,6 +2,7 @@
 using CodeSmith.Api.Controllers;
 using CodeSmith.Api.DTOs;
 using CodeSmith.Core.Enums;
+using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
 using Microsoft.AspNetCore.Mvc;
@@ -12,11 +13,13 @@ namespace CodeSmith.Tests.Api;
 public class SessionControllerTests
 {
     private readonly IAnthropicService _anthropicService = Substitute.For<IAnthropicService>();
+    private readonly ICodeExecutionService _codeExecutionService = Substitute.For<ICodeExecutionService>();
+    private readonly ISessionStore _sessionStore = Substitute.For<ISessionStore>();
     private readonly SessionController _controller;
 
     public SessionControllerTests()
     {
-        _controller = new SessionController(_anthropicService);
+        _controller = new SessionController(_anthropicService, _codeExecutionService, _sessionStore);
     }
 
     // == CreateSession Tests == //
@@ -128,5 +131,61 @@ public class SessionControllerTests
         var okResult = Assert.IsType<OkObjectResult>(result);
         Assert.IsType<ChatResponse>(okResult.Value);
         await _anthropicService.Received(1).GetGuidanceAsync(sessionId, "help", null, Arg.Any<CancellationToken>());
+    }
+
+    // == RunCode Tests == //
+
+    [Fact]
+    public async Task RunCode_WithValidRequest_Returns200()
+    {
+        var sessionId = Guid.NewGuid();
+        _sessionStore.Get(sessionId).Returns(new ProblemSession { SessionId = sessionId });
+        _codeExecutionService
+            .ExecuteAsync(Language.Python, "print('hi')", Arg.Any<CancellationToken>())
+            .Returns(new CodeExecutionResult { Stdout = "hi\n", Stderr = "", ExitCode = 0, TimedOut = false });
+
+        var result = await _controller.RunCode(
+            sessionId,
+            new RunCodeRequest { Code = "print('hi')", Language = Language.Python },
+            CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var response = Assert.IsType<RunCodeResponse>(okResult.Value);
+        Assert.Equal("hi\n", response.Stdout);
+        Assert.Equal(0, response.ExitCode);
+        Assert.False(response.TimedOut);
+    }
+
+    [Fact]
+    public async Task RunCode_WithInvalidSession_ThrowsSessionNotFound()
+    {
+        var sessionId = Guid.NewGuid();
+        _sessionStore.Get(sessionId).Returns((ProblemSession?)null);
+
+        await Assert.ThrowsAsync<SessionNotFoundException>(() =>
+            _controller.RunCode(
+                sessionId,
+                new RunCodeRequest { Code = "print('hi')", Language = Language.Python },
+                CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task RunCode_WithTimedOutExecution_ReturnsTimedOutFlag()
+    {
+        var sessionId = Guid.NewGuid();
+        _sessionStore.Get(sessionId).Returns(new ProblemSession { SessionId = sessionId });
+        _codeExecutionService
+            .ExecuteAsync(Language.Python, "while True: pass", Arg.Any<CancellationToken>())
+            .Returns(new CodeExecutionResult { Stdout = "", Stderr = "Process killed: execution exceeded 10 second timeout.", ExitCode = -1, TimedOut = true });
+
+        var result = await _controller.RunCode(
+            sessionId,
+            new RunCodeRequest { Code = "while True: pass", Language = Language.Python },
+            CancellationToken.None);
+
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var response = Assert.IsType<RunCodeResponse>(okResult.Value);
+        Assert.True(response.TimedOut);
+        Assert.Equal(-1, response.ExitCode);
     }
 }

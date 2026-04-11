@@ -1,6 +1,7 @@
 // == Session Controller == //
 using CodeSmith.Api.DTOs;
 using CodeSmith.Core.Enums;
+using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
 using Microsoft.AspNetCore.Mvc;
@@ -8,17 +9,24 @@ using Microsoft.AspNetCore.Mvc;
 namespace CodeSmith.Api.Controllers;
 
 /// <summary>
-/// Handles coding problem session creation and chat interactions.
+/// Handles coding problem session creation, chat interactions, and code execution.
 /// </summary>
 [ApiController]
 [Route("api/session")]
 public class SessionController : ControllerBase
 {
     private readonly IAnthropicService _anthropicService;
+    private readonly ICodeExecutionService _codeExecutionService;
+    private readonly ISessionStore _sessionStore;
 
-    public SessionController(IAnthropicService anthropicService)
+    public SessionController(
+        IAnthropicService anthropicService,
+        ICodeExecutionService codeExecutionService,
+        ISessionStore sessionStore)
     {
         _anthropicService = anthropicService;
+        _codeExecutionService = codeExecutionService;
+        _sessionStore = sessionStore;
     }
 
     // == Create Session Endpoint == //
@@ -59,5 +67,31 @@ public class SessionController : ControllerBase
         var response = await _anthropicService.GetGuidanceAsync(sessionId, request.Message, request.EditorContent, ct);
 
         return Ok(new ChatResponse { Response = response });
+    }
+
+    // == Run Code Endpoint == //
+
+    [HttpPost("{sessionId:guid}/run")]  // Executes user code in a sandboxed process with a 10-second timeout
+    [ProducesResponseType(typeof(RunCodeResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RunCode(
+        Guid sessionId,
+        [FromBody] RunCodeRequest request,
+        CancellationToken ct)
+    {
+        var session = _sessionStore.Get(sessionId);
+        if (session is null)
+            throw new SessionNotFoundException(sessionId);
+
+        var result = await _codeExecutionService.ExecuteAsync(request.Language, request.Code, ct);
+
+        return Ok(new RunCodeResponse
+        {
+            Stdout = result.Stdout,
+            Stderr = result.Stderr,
+            ExitCode = result.ExitCode,
+            TimedOut = result.TimedOut
+        });
     }
 }

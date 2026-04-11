@@ -1,10 +1,11 @@
 // == Chat Window Component == //
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import type { ProblemSession, Difficulty, Language, ChatMessage } from "../types";
+import type { ProblemSession, Difficulty, Language, ChatMessage, RunCodeResponse } from "../types";
 import { isDifficulty, isLanguage, languageLabels } from "../types";
 import { useCreateSession } from "../hooks/useCreateSession";
 import { useSendMessage } from "../hooks/useSendMessage";
+import { useRunCode } from "../hooks/useRunCode";
 import { useResizableSplit } from "../hooks/useResizableSplit";
 import { DifficultySelector } from "./DifficultySelector";
 import { CodePanel } from "./CodePanel";
@@ -15,9 +16,11 @@ export function ChatWindow() {
   const [session, setSession] = useState<ProblemSession | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [code, setCode] = useState("");
+  const [executionResult, setExecutionResult] = useState<RunCodeResponse | null>(null);
 
   const createSession = useCreateSession();
   const sendMessage = useSendMessage();
+  const runCode = useRunCode();
   const { leftPercent, dividerProps, containerRef } = useResizableSplit(75);
 
   // == URL Param Seeding (Option A) == //
@@ -34,6 +37,7 @@ export function ChatWindow() {
           setSession(data);
           setMessages(data.messages);
           setCode(data.starterCode);
+          setExecutionResult(null);
         },
       }
     );
@@ -52,6 +56,7 @@ export function ChatWindow() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // == Send Chat Message == //
   function handleSendMessage(message: string) {
     if (!session) return;
 
@@ -75,6 +80,34 @@ export function ChatWindow() {
         },
       }
     );
+  }
+
+  // == Run Code and Auto-Analyze == //
+  function handleRunCode() {
+    if (!session) return;
+
+    runCode.mutate(
+      { sessionId: session.sessionId, code, language: session.language },
+      {
+        onSuccess: (data) => {
+          setExecutionResult(data);
+
+          // Build analysis message with execution results
+          const parts = [`I just tested my code. Here are the results:\n`];
+          parts.push(`Exit code: ${data.exitCode}`);
+          if (data.timedOut) parts.push(`The program timed out after 10 seconds.`);
+          parts.push(`\nStdout:\n${data.stdout || "(no output)"}`);
+          parts.push(`\nStderr:\n${data.stderr || "(no output)"}`);
+
+          const analysisMessage = parts.join("\n");
+          handleSendMessage(analysisMessage);
+        },
+      }
+    );
+  }
+
+  function handleClearOutput() {
+    setExecutionResult(null);
   }
 
   if (!session) {
@@ -113,6 +146,10 @@ export function ChatWindow() {
             language={session.language}
             onGenerateNew={() => handleStart(session.difficulty, session.language)}
             isGenerating={createSession.isPending}
+            onRunCode={handleRunCode}
+            isRunning={runCode.isPending}
+            executionResult={executionResult}
+            onClearOutput={handleClearOutput}
           />
         </div>
 
