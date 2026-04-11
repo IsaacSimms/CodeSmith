@@ -2,7 +2,7 @@
 
 export type Difficulty = "Easy" | "Medium" | "Hard";
 
-export type Language = "CSharp" | "Cpp" | "Go" | "Rust" | "Python" | "Java";
+export type Language = "CSharp" | "Cpp" | "Go" | "Rust" | "Python" | "Java" | "TypeScript";
 
 export type MessageRole = "User" | "Assistant";
 
@@ -14,6 +14,7 @@ export const languageLabels: Record<Language, string> = {
   Rust:   "Rust",
   Python: "Python",
   Java:   "Java",
+  TypeScript: "TypeScript",
 };
 
 // == Monaco Editor Language IDs == //
@@ -24,10 +25,11 @@ export const monacoLanguageIds: Record<Language, string> = {
   Rust:   "rust",
   Python: "python",
   Java:   "java",
+  TypeScript: "typescript",
 };
 
 export function isLanguage(value: string | null | undefined): value is Language {
-  return value === "CSharp" || value === "Cpp" || value === "Go" || value === "Rust" || value === "Python" || value === "Java";
+  return value === "CSharp" || value === "Cpp" || value === "Go" || value === "Rust" || value === "Python" || value === "Java" || value === "TypeScript";
 }
 
 export function isDifficulty(value: string | null | undefined): value is Difficulty {

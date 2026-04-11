@@ -10,7 +10,7 @@ interface DifficultySelectorProps {
 }
 
 const difficulties: Difficulty[] = ["Easy", "Medium", "Hard"];
-const languages: Language[] = ["CSharp", "Cpp", "Go", "Rust", "Python", "Java"];
+const languages: Language[] = ["CSharp", "Cpp", "Go", "Rust", "Python", "Java", "TypeScript"];
 
 const difficultyColors: Record<Difficulty, string> = {
   Easy:   "bg-green-600 hover:bg-green-700",

@@ -77,6 +77,7 @@ public class SessionControllerTests
     [InlineData(Language.Rust)]
     [InlineData(Language.Python)]
     [InlineData(Language.Java)]
+    [InlineData(Language.TypeScript)]
     public async Task CreateSession_ForwardsLanguageToService(Language language)
     {
         _anthropicService

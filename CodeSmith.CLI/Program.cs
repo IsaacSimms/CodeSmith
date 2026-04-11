@@ -79,7 +79,8 @@ static async Task RunAsync(ApiClient apiClient, CancellationToken ct)
     Console.WriteLine("  4. Rust");
     Console.WriteLine("  5. Python");
     Console.WriteLine("  6. Java");
-    Console.Write("\nYour choice (1-6): ");
+    Console.WriteLine("  7. TypeScript");
+    Console.Write("\nYour choice (1-7): ");
 
     var languageChoice = Console.ReadLine()?.Trim();
     var language = languageChoice switch
@@ -90,7 +91,8 @@ static async Task RunAsync(ApiClient apiClient, CancellationToken ct)
         "4" => Language.Rust,
         "5" => Language.Python,
         "6" => Language.Java,
-        _   => throw new InvalidOperationException("Invalid choice. Please enter 1-6.")
+        "7" => Language.TypeScript,
+        _   => throw new InvalidOperationException("Invalid choice. Please enter 1-7.")
     };
 
     Console.WriteLine($"\nGenerating {difficulty} {language} problem...\n");

@@ -22,6 +22,7 @@ public class AnthropicServiceTests
     [InlineData(Language.Rust,   "Rust")]
     [InlineData(Language.Python, "Python")]
     [InlineData(Language.Java,   "Java")]
+    [InlineData(Language.TypeScript, "TypeScript")]
     public void GetLanguageLabel_ReturnsHumanReadableLabel(Language language, string expected)
     {
         var label = AnthropicService.GetLanguageLabel(language);

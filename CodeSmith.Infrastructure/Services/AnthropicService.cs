@@ -194,6 +194,7 @@ public class AnthropicService : IAnthropicService
         Language.Rust   => "Rust",
         Language.Python => "Python",
         Language.Java   => "Java",
+        Language.TypeScript => "TypeScript",
         _ => throw new ArgumentOutOfRangeException(nameof(language), language, "Unknown language")
     };
 

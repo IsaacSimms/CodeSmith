@@ -32,7 +32,7 @@ AI-powered coding interview practice tool. Users select a language and difficult
 
 ### POST /api/session
 Create a new coding problem session.
-- Request: `{ "difficulty": "Easy" | "Medium" | "Hard", "language": "CSharp" | "Cpp" | "Go" | "Rust" | "Python" | "Java" }`
+- Request: `{ "difficulty": "Easy" | "Medium" | "Hard", "language": "CSharp" | "Cpp" | "Go" | "Rust" | "Python" | "Java" | "TypeScript" }`
 - Response (201): `{ sessionId, difficulty, language, problemDescription, starterCode, messages: [], createdAt }`
 
 ### POST /api/session/{sessionId}/chat

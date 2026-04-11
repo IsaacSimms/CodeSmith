@@ -10,6 +10,7 @@ public enum Language
     Cpp,       // C++
     Go,        // Go
     Rust,      // Rust
-    Python,    // Python
-    Java       // Java
+    Python,        // Python
+    Java,          // Java
+    TypeScript     // TypeScript
 }

@@ -21,7 +21,7 @@ export function ChatPanel({ problemDescription, messages, onSendMessage, isSendi
   return (
     <div className="flex h-full flex-col">
       {/* == Problem Description == */}
-      <div className="border-b border-gray-700 bg-gray-800 px-4 py-3">
+      <div className="border-b border-gray-900 bg-gray-800 px-4 py-3">
         <h2 className="mb-1 text-sm font-semibold text-gray-400">Problem</h2>
         <p className="whitespace-pre-wrap text-sm text-gray-300">{problemDescription}</p>
       </div>

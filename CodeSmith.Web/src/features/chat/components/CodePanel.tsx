@@ -7,15 +7,24 @@ interface CodePanelProps {
   code: string;
   onCodeChange: (value: string) => void;
   language: Language;
+  onGenerateNew: () => void;
+  isGenerating: boolean;
 }
 
-export function CodePanel({ code, onCodeChange, language }: CodePanelProps) {
+export function CodePanel({ code, onCodeChange, language, onGenerateNew, isGenerating }: CodePanelProps) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* == Panel Header == */}
-      <div className="border-b border-gray-700 px-4 py-2">
+      <div className="flex items-center justify-between border-b border-gray-900 bg-gray-800 px-4 py-2">
         <h2 className="text-sm font-semibold text-gray-400">Code</h2>
+        <button
+          onClick={onGenerateNew}
+          disabled={isGenerating}
+          className="rounded px-2 py-1 text-xs font-medium text-gray-300 transition-colors hover:bg-gray-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isGenerating ? "Generating…" : "Generate New Problem"}
+        </button>
       </div>
 
       {/* == Monaco Editor == */}

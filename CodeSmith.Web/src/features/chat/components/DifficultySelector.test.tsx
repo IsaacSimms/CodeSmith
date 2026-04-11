@@ -20,7 +20,7 @@ describe("DifficultySelector", () => {
     expect(screen.getByText("Pick a language and difficulty to begin")).toBeInTheDocument();
   });
 
-  it("renders all six language pills", () => {
+  it("renders all seven language pills", () => {
     render(<DifficultySelector onSelect={vi.fn()} isLoading={false} />);
 
     expect(screen.getByRole("radio", { name: "C#" })).toBeInTheDocument();
@@ -29,6 +29,7 @@ describe("DifficultySelector", () => {
     expect(screen.getByRole("radio", { name: "Rust" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Python" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Java" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "TypeScript" })).toBeInTheDocument();
   });
 
   it("defaults to C# when no initialLanguage is provided", () => {

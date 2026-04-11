@@ -108,7 +108,7 @@ curl -X POST https://localhost:7111/api/session \
 
 Difficulty values: `Easy`, `Medium`, `Hard`.
 
-Language values: `CSharp`, `Cpp`, `Go`, `Rust`, `Python`, `Java`.
+Language values: `CSharp`, `Cpp`, `Go`, `Rust`, `Python`, `Java`, `TypeScript`.
 
 ### Chat within a session
 

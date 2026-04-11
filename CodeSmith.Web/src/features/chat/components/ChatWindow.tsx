@@ -106,7 +106,14 @@ export function ChatWindow() {
       <div ref={containerRef} className="flex flex-1 overflow-hidden">
         {/* == Left Panel: Code == */}
         <div style={{ width: `${leftPercent}%` }}>
-          <CodePanel key={session.sessionId} code={code} onCodeChange={setCode} language={session.language} />
+          <CodePanel
+            key={session.sessionId}
+            code={code}
+            onCodeChange={setCode}
+            language={session.language}
+            onGenerateNew={() => handleStart(session.difficulty, session.language)}
+            isGenerating={createSession.isPending}
+          />
         </div>
 
         {/* == Draggable Divider == */}
