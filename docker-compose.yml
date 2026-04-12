@@ -1,0 +1,19 @@
+# == CodeSmith development compose file == #
+# Defines the infrastructure dependencies that run alongside the API during
+# local development. Today that's just Piston (the code execution sandbox).
+# When the API itself is containerized for prod, another service will be
+# added here and the same file will describe the full topology.
+
+services:
+  piston:
+    image: ghcr.io/engineer-man/piston
+    container_name: piston_api
+    privileged: true                  # Required: Piston uses Linux isolation features (namespaces, cgroups) that need CAP_SYS_ADMIN
+    ports:
+      - "2000:2000"
+    volumes:
+      - piston-data:/piston           # Persists installed language packages across container restarts
+    restart: unless-stopped
+
+volumes:
+  piston-data:

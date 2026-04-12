@@ -9,59 +9,6 @@ An AI-powered coding interview practice tool. Users pick a programming language 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (for the Piston code execution sandbox; WSL2 is auto-configured on Windows)
 - An [Anthropic API key](https://console.anthropic.com/)
 
-## Code Execution Sandbox (Piston)
-
-The "Test Code" feature does not run user code on the host. Submissions are forwarded to [Piston](https://github.com/engineer-man/piston), a self-hosted sandbox that executes each run inside an isolated Linux container with no network access, a chroot filesystem, and cgroup CPU/memory/time limits. Piston itself runs as a Docker container on `localhost:2000`.
-
-### One-time setup
-
-Start the Piston container with auto-restart enabled so it comes back with Docker Desktop on every boot:
-
-```bash
-docker run --privileged -v piston-data:/piston \
-  --restart unless-stopped \
-  -dit -p 2000:2000 --name piston_api \
-  ghcr.io/engineer-man/piston
-```
-
-Install the language packages CodeSmith supports:
-
-```bash
-docker exec piston_api /piston/cli/index.js ppman install python
-docker exec piston_api /piston/cli/index.js ppman install typescript
-docker exec piston_api /piston/cli/index.js ppman install go
-docker exec piston_api /piston/cli/index.js ppman install rust
-docker exec piston_api /piston/cli/index.js ppman install java
-docker exec piston_api /piston/cli/index.js ppman install c++
-docker exec piston_api /piston/cli/index.js ppman install mono   # C#
-```
-
-Verify everything is healthy:
-
-```bash
-curl http://localhost:2000/api/v2/runtimes
-```
-
-### Day-to-day
-
-With `--restart unless-stopped` and Docker Desktop set to start on login, you never need to touch it. If the container is stopped for any reason:
-
-```bash
-docker start piston_api
-```
-
-### Fallback: in-process execution (dev only, unsafe)
-
-To bypass Piston during development (e.g. before Docker is set up), set:
-
-```json
-"CodeExecution": {
-  "Backend": "LocalProcess"
-}
-```
-
-in `CodeSmith.Api/appsettings.Development.json`. This runs submitted code as subprocesses on the host with the API's permissions. It requires the host to have `python`, `npx`/`tsx`, `g++`, `rustc`, `javac`/`java`, `go`, and `dotnet-script` available on PATH, and should never be used in any deployed environment.
-
 ## Solution Structure
 
 | Project | Description |
@@ -73,7 +20,11 @@ in `CodeSmith.Api/appsettings.Development.json`. This runs submitted code as sub
 | `CodeSmith.Web` | React 19 frontend (Vite, TypeScript, Tailwind CSS v4, TanStack Query v5) |
 | `CodeSmith.Tests` | xUnit + NSubstitute backend test suite |
 
-## Setup
+The "Test Code" feature does not run user code on the host. Submissions are forwarded to [Piston](https://github.com/engineer-man/piston), a self-hosted sandbox that executes each run inside an isolated Linux container with no network access, a chroot filesystem, and cgroup CPU/memory/time limits. Piston itself runs as a Docker container on `localhost:2000`, defined in [`docker-compose.yml`](./docker-compose.yml) so every dev machine uses the same configuration and the same manifest carries into production.
+
+## Setup (one-time)
+
+Do these steps once after cloning. Once complete, everything persists — `Running Locally` below is what you touch day-to-day.
 
 ### 1. Clone and build
 
@@ -83,9 +34,9 @@ cd CodeSmith
 dotnet build CodeSmith.slnx
 ```
 
-### 2. Configure the API key
+### 2. Configure the Anthropic API key
 
-Create or edit `CodeSmith.Api/appsettings.Development.json` (this file is gitignored):
+Create `CodeSmith.Api/appsettings.Development.json` (gitignored):
 
 ```json
 {
@@ -101,49 +52,136 @@ Create or edit `CodeSmith.Api/appsettings.Development.json` (this file is gitign
 }
 ```
 
-Alternatively, set the key via environment variable:
+Alternatively, export it as an environment variable:
 
 ```bash
 export Anthropic__ApiKey="sk-ant-your-key-here"
 ```
 
-### 3. Run the API
+### 3. Start the Piston sandbox and install language packages
 
-The CLI expects the API on HTTPS (`https://localhost:7111`). Launch with the `https` profile:
+Start the container (reads `docker-compose.yml` automatically):
+
+```bash
+docker compose up -d piston
+```
+
+Install the 7 language packages CodeSmith supports. This is a one-time step — the packages persist in the `piston-data` named volume across container restarts.
+
+```bash
+docker exec piston_api /piston/cli/index.js ppman install python
+docker exec piston_api /piston/cli/index.js ppman install typescript
+docker exec piston_api /piston/cli/index.js ppman install go
+docker exec piston_api /piston/cli/index.js ppman install rust
+docker exec piston_api /piston/cli/index.js ppman install java
+docker exec piston_api /piston/cli/index.js ppman install c++
+docker exec piston_api /piston/cli/index.js ppman install mono   # C#
+```
+
+Verify:
+
+```bash
+curl http://localhost:2000/api/v2/runtimes
+```
+
+The response should list all 7 runtimes.
+
+## Running Locally (day-to-day)
+
+Running or testing the app locally means having three things up at once: **Piston**, **the API**, and **the Web frontend**. Piston stays up across reboots on its own; the API and frontend are what you start each session.
+
+### 1. Confirm Piston is running
+
+With `restart: unless-stopped` in the compose file and Docker Desktop set to start on login, Piston is usually already up. If not:
+
+```bash
+docker compose up -d piston
+```
+
+This is a no-op if it's already running.
+
+### 2. Start the API (Terminal 1)
+
+The CLI and frontend both expect the API on HTTPS at `https://localhost:7111`. Launch with the `https` profile:
 
 ```bash
 dotnet run --project CodeSmith.Api --launch-profile https
 ```
 
-The API starts on:
+The API serves:
 - HTTPS: `https://localhost:7111`
 - HTTP: `http://localhost:5175`
+- Swagger UI (Development only): `https://localhost:7111/swagger`
 
-Swagger UI is available in Development mode at `https://localhost:7111/swagger`.
-
-### 4. Run the Web Frontend
-
-In a separate terminal, install dependencies and start the Vite dev server:
+### 3. Start the Web frontend (Terminal 2)
 
 ```bash
 cd CodeSmith.Web
-npm install
+npm install       # first run only
 npm run dev
 ```
 
-The frontend starts on `https://localhost:5173` and automatically proxies `/api/*` requests to the backend at `https://localhost:7111`.
+The frontend runs at `https://localhost:5173` and proxies `/api/*` to the backend. Accept the self-signed cert warning on first visit.
 
-Open `https://localhost:5173` in your browser, pick a language and difficulty, and start coding with the AI pair programmer.
+Open `https://localhost:5173`, pick a language and difficulty, and you're in.
 
-### 5. Run the CLI
+### Optional: Run the CLI
 
-In a separate terminal (while the API is running):
+In a separate terminal, while the API is running:
 
 ```bash
 dotnet run --project CodeSmith.CLI
 ```
 
-Follow the prompts to select a difficulty, view the problem, and chat with the tutor. Type `exit` or press `Ctrl+C` to quit.
+Follow the prompts; `exit` or `Ctrl+C` to quit.
+
+### Running tests
+
+| Scope | Command |
+|-------|---------|
+| All backend tests | `dotnet test CodeSmith.slnx` |
+| Backend verbose | `dotnet test CodeSmith.slnx --verbosity normal` |
+| Frontend unit tests | `cd CodeSmith.Web && npm test` |
+| Frontend watch mode | `cd CodeSmith.Web && npm run test:watch` |
+| Playwright E2E | `cd CodeSmith.Web && npx playwright test` |
+
+Playwright E2E tests require both the API and frontend to be running.
+
+### Piston management commands
+
+| Command | Purpose |
+|---------|---------|
+| `docker compose up -d piston` | Start Piston (no-op if already running) |
+| `docker compose stop piston` | Stop Piston (persisted state kept) |
+| `docker compose down` | Stop and remove the container (volume is preserved) |
+| `docker compose down -v` | Full reset — also deletes installed language packages |
+| `docker compose logs -f piston` | Tail Piston logs |
+| `curl http://localhost:2000/api/v2/runtimes` | List installed languages |
+
+### Fallback: in-process execution (dev only, unsafe)
+
+To bypass Piston during development (e.g. before Docker is set up), set:
+
+```json
+"CodeExecution": {
+  "Backend": "LocalProcess"
+}
+```
+
+in `CodeSmith.Api/appsettings.Development.json`. This runs submitted code as subprocesses on the host with the API's permissions. It requires the host to have `python`, `npx`/`tsx`, `g++`, `rustc`, `javac`/`java`, `go`, and `dotnet-script` available on PATH, and should never be used in any deployed environment.
+
+## Before Production Deployment
+
+Today the compose file only defines Piston — the API still runs via `dotnet run` on the host. Before deploying publicly, the API itself needs to be containerized so the whole stack ships as one unit. At that time you'll need to:
+
+1. **Write `CodeSmith.Api/Dockerfile`** — a standard multi-stage .NET 8 build (SDK image for `dotnet publish`, runtime image for the final layer).
+2. **Add an `api` service to `docker-compose.yml`** that builds from the Dockerfile, depends on the `piston` service, and talks to it over the internal Docker network (set `CodeExecution:Piston:BaseUrl=http://piston:2000` — Docker DNS resolves the service name).
+3. **Add a `docker-compose.prod.yml` overlay** with production-only concerns: the Anthropic API key sourced from a secret manager (not `appsettings.Development.json`), no source bind-mounts, tighter restart policies, and log drivers. Deploy with `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`.
+4. **Stop exposing Piston's port publicly** — remove the `ports: ["2000:2000"]` mapping for Piston in the prod overlay so only the API (on the internal network) can reach it. The public-facing surface is the API alone.
+5. **Add per-user rate limiting.** The current global 60 req/min limit helps but isn't enough to stop a single abusive user from burning compute on Test Code runs.
+6. **Pick a host** (Fly.io, Railway, a VPS running Docker, AWS ECS, etc.) and point it at the compose file. Most managed platforms consume `docker-compose.yml` directly or want a trivially equivalent manifest.
+
+None of the above requires code changes — it's packaging and configuration work. The `ICodeExecutionService` seam, the Piston language map, and the API itself are already shaped correctly for it.
 
 ## API Endpoints
 
@@ -151,6 +189,7 @@ Follow the prompts to select a difficulty, view the problem, and chat with the t
 |--------|-------|-------------|
 | `POST` | `/api/session` | Create a new problem session |
 | `POST` | `/api/session/{sessionId}/chat` | Send a chat message in a session |
+| `POST` | `/api/session/{sessionId}/run` | Execute the session's code in the Piston sandbox |
 
 ### Create a session
 
@@ -174,52 +213,6 @@ curl -X POST https://localhost:7111/api/session/{sessionId}/chat \
 
 `editorContent` is optional. When provided, the AI uses it as context to reference the student's current code in the editor. When omitted, the AI only sees the original starter code.
 
-## Running Tests
-
-### All backend tests
-
-```bash
-dotnet test CodeSmith.slnx
-```
-
-Run with verbose output:
-
-```bash
-dotnet test CodeSmith.slnx --verbosity normal
-```
-
-### Frontend unit tests (Vitest)
-
-```bash
-cd CodeSmith.Web
-npm test            # single run
-npm run test:watch  # watch mode
-```
-
-### Playwright E2E tests
-
-```bash
-cd CodeSmith.Web
-npx playwright test
-```
-
-### Browser E2E testing
-
-Run both servers simultaneously in separate terminals, then open the app in your browser:
-
-**Terminal 1 — API:**
-```bash
-dotnet run --project CodeSmith.Api --launch-profile https
-```
-
-**Terminal 2 — Frontend:**
-```bash
-cd CodeSmith.Web
-npm run dev
-```
-
-Navigate to `https://localhost:5173`. Accept the self-signed certificate warning on first visit, then select a difficulty and start testing.
-
 ## Key Commands Reference
 
 | Command | Purpose |
@@ -233,7 +226,7 @@ Navigate to `https://localhost:5173`. Accept the self-signed certificate warning
 | `cd CodeSmith.Web && npm test` | Run frontend unit tests (Vitest) |
 | `dotnet clean CodeSmith.slnx` | Clean all build outputs |
 | `dotnet restore CodeSmith.slnx` | Restore NuGet packages |
-| `docker start piston_api` | Start the Piston sandbox (only needed if container is stopped) |
+| `docker compose up -d piston` | Start the Piston sandbox container |
 | `curl http://localhost:2000/api/v2/runtimes` | Verify Piston is running and list installed languages |
 
 ## Rate Limiting
