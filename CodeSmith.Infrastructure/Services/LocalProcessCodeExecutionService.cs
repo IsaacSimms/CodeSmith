@@ -1,4 +1,4 @@
-// == Code Execution Service == //
+// == Local Process Code Execution Service == //
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using CodeSmith.Core.Enums;
@@ -10,10 +10,12 @@ using Microsoft.Extensions.Logging;
 namespace CodeSmith.Infrastructure.Services;
 
 /// <summary>
-/// Executes user-submitted code in a sandboxed process with a configurable timeout.
+/// Executes user-submitted code in a local host process with a configurable timeout.
 /// Supports interpreted and compiled languages via language-specific execution strategies.
+/// Unsafe for production use: code runs with the API process's permissions. Use
+/// PistonCodeExecutionService for any non-development scenario.
 /// </summary>
-public class CodeExecutionService : ICodeExecutionService
+public class LocalProcessCodeExecutionService : ICodeExecutionService
 {
     private const int TimeoutSeconds = 10;
     private const int MaxOutputLength = 10_000;
@@ -21,9 +23,9 @@ public class CodeExecutionService : ICodeExecutionService
     private static readonly bool IsWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
     private static readonly string ExecutableExtension = IsWindows ? ".exe" : "";
 
-    private readonly ILogger<CodeExecutionService> _logger;
+    private readonly ILogger<LocalProcessCodeExecutionService> _logger;
 
-    public CodeExecutionService(ILogger<CodeExecutionService> logger)
+    public LocalProcessCodeExecutionService(ILogger<LocalProcessCodeExecutionService> logger)
     {
         _logger = logger;
     }

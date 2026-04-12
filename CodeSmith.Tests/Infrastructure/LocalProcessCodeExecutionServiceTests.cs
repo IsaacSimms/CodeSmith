@@ -7,14 +7,14 @@ using NSubstitute;
 
 namespace CodeSmith.Tests.Infrastructure;
 
-public class CodeExecutionServiceTests
+public class LocalProcessCodeExecutionServiceTests
 {
-    private readonly CodeExecutionService _service;
+    private readonly LocalProcessCodeExecutionService _service;
 
-    public CodeExecutionServiceTests()
+    public LocalProcessCodeExecutionServiceTests()
     {
-        var logger = Substitute.For<ILogger<CodeExecutionService>>();
-        _service = new CodeExecutionService(logger);
+        var logger = Substitute.For<ILogger<LocalProcessCodeExecutionService>>();
+        _service = new LocalProcessCodeExecutionService(logger);
     }
 
     // == Python Tests (most likely runtime to be installed) == //

@@ -21,7 +21,8 @@ public class AnthropicService : IAnthropicService
     private readonly ISessionStore _sessionStore;
     private readonly ILogger<AnthropicService> _logger;
 
-    private const string Model = "claude-sonnet-4-20250514";
+    private const string ProblemModel  = "claude-sonnet-4-20250514"; // Rich generation, used once per session
+    private const string GuidanceModel = "claude-haiku-4-20250514";  // Fast/cheap, used for every chat message
 
     // == System Prompts == //
     private const string ProblemGenerationSystemPromptTemplate =
@@ -85,7 +86,7 @@ public class AnthropicService : IAnthropicService
 
             var response = await _client.Messages.Create(new MessageCreateParams
             {
-                Model = Model,
+                Model = ProblemModel,
                 MaxTokens = 2048,
                 System = systemPrompt,
                 Messages =
@@ -157,7 +158,7 @@ public class AnthropicService : IAnthropicService
 
             var response = await _client.Messages.Create(new MessageCreateParams
             {
-                Model = Model,
+                Model = GuidanceModel,
                 MaxTokens = 1024,
                 System = systemPrompt,
                 Messages = messages

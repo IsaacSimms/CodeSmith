@@ -6,7 +6,61 @@ An AI-powered coding interview practice tool. Users pick a programming language 
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
 - [Node.js 20+](https://nodejs.org/) (for the React frontend)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (for the Piston code execution sandbox; WSL2 is auto-configured on Windows)
 - An [Anthropic API key](https://console.anthropic.com/)
+
+## Code Execution Sandbox (Piston)
+
+The "Test Code" feature does not run user code on the host. Submissions are forwarded to [Piston](https://github.com/engineer-man/piston), a self-hosted sandbox that executes each run inside an isolated Linux container with no network access, a chroot filesystem, and cgroup CPU/memory/time limits. Piston itself runs as a Docker container on `localhost:2000`.
+
+### One-time setup
+
+Start the Piston container with auto-restart enabled so it comes back with Docker Desktop on every boot:
+
+```bash
+docker run --privileged -v piston-data:/piston \
+  --restart unless-stopped \
+  -dit -p 2000:2000 --name piston_api \
+  ghcr.io/engineer-man/piston
+```
+
+Install the language packages CodeSmith supports:
+
+```bash
+docker exec piston_api /piston/cli/index.js ppman install python
+docker exec piston_api /piston/cli/index.js ppman install typescript
+docker exec piston_api /piston/cli/index.js ppman install go
+docker exec piston_api /piston/cli/index.js ppman install rust
+docker exec piston_api /piston/cli/index.js ppman install java
+docker exec piston_api /piston/cli/index.js ppman install c++
+docker exec piston_api /piston/cli/index.js ppman install mono   # C#
+```
+
+Verify everything is healthy:
+
+```bash
+curl http://localhost:2000/api/v2/runtimes
+```
+
+### Day-to-day
+
+With `--restart unless-stopped` and Docker Desktop set to start on login, you never need to touch it. If the container is stopped for any reason:
+
+```bash
+docker start piston_api
+```
+
+### Fallback: in-process execution (dev only, unsafe)
+
+To bypass Piston during development (e.g. before Docker is set up), set:
+
+```json
+"CodeExecution": {
+  "Backend": "LocalProcess"
+}
+```
+
+in `CodeSmith.Api/appsettings.Development.json`. This runs submitted code as subprocesses on the host with the API's permissions. It requires the host to have `python`, `npx`/`tsx`, `g++`, `rustc`, `javac`/`java`, `go`, and `dotnet-script` available on PATH, and should never be used in any deployed environment.
 
 ## Solution Structure
 
@@ -179,6 +233,8 @@ Navigate to `https://localhost:5173`. Accept the self-signed certificate warning
 | `cd CodeSmith.Web && npm test` | Run frontend unit tests (Vitest) |
 | `dotnet clean CodeSmith.slnx` | Clean all build outputs |
 | `dotnet restore CodeSmith.slnx` | Restore NuGet packages |
+| `docker start piston_api` | Start the Piston sandbox (only needed if container is stopped) |
+| `curl http://localhost:2000/api/v2/runtimes` | Verify Piston is running and list installed languages |
 
 ## Rate Limiting
 
@@ -189,3 +245,4 @@ The API enforces a fixed window rate limit of **60 requests per minute per IP**.
 - Never commit API keys. `appsettings.Development.json` and `appsettings.*.json` are gitignored.
 - The API does not expose stack traces in error responses.
 - Request logging does not capture request or response bodies.
+- User-submitted code runs inside a Piston container with no network access, a chroot filesystem, and cgroup CPU/memory/time limits. The API host process is not exposed to submitted code. Do not deploy with `CodeExecution:Backend=LocalProcess`.
