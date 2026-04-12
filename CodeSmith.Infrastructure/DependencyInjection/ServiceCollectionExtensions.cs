@@ -5,6 +5,7 @@ using CodeSmith.Infrastructure.Services;
 using CodeSmith.Infrastructure.Services.Piston;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace CodeSmith.Infrastructure.DependencyInjection;
 
@@ -38,8 +39,17 @@ public static class ServiceCollectionExtensions
 
         if (string.Equals(backend, "Piston", StringComparison.OrdinalIgnoreCase))
         {
-            services.AddHttpClient<ICodeExecutionService, PistonCodeExecutionService>()
-                    .AddStandardResilienceHandler();
+            // Named HttpClient shared by the resolver and the executor. Configured from
+            // PistonOptions so dev/prod can point at different hosts without code changes.
+            services.AddHttpClient(PistonHttpClient.Name, (sp, client) =>
+            {
+                var opts = sp.GetRequiredService<IOptions<CodeExecutionOptions>>().Value.Piston;
+                client.BaseAddress = new Uri(opts.BaseUrl);
+                client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds);
+            }).AddStandardResilienceHandler();
+
+            services.AddSingleton<IPistonRuntimeResolver, PistonRuntimeResolver>();
+            services.AddScoped<ICodeExecutionService, PistonCodeExecutionService>();
         }
         else if (string.Equals(backend, "LocalProcess", StringComparison.OrdinalIgnoreCase))
         {

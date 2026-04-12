@@ -15,7 +15,14 @@ public class PistonCodeExecutionServiceTests
 {
     private static PistonCodeExecutionService CreateService(StubHandler handler, int maxOutputLength = 10_000)
     {
-        var httpClient = new HttpClient(handler);
+        var httpClient = new HttpClient(handler) { BaseAddress = new Uri("http://localhost:2000") };
+        var factory = Substitute.For<IHttpClientFactory>();
+        factory.CreateClient(PistonHttpClient.Name).Returns(httpClient);
+
+        var resolver = Substitute.For<IPistonRuntimeResolver>();
+        resolver.ResolveVersionAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult("3.10.0"));
+
         var options = Options.Create(new CodeExecutionOptions
         {
             Backend = "Piston",
@@ -29,7 +36,7 @@ public class PistonCodeExecutionServiceTests
             }
         });
         var logger = Substitute.For<ILogger<PistonCodeExecutionService>>();
-        return new PistonCodeExecutionService(httpClient, options, logger);
+        return new PistonCodeExecutionService(factory, resolver, options, logger);
     }
 
     [Fact]
@@ -97,15 +104,16 @@ public class PistonCodeExecutionServiceTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_HttpFailure_ThrowsCodeExecutionException()
+    public async Task ExecuteAsync_HttpFailure_SurfacesPistonResponseBody()
     {
-        var handler = new StubHandler(HttpStatusCode.InternalServerError, "upstream error");
+        var handler = new StubHandler(HttpStatusCode.BadRequest, "Requested runtime is unknown");
         var service = CreateService(handler);
 
         var ex = await Assert.ThrowsAsync<CodeExecutionException>(
             () => service.ExecuteAsync(Language.Python, "print('hi')"));
 
-        Assert.Contains("Piston unavailable", ex.Message);
+        Assert.Contains("400", ex.Message);
+        Assert.Contains("Requested runtime is unknown", ex.Message);
     }
 
     [Fact]

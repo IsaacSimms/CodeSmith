@@ -18,21 +18,21 @@ namespace CodeSmith.Infrastructure.Services.Piston;
 /// </summary>
 public class PistonCodeExecutionService : ICodeExecutionService
 {
-    private readonly HttpClient _httpClient;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IPistonRuntimeResolver _runtimeResolver;
     private readonly PistonOptions _options;
     private readonly ILogger<PistonCodeExecutionService> _logger;
 
     public PistonCodeExecutionService(
-        HttpClient httpClient,
+        IHttpClientFactory httpClientFactory,
+        IPistonRuntimeResolver runtimeResolver,
         IOptions<CodeExecutionOptions> options,
         ILogger<PistonCodeExecutionService> logger)
     {
-        _httpClient = httpClient;
+        _httpClientFactory = httpClientFactory;
+        _runtimeResolver = runtimeResolver;
         _options = options.Value.Piston;
         _logger = logger;
-
-        _httpClient.BaseAddress = new Uri(_options.BaseUrl);
-        _httpClient.Timeout = TimeSpan.FromSeconds(_options.TimeoutSeconds);
     }
 
     // == Execute User Code == //
@@ -41,10 +41,13 @@ public class PistonCodeExecutionService : ICodeExecutionService
         if (!PistonLanguageMap.TryGet(language, out var mapping))
             throw new CodeExecutionException($"Language '{language}' is not mapped to a Piston runtime.");
 
+        // Piston's /api/v2/execute requires an exact installed version; it does NOT accept "*".
+        var version = await _runtimeResolver.ResolveVersionAsync(mapping.Language, ct);
+
         var request = new PistonExecuteRequest
         {
             Language = mapping.Language,
-            Version = mapping.Version,
+            Version = version,
             Files = new List<PistonFile> { new() { Name = mapping.FileName, Content = code } },
             RunTimeout = _options.RunTimeoutMs,
             CompileTimeout = _options.CompileTimeoutMs
@@ -53,11 +56,28 @@ public class PistonCodeExecutionService : ICodeExecutionService
         PistonExecuteResponse? response;
         try
         {
-            var httpResponse = await _httpClient.PostAsJsonAsync("/api/v2/execute", request, ct);
-            httpResponse.EnsureSuccessStatusCode();
+            var httpClient = _httpClientFactory.CreateClient(PistonHttpClient.Name);
+            var httpResponse = await httpClient.PostAsJsonAsync("/api/v2/execute", request, ct);
+
+            if (!httpResponse.IsSuccessStatusCode)
+            {
+                // Surface Piston's actual error message (e.g. "Requested runtime is unknown")
+                // instead of a generic 'Piston unavailable' hiding the real problem.
+                var body = await httpResponse.Content.ReadAsStringAsync(ct);
+                _logger.LogError(
+                    "Piston returned {StatusCode} for {Language} (version={Version}): {Body}",
+                    (int)httpResponse.StatusCode, language, version, body);
+                throw new CodeExecutionException(
+                    $"Piston rejected the request ({(int)httpResponse.StatusCode}): {body}");
+            }
+
             response = await httpResponse.Content.ReadFromJsonAsync<PistonExecuteResponse>(cancellationToken: ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (CodeExecutionException)
         {
             throw;
         }
