@@ -66,25 +66,45 @@ Start the container (reads `docker-compose.yml` automatically):
 docker compose up -d piston
 ```
 
-Install the 7 language packages CodeSmith supports. This is a one-time step — the packages persist in the `piston-data` named volume across container restarts.
+Install the 7 language packages CodeSmith supports via Piston's HTTP API. This is a one-time step — the packages persist in the `piston-data` named volume across container restarts. Expect this to take a few minutes total (Rust and Java are the slowest).
 
-```bash
-docker exec piston_api /piston/cli/index.js ppman install python
-docker exec piston_api /piston/cli/index.js ppman install typescript
-docker exec piston_api /piston/cli/index.js ppman install go
-docker exec piston_api /piston/cli/index.js ppman install rust
-docker exec piston_api /piston/cli/index.js ppman install java
-docker exec piston_api /piston/cli/index.js ppman install c++
-docker exec piston_api /piston/cli/index.js ppman install mono   # C#
+**PowerShell (Windows):**
+
+```powershell
+$available = Invoke-RestMethod http://localhost:2000/api/v2/packages
+$wanted = 'python','typescript','go','rust','java','c++','mono'
+
+foreach ($lang in $wanted) {
+  $pkg = $available | Where-Object { $_.language -eq $lang } | Select-Object -First 1
+  if ($null -eq $pkg) { Write-Warning "No package for $lang"; continue }
+  Write-Host "Installing $($pkg.language) $($pkg.language_version)..."
+  Invoke-RestMethod -Method Post -Uri http://localhost:2000/api/v2/packages `
+    -ContentType 'application/json' `
+    -Body (@{ language = $pkg.language; version = $pkg.language_version } | ConvertTo-Json)
+}
 ```
 
-Verify:
+**bash / macOS / Linux:**
+
+```bash
+for lang in python typescript go rust java c++ mono; do
+  version=$(curl -s http://localhost:2000/api/v2/packages | jq -r ".[] | select(.language==\"$lang\") | .language_version" | head -n1)
+  [ -z "$version" ] && { echo "No package for $lang"; continue; }
+  echo "Installing $lang $version..."
+  curl -s -X POST http://localhost:2000/api/v2/packages \
+    -H "Content-Type: application/json" \
+    -d "{\"language\":\"$lang\",\"version\":\"$version\"}"
+  echo
+done
+```
+
+Verify all 7 runtimes show up:
 
 ```bash
 curl http://localhost:2000/api/v2/runtimes
 ```
 
-The response should list all 7 runtimes.
+> **Note:** Piston's `ppman` CLI (`/piston/cli/index.js` inside the container) is **not** shipped in the `ghcr.io/engineer-man/piston` image — it only exists when running Piston from a cloned repo. The HTTP API above is the supported way to manage packages against the image.
 
 ## Running Locally (day-to-day)
 
