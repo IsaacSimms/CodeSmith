@@ -13,6 +13,13 @@ services:
       - "2000:2000"
     volumes:
       - piston-data:/piston           # Persists installed language packages across container restarts
+    environment:
+      # Piston caps per-request run/compile timeouts at these values. Requests exceeding
+      # them are rejected with HTTP 500 before execution even starts. Keep in sync with
+      # CodeExecution:Piston:RunTimeoutMs / CompileTimeoutMs in appsettings.json.
+      - PISTON_RUN_TIMEOUT=10000
+      - PISTON_COMPILE_TIMEOUT=10000
+      - PISTON_OUTPUT_MAX_SIZE=10000
     restart: unless-stopped
 
 volumes:

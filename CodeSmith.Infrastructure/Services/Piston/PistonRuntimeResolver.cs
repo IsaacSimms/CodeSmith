@@ -65,11 +65,16 @@ public class PistonRuntimeResolver : IPistonRuntimeResolver
                     "Could not reach Piston to list installed runtimes. Is the container running? See README.", ex);
             }
 
-            // Multiple versions of the same language may be installed; keep the first (Piston returns them sorted).
-            _cache = runtimes?
-                .GroupBy(r => r.Language, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.First().Version, StringComparer.OrdinalIgnoreCase)
-                ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            // Piston returns a primary `language` name plus optional `aliases` (e.g. csharp has
+            // aliases ["mono","c#",...]). Index by both so callers can resolve via whichever
+            // name the language map uses. First write wins if two runtimes share an alias.
+            _cache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var runtime in runtimes ?? new List<PistonRuntimeInfo>())
+            {
+                _cache.TryAdd(runtime.Language, runtime.Version);
+                foreach (var alias in runtime.Aliases ?? new List<string>())
+                    _cache.TryAdd(alias, runtime.Version);
+            }
 
             _logger.LogInformation("Loaded {Count} Piston runtimes", _cache.Count);
             return _cache;
@@ -84,6 +89,7 @@ public class PistonRuntimeResolver : IPistonRuntimeResolver
     {
         [JsonPropertyName("language")] public string Language { get; set; } = "";
         [JsonPropertyName("version")]  public string Version { get; set; } = "";
+        [JsonPropertyName("aliases")]  public List<string>? Aliases { get; set; }
     }
 }
 
