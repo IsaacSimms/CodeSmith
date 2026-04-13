@@ -22,7 +22,7 @@ public class AnthropicService : IAnthropicService
     private readonly ILogger<AnthropicService> _logger;
 
     private const string ProblemModel  = "claude-sonnet-4-20250514"; // Rich generation, used once per session
-    private const string GuidanceModel = "claude-haiku-4-20250514";  // Fast/cheap, used for every chat message
+    private const string GuidanceModel = "claude-haiku-4-5-20251001"; // Fast/cheap, used for every chat message
 
     // == System Prompts == //
     private const string ProblemGenerationSystemPromptTemplate =
