@@ -1,6 +1,6 @@
 # CodeSmith
 
-An AI-powered coding interview practice tool. Users pick a programming language and difficulty, receive a tailored coding problem with starter code in a split-screen editor, and get guided assistance from an AI pair programmer powered by the Anthropic Claude API. The AI always has access to the current contents of the code editor, so it can reference and reason about the users's actual code.
+An AI-powered coding practice tool. Users pick a programming language and difficulty, receive a tailored coding problem with starter code in a split-screen editor, and get guided assistance from an AI pair programmer powered by the Anthropic Claude API. The AI always has access to the current contents of the code editor, so it can reference and reason about the users's actual code.
 
 ## Prerequisites
 
