@@ -64,6 +64,25 @@ cd CodeSmith.Web && npx playwright test   # E2E tests
 - Frontend unit tests use Vitest + React Testing Library, colocated as `*.test.tsx` alongside source files
 - Frontend E2E tests use Playwright in `CodeSmith.Web/e2e/`
 
+## Browser Testing with Playwright MCP
+
+After making a meaningful change to the frontend, use the Playwright MCP server to verify the result in the browser. This applies to any change that visibly affects UI, routing, or user interaction.
+
+**When to use it:**
+- After implementing or changing a UI component, page, or layout
+- After wiring up new API calls or state changes that affect what's rendered
+- When debugging a visual issue or unexpected UI behavior
+- After fixing a bug — confirm the fix works end-to-end in the browser
+
+**Workflow:**
+1. Ensure the dev servers are running: backend on `http://localhost:5175`, frontend on `http://localhost:5173`
+2. Use `browser_navigate` to open `http://localhost:5173`
+3. Use `browser_snapshot` to inspect the page structure, or `browser_screenshot` to visually verify layout
+4. Interact with the app as needed (`browser_click`, `browser_type`) to exercise the changed behavior
+5. Report what was observed — confirm the change works or flag anything unexpected
+
+**Do not** run Playwright MCP checks for purely backend changes, test file edits, or config-only changes with no UI impact.
+
 ## Coding Conventions
 
 - Block titles: `// == Title Here == //` (adapt syntax per language)
