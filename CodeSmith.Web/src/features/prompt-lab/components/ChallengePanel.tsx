@@ -104,10 +104,15 @@ export function ChallengePanel({
         >
           {isSubmitting ? "Evaluating…" : "Submit Prompt"}
         </button>
-        {attemptCount > 0 && (
-          <p className="mt-2 text-center text-xs text-gray-600">
-            Attempt {attemptCount + 1}
-          </p>
+        <p className="mt-2 text-center text-xs text-gray-600">
+          {isSubmitting ? (
+            <span>Running {"·".repeat(3)}</span>
+          ) : (
+            <span><kbd className="rounded bg-gray-700 px-1 py-0.5 font-mono text-gray-400">Enter</kbd> to submit · <kbd className="rounded bg-gray-700 px-1 py-0.5 font-mono text-gray-400">Shift+Enter</kbd> for new line</span>
+          )}
+        </p>
+        {attemptCount > 0 && !isSubmitting && (
+          <p className="mt-1 text-center text-xs text-gray-600">Attempt {attemptCount + 1}</p>
         )}
       </div>
     </div>

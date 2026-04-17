@@ -34,6 +34,22 @@ export function PromptLabWindow() {
     setTopPercent(resultsOpen ? 60 : 100);
   }, [resultsOpen, setTopPercent]);
 
+  // Ctrl+Enter submits the prompt from anywhere in the window
+  useEffect(() => {
+    if (!session) return;
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && !submitAttempt.isPending) {
+        e.preventDefault();
+        handleSubmit();
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, systemPromptContent, userMessageContent, submitAttempt.isPending]);
+
   // Pre-fill editable field defaults when challenge loads
   useEffect(() => {
     if (!challenge) return;
@@ -130,6 +146,7 @@ export function PromptLabWindow() {
               userMessageContent={userMessageContent}
               onSystemPromptChange={setSystemContent}
               onUserMessageChange={setUserContent}
+              onSubmit={handleSubmit}
             />
           </div>
 

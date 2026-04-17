@@ -1,5 +1,5 @@
 // == Prompt Editors Component == //
-import Editor from "@monaco-editor/react";
+import Editor, { type OnMount } from "@monaco-editor/react";
 import type { ChallengeResponse } from "../types";
 import { defineMonokaiTheme } from "../../shared/monacoTheme";
 
@@ -9,6 +9,7 @@ interface PromptEditorsProps {
   userMessageContent: string;
   onSystemPromptChange: (value: string) => void;
   onUserMessageChange: (value: string) => void;
+  onSubmit: () => void;
 }
 
 export function PromptEditors({
@@ -17,7 +18,16 @@ export function PromptEditors({
   userMessageContent,
   onSystemPromptChange,
   onUserMessageChange,
+  onSubmit,
 }: PromptEditorsProps) {
+  // Enter submits; Shift+Enter inserts a newline (standard chat-editor pattern)
+  const bindSubmitKey: OnMount = (editor, monaco) => {
+    monaco.editor.setTheme("monokai");
+    editor.addCommand(monaco.KeyCode.Enter, () => onSubmit());
+    editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => {
+      editor.trigger("keyboard", "type", { text: "\n" });
+    });
+  };
   const systemEditable = challenge.editableFields.some((f) => f.fieldType === "SystemPrompt");
   const userEditable   = challenge.editableFields.some((f) => f.fieldType === "UserMessage");
 
@@ -43,7 +53,7 @@ export function PromptEditors({
               value={systemPromptContent}
               onChange={(v) => onSystemPromptChange(v ?? "")}
               beforeMount={defineMonokaiTheme}
-              onMount={(_editor, monaco) => monaco.editor.setTheme("monokai")}
+              onMount={bindSubmitKey}
               options={{
                 fontSize:             14,
                 minimap:              { enabled: false },
@@ -76,7 +86,7 @@ export function PromptEditors({
               value={userMessageContent}
               onChange={(v) => onUserMessageChange(v ?? "")}
               beforeMount={defineMonokaiTheme}
-              onMount={(_editor, monaco) => monaco.editor.setTheme("monokai")}
+              onMount={bindSubmitKey}
               options={{
                 fontSize:             14,
                 minimap:              { enabled: false },
