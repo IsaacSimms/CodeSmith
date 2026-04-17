@@ -109,7 +109,9 @@ public class PromptLabService : IPromptLabService
         // Launch all test input simulations in parallel to minimise latency
         var tasks = challenge.TestInputs.Select(input =>
         {
-            var message = userMessageIsEditable ? userMessageContent : input.UserMessage;
+            var message = userMessageIsEditable
+                ? BuildUserMessage(userMessageContent, input.UserMessage)
+                : input.UserMessage;
             return SimulateOneInputAsync(input, effectiveSystemPrompt, message, ct);
         });
 
@@ -133,6 +135,16 @@ public class PromptLabService : IPromptLabService
         var output = ExtractTextContent(response);
         _logger.LogDebug("Simulation output for input {InputId}: {Output}", input.InputId, output);
         return (input, output);
+    }
+
+    // Substitutes {input} in the user's template with the test input value.
+    // If the template contains no placeholder, the test input value is appended on a new line.
+    private static string BuildUserMessage(string template, string testInputValue)
+    {
+        const string placeholder = "{input}";
+        return template.Contains(placeholder, StringComparison.OrdinalIgnoreCase)
+            ? template.Replace(placeholder, testInputValue, StringComparison.OrdinalIgnoreCase)
+            : $"{template}\n\n{testInputValue}";
     }
 
     private static string BuildSimulationSystemPrompt(Challenge challenge, string userSystemContent)
@@ -162,35 +174,54 @@ public class PromptLabService : IPromptLabService
         List<(TestInput Input, string Output)> simulationOutputs,
         CancellationToken ct)
     {
-        var evaluationPrompt = BuildEvaluationPrompt(challenge, simulationOutputs);
+        // Evaluate each test input in isolation (parallel) so outputs cannot contaminate each other's scores
+        var resultTasks = simulationOutputs
+            .Select(pair => EvaluateOneInputAsync(challenge, pair.Input, pair.Output, ct));
+
+        var inputResults = await Task.WhenAll(resultTasks);
+
+        var attempt = new ChallengeAttempt
+        {
+            SystemPromptContent = systemPromptContent,
+            UserMessageContent  = userMessageContent,
+            MaxScore            = challenge.TestInputs.Count * challenge.Rubric.Sum(r => r.MaxPoints),
+            Results             = [.. inputResults],
+        };
+
+        attempt.TotalScore      = attempt.Results.Sum(r => r.CriterionScores.Sum(s => s.Points));
+        attempt.OverallFeedback = BuildOverallFeedback(attempt);
+        return attempt;
+    }
+
+    private async Task<TestInputResult> EvaluateOneInputAsync(
+        Challenge challenge,
+        TestInput input,
+        string simulationOutput,
+        CancellationToken ct)
+    {
+        var prompt = BuildSingleInputEvaluationPrompt(challenge, input, simulationOutput);
 
         var response = await _client.Messages.Create(new MessageCreateParams
         {
             Model     = EvaluationModel,
-            MaxTokens = 2048,
+            MaxTokens = 512,
             System    = """
-                You are an expert prompt engineering evaluator. Your job is to score model outputs against a rubric.
+                You are an expert prompt engineering evaluator. Score this single model output against the rubric.
                 You MUST respond with ONLY valid JSON matching this exact schema — no preamble, no explanation:
                 {
-                  "results": [
-                    {
-                      "inputId": "string",
-                      "passed": true,
-                      "criterionScores": [{ "criterionId": "string", "points": 0 }],
-                      "feedback": "string"
-                    }
-                  ],
-                  "overallFeedback": "string"
+                  "passed": true,
+                  "criterionScores": [{ "criterionId": "string", "points": 0 }],
+                  "feedback": "string"
                 }
                 """,
-            Messages = [new() { Role = Role.User, Content = evaluationPrompt }]
+            Messages = [new() { Role = Role.User, Content = prompt }]
         }, ct);
 
-        var evaluationJson = ExtractTextContent(response);
-        return ParseEvaluationResponse(challenge, systemPromptContent, userMessageContent, simulationOutputs, evaluationJson);
+        var json = ExtractTextContent(response);
+        return ParseSingleInputResult(challenge, input, simulationOutput, json);
     }
 
-    private static string BuildEvaluationPrompt(Challenge challenge, List<(TestInput Input, string Output)> outputs)
+    private static string BuildSingleInputEvaluationPrompt(Challenge challenge, TestInput input, string output)
     {
         var sb = new StringBuilder();
         sb.AppendLine($"Challenge: {challenge.Title}");
@@ -202,105 +233,82 @@ public class PromptLabService : IPromptLabService
             sb.AppendLine($"  - [{criterion.CriterionId}] {criterion.Name} (max {criterion.MaxPoints} pts): {criterion.Description}");
 
         sb.AppendLine();
-        sb.AppendLine("Test Results to Evaluate:");
-        foreach (var (input, output) in outputs)
-        {
-            sb.AppendLine($"  Input ID: {input.InputId}");
-            sb.AppendLine($"  Label: {input.Label}");
-            sb.AppendLine($"  Expected behavior: {input.ExpectedBehavior}");
-            sb.AppendLine($"  Actual model output: {output}");
-            sb.AppendLine();
-        }
-
-        sb.AppendLine("Score each test input against ALL rubric criteria. An input 'passes' if it scores full points on all criteria.");
+        sb.AppendLine($"Test Input: {input.Label}");
+        sb.AppendLine($"Expected behavior: {input.ExpectedBehavior}");
+        sb.AppendLine($"Actual model output:");
+        sb.AppendLine(output);
+        sb.AppendLine();
+        sb.AppendLine("Score this output against ALL rubric criteria. It 'passes' if it scores full points on all criteria.");
         sb.AppendLine("Return JSON only.");
         return sb.ToString();
     }
 
-    private static ChallengeAttempt ParseEvaluationResponse(
+    private static TestInputResult ParseSingleInputResult(
         Challenge challenge,
-        string systemPromptContent,
-        string userMessageContent,
-        List<(TestInput Input, string Output)> simulationOutputs,
-        string evaluationJson)
+        TestInput input,
+        string simulationOutput,
+        string json)
     {
-        var attempt = new ChallengeAttempt
-        {
-            SystemPromptContent = systemPromptContent,
-            UserMessageContent  = userMessageContent,
-            MaxScore            = challenge.TestInputs.Count * challenge.Rubric.Sum(r => r.MaxPoints)
-        };
-
         try
         {
-            // Extract JSON from the response (model may wrap it despite instructions)
-            var jsonText = ExtractJson(evaluationJson);
+            var jsonText = ExtractJson(json);
             using var doc = JsonDocument.Parse(jsonText);
             var root = doc.RootElement;
 
-            // Parse per-input results
-            if (root.TryGetProperty("results", out var resultsEl))
+            var passed   = root.TryGetProperty("passed",   out var p) && p.GetBoolean();
+            var feedback = root.TryGetProperty("feedback", out var f) ? f.GetString() ?? "" : "";
+
+            var criterionScores = new List<CriterionScore>();
+            if (root.TryGetProperty("criterionScores", out var scoresEl))
             {
-                foreach (var resultEl in resultsEl.EnumerateArray())
+                foreach (var scoreEl in scoresEl.EnumerateArray())
                 {
-                    var inputId = resultEl.GetProperty("inputId").GetString() ?? "";
-                    var passed  = resultEl.GetProperty("passed").GetBoolean();
-                    var feedback = resultEl.TryGetProperty("feedback", out var fbEl) ? fbEl.GetString() ?? "" : "";
+                    var criterionId = scoreEl.GetProperty("criterionId").GetString() ?? "";
+                    var points      = scoreEl.GetProperty("points").GetInt32();
+                    var criterion   = challenge.Rubric.FirstOrDefault(r => r.CriterionId == criterionId);
 
-                    var simulationOutput = simulationOutputs.FirstOrDefault(o => o.Input.InputId == inputId).Output ?? "";
-                    var inputLabel = simulationOutputs.FirstOrDefault(o => o.Input.InputId == inputId).Input?.Label ?? inputId;
-
-                    var criterionScores = new List<CriterionScore>();
-                    if (resultEl.TryGetProperty("criterionScores", out var scoresEl))
+                    criterionScores.Add(new CriterionScore
                     {
-                        foreach (var scoreEl in scoresEl.EnumerateArray())
-                        {
-                            var criterionId = scoreEl.GetProperty("criterionId").GetString() ?? "";
-                            var points      = scoreEl.GetProperty("points").GetInt32();
-                            var criterion   = challenge.Rubric.FirstOrDefault(r => r.CriterionId == criterionId);
-
-                            criterionScores.Add(new CriterionScore
-                            {
-                                CriterionId   = criterionId,
-                                CriterionName = criterion?.Name ?? criterionId,
-                                Points        = points,
-                                MaxPoints     = criterion?.MaxPoints ?? 0
-                            });
-                        }
-                    }
-
-                    attempt.Results.Add(new TestInputResult
-                    {
-                        InputId          = inputId,
-                        Label            = inputLabel,
-                        SimulationOutput = simulationOutput,
-                        Passed           = passed,
-                        CriterionScores  = criterionScores,
-                        Feedback         = feedback
+                        CriterionId   = criterionId,
+                        CriterionName = criterion?.Name ?? criterionId,
+                        Points        = points,
+                        MaxPoints     = criterion?.MaxPoints ?? 0
                     });
                 }
             }
 
-            attempt.OverallFeedback = root.TryGetProperty("overallFeedback", out var ofEl)
-                ? ofEl.GetString() ?? ""
-                : "";
+            return new TestInputResult
+            {
+                InputId          = input.InputId,
+                Label            = input.Label,
+                SimulationOutput = simulationOutput,
+                Passed           = passed,
+                CriterionScores  = criterionScores,
+                Feedback         = feedback
+            };
         }
         catch (JsonException)
         {
-            // Graceful fallback: populate results from simulation outputs with unknown scores
-            attempt.Results = simulationOutputs.Select(o => new TestInputResult
+            return new TestInputResult
             {
-                InputId          = o.Input.InputId,
-                Label            = o.Input.Label,
-                SimulationOutput = o.Output,
+                InputId          = input.InputId,
+                Label            = input.Label,
+                SimulationOutput = simulationOutput,
                 Passed           = false,
                 Feedback         = "Could not parse evaluation response."
-            }).ToList();
-            attempt.OverallFeedback = "Evaluation parsing failed — results may be incomplete.";
+            };
         }
+    }
 
-        attempt.TotalScore = attempt.Results.Sum(r => r.CriterionScores.Sum(s => s.Points));
-        return attempt;
+    private static string BuildOverallFeedback(ChallengeAttempt attempt)
+    {
+        var passed = attempt.Results.Count(r => r.Passed);
+        var total  = attempt.Results.Count;
+        var pct    = attempt.MaxScore > 0 ? attempt.TotalScore * 100 / attempt.MaxScore : 0;
+
+        return passed == total
+            ? $"All {total} test inputs passed ({attempt.TotalScore}/{attempt.MaxScore} pts). Excellent prompt engineering!"
+            : $"{passed}/{total} test inputs passed ({pct}% of available points). Review the per-input feedback to refine your prompt.";
     }
 
     // == Helpers == //

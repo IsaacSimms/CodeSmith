@@ -8,6 +8,6 @@ namespace CodeSmith.Api.DTOs.PromptLab;
 /// </summary>
 public class SubmitAttemptRequest
 {
-    [Required][StringLength(5000)] public string SystemPromptContent { get; set; } = string.Empty;  // User's system prompt additions
-    [Required][StringLength(5000)] public string UserMessageContent  { get; set; } = string.Empty;  // User's user message (used when UserMessage field is editable)
+    [StringLength(5000)] public string SystemPromptContent { get; set; } = string.Empty;  // User's system prompt additions (may be empty)
+    [StringLength(5000)] public string UserMessageContent  { get; set; } = string.Empty;  // User's user message — only meaningful when UserMessage is an editable field
 }

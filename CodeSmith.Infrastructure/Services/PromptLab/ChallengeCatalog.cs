@@ -82,7 +82,7 @@ public static class ChallengeCatalog
             new EditableField
             {
                 FieldType    = PromptFieldType.UserMessage,
-                Placeholder  = "Write a user message that asks for ONLY the capital city...",
+                Placeholder  = "Write a user message template. Use {input} where the country name goes.\nExample: What is the capital of {input}? Reply with the city name only.",
                 DefaultValue = ""
             }
         ],
