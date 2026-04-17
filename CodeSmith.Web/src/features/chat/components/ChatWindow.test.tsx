@@ -154,7 +154,7 @@ describe("ChatWindow", () => {
 
       const sendCall = vi.mocked(apiClient.sendMessage).mock.calls[0];
       expect(sendCall?.[0]).toBe("test-session-id");
-      expect(sendCall?.[1]).toEqual({ message: "How do I start?", editorContent: "public int Add(int a, int b) {}" });
+      expect(sendCall?.[1]).toEqual({ message: "How do I start?", editorContent: "public int Add(int a, int b) {}", isCodeAnalysis: false });
     });
   });
 });

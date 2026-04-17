@@ -14,4 +14,6 @@ public class ChatRequest
 
     [StringLength(50000, ErrorMessage = "Editor content must not exceed 50000 characters.")]
     public string? EditorContent { get; set; }  // Current contents of the code editor
+
+    public bool IsCodeAnalysis { get; set; }  // True when the message is an auto-generated code execution analysis
 }

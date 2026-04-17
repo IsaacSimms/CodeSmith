@@ -3,6 +3,7 @@ using CodeSmith.Core.Interfaces;
 using CodeSmith.Infrastructure.Configuration;
 using CodeSmith.Infrastructure.Services;
 using CodeSmith.Infrastructure.Services.Piston;
+using CodeSmith.Infrastructure.Services.PromptLab;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -30,6 +31,10 @@ public static class ServiceCollectionExtensions
 
         // Register Anthropic service as scoped
         services.AddScoped<IAnthropicService, AnthropicService>();
+
+        // Register Prompt Lab services
+        services.AddSingleton<IPromptLabSessionStore, InMemoryPromptLabSessionStore>();
+        services.AddScoped<IPromptLabService, PromptLabService>();
 
         // == Code Execution Backend Selection == //
         // Reads CodeExecution:Backend from config and wires the matching implementation.

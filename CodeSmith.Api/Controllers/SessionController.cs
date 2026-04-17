@@ -64,7 +64,7 @@ public class SessionController : ControllerBase
         [FromBody] ChatRequest request,
         CancellationToken ct)
     {
-        var response = await _anthropicService.GetGuidanceAsync(sessionId, request.Message, request.EditorContent, ct);
+        var response = await _anthropicService.GetGuidanceAsync(sessionId, request.Message, request.EditorContent, request.IsCodeAnalysis, ct);
 
         return Ok(new ChatResponse { Response = response });
     }

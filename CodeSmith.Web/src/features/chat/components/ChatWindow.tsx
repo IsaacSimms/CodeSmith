@@ -57,7 +57,7 @@ export function ChatWindow() {
   }, []);
 
   // == Send Chat Message == //
-  function handleSendMessage(message: string) {
+  function handleSendMessage(message: string, isCodeAnalysis = false) {
     if (!session) return;
 
     const userMessage: ChatMessage = {
@@ -68,7 +68,7 @@ export function ChatWindow() {
     setMessages((prev) => [...prev, userMessage]);
 
     sendMessage.mutate(
-      { sessionId: session.sessionId, message, editorContent: code },
+      { sessionId: session.sessionId, message, editorContent: code, isCodeAnalysis },
       {
         onSuccess: (data) => {
           const assistantMessage: ChatMessage = {
@@ -100,7 +100,7 @@ export function ChatWindow() {
           parts.push(`\nStderr:\n${data.stderr || "(no output)"}`);
 
           const analysisMessage = parts.join("\n");
-          handleSendMessage(analysisMessage);
+          handleSendMessage(analysisMessage, true);
         },
       }
     );

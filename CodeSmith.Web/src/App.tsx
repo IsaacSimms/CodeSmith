@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Layout } from "./components/Layout";
 import { HomePage } from "./features/home/components/HomePage";
 import { ChatWindow } from "./features/chat/components/ChatWindow";
+import { PromptLabWindow } from "./features/prompt-lab/components/PromptLabWindow";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -20,6 +21,7 @@ export default function App() {
             <Route path="/" element={<Navigate to="/home" replace />} />
             <Route path="/home" element={<HomePage />} />
             <Route path="/pairedprogrammer" element={<ChatWindow />} />
+            <Route path="/prompt-lab" element={<PromptLabWindow />} />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -39,7 +39,9 @@ public class AnthropicService : IAnthropicService
         Do not include solutions or hints. The starter code should compile but be incomplete. You could choose for the prompt to have
         a bug or bugs the user needs to solve. It could also be complete, but the prompt could be for a user to add a new feature or block of code for a specific functionailty.
         Only output the required code in the STARTER_CODE section. Do not output ''' or any other formatting.
-        Starter code can also involve a class for unit testing, if applicable.
+        There is a code execution button in the solution, when pressed, it executes the current code and displays results to a terminal. When outputting the STARTER_CODE, keep in mind that the user will be able to run it as-is, 
+        so it should be a valid code snippet that compiles and runs without errors. Add multiple tests cases in the starter code that the user can run to verify their solution. The tests should cover common edge cases and be clearly labeled. 
+        The user will be able to modify the code and re-run the tests, so they should be designed to help the user validate their solution as they work on it.
         """;
 
     private const string GuidanceSystemPromptTemplate =
@@ -48,6 +50,22 @@ public class AnthropicService : IAnthropicService
         Guide the student toward the solution without giving away the answer directly.
         Ask leading questions, point out relevant concepts, and help them think through the problem.
         If they are stuck, give small hints rather than full solutions.
+        Use {0} syntax and idioms in any code examples or snippets you provide.
+
+        The problem they are working on:
+        {1}
+
+        The starter code provided:
+        {2}
+        """;
+
+    private const string CodeAnalysisSystemPromptTemplate =
+        """
+        You are an expert coding tutor helping a student analyze the results of running their {0} code.
+        The student has just executed their solution and shared the output with you.
+        Interpret the execution results clearly: explain what the output means, whether the tests passed or failed,
+        and what the errors or unexpected values indicate — without revealing the fix directly.
+        Ask a leading question or give a small nudge to help the student figure out what to change next.
         Use {0} syntax and idioms in any code examples or snippets you provide.
 
         The problem they are working on:
@@ -122,7 +140,7 @@ public class AnthropicService : IAnthropicService
         }
     }
 
-    public async Task<string> GetGuidanceAsync(Guid sessionId, string userMessage, string? editorContent = null, CancellationToken ct = default)
+    public async Task<string> GetGuidanceAsync(Guid sessionId, string userMessage, string? editorContent = null, bool isCodeAnalysis = false, CancellationToken ct = default)
     {
         var session = _sessionStore.Get(sessionId)
             ?? throw new SessionNotFoundException(sessionId);
@@ -146,8 +164,9 @@ public class AnthropicService : IAnthropicService
                 Content = m.Content
             }).ToList();
 
+            var promptTemplate = isCodeAnalysis ? CodeAnalysisSystemPromptTemplate : GuidanceSystemPromptTemplate;
             var systemPrompt = string.Format(
-                GuidanceSystemPromptTemplate,
+                promptTemplate,
                 GetLanguageLabel(session.Language),
                 session.ProblemDescription,
                 session.StarterCode);

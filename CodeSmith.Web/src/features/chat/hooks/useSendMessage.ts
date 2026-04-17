@@ -7,10 +7,11 @@ interface SendMessageVariables {
   sessionId: string;
   message: string;
   editorContent?: string;
+  isCodeAnalysis?: boolean;
 }
 
 export function useSendMessage() {
   return useMutation<ChatResponse, Error, SendMessageVariables>({
-    mutationFn: ({ sessionId, message, editorContent }) => sendMessage(sessionId, { message, editorContent }),
+    mutationFn: ({ sessionId, message, editorContent, isCodeAnalysis }) => sendMessage(sessionId, { message, editorContent, isCodeAnalysis }),
   });
 }

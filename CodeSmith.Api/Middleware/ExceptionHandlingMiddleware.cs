@@ -35,11 +35,12 @@ public class ExceptionHandlingMiddleware
     {
         var (statusCode, message) = exception switch
         {
-            SessionNotFoundException ex  => (StatusCodes.Status404NotFound, ex.Message),
-            AnthropicApiException ex    => (StatusCodes.Status502BadGateway, ex.Message),
-            CodeExecutionException ex   => (StatusCodes.Status500InternalServerError, ex.Message),
-            OperationCanceledException => (StatusCodes.Status499ClientClosedRequest, "Request was cancelled."),
-            _                          => (StatusCodes.Status500InternalServerError, "An unexpected error occurred.")
+            SessionNotFoundException ex   => (StatusCodes.Status404NotFound, ex.Message),
+            ChallengeNotFoundException ex => (StatusCodes.Status404NotFound, ex.Message),
+            AnthropicApiException ex      => (StatusCodes.Status502BadGateway, ex.Message),
+            CodeExecutionException ex     => (StatusCodes.Status500InternalServerError, ex.Message),
+            OperationCanceledException    => (StatusCodes.Status499ClientClosedRequest, "Request was cancelled."),
+            _                             => (StatusCodes.Status500InternalServerError, "An unexpected error occurred.")
         };
 
         // Log the real exception (not exposed to client)

@@ -22,7 +22,13 @@ describe("HomePage", () => {
 
   it("renders a CTA link pointing to /pairedprogrammer", () => {
     renderHomePage();
-    const link = screen.getByRole("link", { name: /start paired programming/i });
+    const link = screen.getByRole("link", { name: /paired programmer/i });
     expect(link).toHaveAttribute("href", "/pairedprogrammer");
+  });
+
+  it("renders a CTA link pointing to /prompt-lab", () => {
+    renderHomePage();
+    const link = screen.getByRole("link", { name: /prompt lab/i });
+    expect(link).toHaveAttribute("href", "/prompt-lab");
   });
 });

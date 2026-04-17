@@ -11,5 +11,5 @@ namespace CodeSmith.Core.Interfaces;
 public interface IAnthropicService
 {
     Task<ProblemSession> GenerateProblemAsync(Difficulty difficulty, Language language, CancellationToken ct = default);  // Generates a new coding problem at the specified difficulty level and language
-    Task<string> GetGuidanceAsync(Guid sessionId, string userMessage, string? editorContent = null, CancellationToken ct = default);  // Sends a user message within an existing session and returns guided assistance
+    Task<string> GetGuidanceAsync(Guid sessionId, string userMessage, string? editorContent = null, bool isCodeAnalysis = false, CancellationToken ct = default);  // Sends a user message within an existing session and returns guided assistance
 }

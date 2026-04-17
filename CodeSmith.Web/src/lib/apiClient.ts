@@ -8,6 +8,13 @@ import type {
   RunCodeResponse,
   ApiError,
 } from "../features/chat/types";
+import type {
+  ChallengeResponse,
+  StartChallengeRequest,
+  SubmitAttemptRequest,
+  PromptLabSession,
+  AttemptResult,
+} from "../features/prompt-lab/types";
 
 class ApiClientError extends Error {
   statusCode: number;
@@ -54,6 +61,30 @@ export function sendMessage(sessionId: string, body: ChatRequest): Promise<ChatR
 
 export function runCode(sessionId: string, body: RunCodeRequest): Promise<RunCodeResponse> {
   return request<RunCodeResponse>(`/api/session/${sessionId}/run`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+// == Prompt Lab API Functions == //
+
+export function getChallenges(): Promise<ChallengeResponse[]> {
+  return request<ChallengeResponse[]>("/api/prompt-lab/challenges", { method: "GET" });
+}
+
+export function getChallenge(challengeId: string): Promise<ChallengeResponse> {
+  return request<ChallengeResponse>(`/api/prompt-lab/challenges/${challengeId}`, { method: "GET" });
+}
+
+export function startPromptLabChallenge(body: StartChallengeRequest): Promise<PromptLabSession> {
+  return request<PromptLabSession>("/api/prompt-lab/sessions", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function submitPromptLabAttempt(sessionId: string, body: SubmitAttemptRequest): Promise<AttemptResult> {
+  return request<AttemptResult>(`/api/prompt-lab/sessions/${sessionId}/submit`, {
     method: "POST",
     body: JSON.stringify(body),
   });

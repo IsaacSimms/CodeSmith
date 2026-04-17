@@ -60,6 +60,7 @@ export interface CreateSessionRequest {
 export interface ChatRequest {
   message: string;
   editorContent?: string;
+  isCodeAnalysis?: boolean;
 }
 
 export interface ChatResponse {

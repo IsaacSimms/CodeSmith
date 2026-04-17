@@ -104,7 +104,7 @@ public class AnthropicServiceTests
         var service = new AnthropicService(options, sessionStore, logger);
 
         await Assert.ThrowsAsync<SessionNotFoundException>(
-            () => service.GetGuidanceAsync(Guid.NewGuid(), "help me", null, CancellationToken.None));
+            () => service.GetGuidanceAsync(Guid.NewGuid(), "help me", null, false, CancellationToken.None));
     }
 
     [Fact]
@@ -119,6 +119,41 @@ public class AnthropicServiceTests
         var service = new AnthropicService(options, sessionStore, logger);
 
         await Assert.ThrowsAsync<SessionNotFoundException>(
-            () => service.GetGuidanceAsync(Guid.NewGuid(), "help me", "int x = 42;", CancellationToken.None));
+            () => service.GetGuidanceAsync(Guid.NewGuid(), "help me", "int x = 42;", false, CancellationToken.None));
+    }
+
+    // == Code Analysis Flag Tests == //
+
+    [Fact]
+    public async Task GetGuidanceAsync_WithIsCodeAnalysisTrue_ThrowsSessionNotFoundButAcceptsFlag()
+    {
+        // Verifies the new isCodeAnalysis parameter is accepted without breaking the existing signature
+        var sessionStore = Substitute.For<ISessionStore>();
+        sessionStore.Get(Arg.Any<Guid>()).Returns((ProblemSession?)null);
+
+        var options = Options.Create(new AnthropicOptions { ApiKey = "test-key" });
+        var logger = Substitute.For<ILogger<AnthropicService>>();
+
+        var service = new AnthropicService(options, sessionStore, logger);
+
+        await Assert.ThrowsAsync<SessionNotFoundException>(
+            () => service.GetGuidanceAsync(Guid.NewGuid(), "output: 5", null, isCodeAnalysis: true, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetGuidanceAsync_DefaultIsCodeAnalysis_IsFalse()
+    {
+        // Verifies existing callers that omit isCodeAnalysis still compile and behave the same
+        var sessionStore = Substitute.For<ISessionStore>();
+        sessionStore.Get(Arg.Any<Guid>()).Returns((ProblemSession?)null);
+
+        var options = Options.Create(new AnthropicOptions { ApiKey = "test-key" });
+        var logger = Substitute.For<ILogger<AnthropicService>>();
+
+        var service = new AnthropicService(options, sessionStore, logger);
+
+        // Default call omitting isCodeAnalysis — should still throw SessionNotFoundException, not a compile error
+        await Assert.ThrowsAsync<SessionNotFoundException>(
+            () => service.GetGuidanceAsync(Guid.NewGuid(), "help me"));
     }
 }
