@@ -366,6 +366,7 @@ FodyWeavers.xsd
 CodeSmith.Web/dist/
 CodeSmith.Web/test-results/
 CodeSmith.Web/playwright-report/
+.playwright-mcp/
 
 # Environment-specific config (may contain secrets)
 appsettings.Development.json

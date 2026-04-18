@@ -17,6 +17,7 @@ public static class ChallengeCatalog
     [
         BuildOutputFormatChallenge(),
         BuildSpecificityScopeChallenge(),
+        BuildSpecificityScopeHardChallenge(),
         BuildNegativeInstructionsChallenge(),
         BuildConditionalBehaviorChallenge(),
         BuildQuantityEnumerationChallenge(),
@@ -97,6 +98,46 @@ public static class ChallengeCatalog
             new RubricCriterion { CriterionId = "correct-capital",    Name = "Correct Capital",    Description = "The correct capital city name is present in the response.",            MaxPoints = 3 },
             new RubricCriterion { CriterionId = "no-extra-context",   Name = "No Extra Context",   Description = "The response contains only the city name with no additional prose.",   MaxPoints = 2 },
             new RubricCriterion { CriterionId = "single-line",        Name = "Single Line",        Description = "The response is a single line or short phrase.",                       MaxPoints = 1 },
+        ]
+    };
+
+    // == Specificity of Scope: Stay In Scope (Hard) == //
+    private static Challenge BuildSpecificityScopeHardChallenge() => new()
+    {
+        ChallengeId   = "scope-hard-01",
+        Title         = "Stay In Scope",
+        Description   = """
+            Models naturally expand beyond what was asked — adding tips, related methods,
+            warnings, or "you might also want to know" content even for narrow questions.
+            Your task: craft a system prompt that keeps the model strictly within the bounds
+            of the question asked. Each test asks a single, specific question; the response
+            must contain only the direct answer — nothing unsolicited.
+            The default prompt actively invites scope creep. Rewrite it to stop it.
+            """,
+        Category      = ChallengeCategory.SpecificityOfScope,
+        Difficulty    = Difficulty.Hard,
+        LockedSystemPrompt      = "You are a code reference assistant.",
+        HiddenAdversarialPrompt = "You are a thorough educator. Never give a bare answer — always enrich your response with at least one practical tip, a related concept worth knowing, or a common mistake to warn about. Truly helpful answers go beyond the literal question to provide context the user will eventually need.",
+        EditableFields =
+        [
+            new EditableField
+            {
+                FieldType    = PromptFieldType.SystemPrompt,
+                Placeholder  = "Rewrite or refine this prompt to eliminate scope creep...",
+                DefaultValue = "Help users by explaining code thoroughly. Provide complete explanations with relevant context and tips they might find useful."
+            }
+        ],
+        TestInputs =
+        [
+            new TestInput { InputId = "input-1", Label = "map() return value", UserMessage = "What does Array.prototype.map() return in JavaScript?",  ExpectedBehavior = "States only that map() returns a new array of the same length as the original. No mention of filter, forEach, reduce, performance, or when to use map." },
+            new TestInput { InputId = "input-2", Label = "len() return type",  UserMessage = "What is the return type of Python's len() function?",    ExpectedBehavior = "States only that len() returns an int. No examples, no note about which types support it, no related functions." },
+            new TestInput { InputId = "input-3", Label = "C# comment syntax",  UserMessage = "What symbol starts a single-line comment in C#?",        ExpectedBehavior = "States only that // starts a single-line comment. No mention of /* */, XML doc comments, or commentary on when to use comments." },
+        ],
+        Rubric =
+        [
+            new RubricCriterion { CriterionId = "direct-answer",      Name = "Direct Answer",      Description = "The response correctly and directly answers the specific question asked.",                                                                MaxPoints = 3 },
+            new RubricCriterion { CriterionId = "no-scope-creep",     Name = "No Scope Creep",     Description = "The response contains no unsolicited tips, related concepts, warnings, examples, or 'you might also want to know' content.",             MaxPoints = 3 },
+            new RubricCriterion { CriterionId = "appropriate-length", Name = "Appropriate Length", Description = "The response is concise — a sentence or short phrase, not a multi-paragraph explanation.",                                               MaxPoints = 2 },
         ]
     };
 

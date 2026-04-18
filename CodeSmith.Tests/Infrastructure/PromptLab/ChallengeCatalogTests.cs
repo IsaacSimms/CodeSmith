@@ -122,4 +122,25 @@ public class ChallengeCatalogTests
             }
         }
     }
+
+    // == scope-hard-01 specific tests == //
+
+    [Fact]
+    public void ScopeHard01_IsHardDifficultyAndCorrectCategory()
+    {
+        var challenge = ChallengeCatalog.All.Single(c => c.ChallengeId == "scope-hard-01");
+
+        Assert.Equal(Difficulty.Hard, challenge.Difficulty);
+        Assert.Equal(ChallengeCategory.SpecificityOfScope, challenge.Category);
+    }
+
+    [Fact]
+    public void ScopeHard01_HasVagueDefaultSystemPromptValue()
+    {
+        var challenge = ChallengeCatalog.All.Single(c => c.ChallengeId == "scope-hard-01");
+        var sysField  = challenge.EditableFields.Single(f => f.FieldType == PromptFieldType.SystemPrompt);
+
+        // Default must be non-empty so users start with the vague prompt to refine
+        Assert.False(string.IsNullOrWhiteSpace(sysField.DefaultValue));
+    }
 }

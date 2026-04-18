@@ -20,7 +20,14 @@
       "Bash(npm run:*)",
       "Bash(npm test:*)",
       "Bash(xargs grep:*)",
-      "Bash(npx vitest:*)"
+      "Bash(npx vitest:*)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_snapshot",
+      "mcp__playwright__browser_click",
+      "Bash(dotnet run *)",
+      "Bash(curl -s http://localhost:5175/api/prompt-lab/challenges)",
+      "mcp__playwright__browser_console_messages",
+      "Bash(curl -sk https://localhost:7111/api/prompt-lab/challenges)"
     ]
   }
 }
