@@ -1,6 +1,22 @@
 # CodeSmith
 
-An AI-powered coding practice tool. Users pick a programming language and difficulty, receive a tailored coding problem with starter code in a split-screen editor, and get guided assistance from an AI pair programmer powered by the Anthropic Claude API. The AI always has access to the current contents of the code editor, so it can reference and reason about the users's actual code.
+An AI-powered coding practice tool with two distinct modes: a coding interview simulator and a prompt engineering lab. Both are powered by the Anthropic Claude API.
+
+## Features
+
+### Coding Interview Practice
+
+Users pick a programming language and difficulty, receive a tailored coding problem with starter code in a split-screen editor, and get guided assistance from an AI pair programmer. The AI always has access to the current contents of the code editor so it can reference and reason about the user's actual code. A "Test Code" button runs the submission against Piston (see below) and the AI can interpret the run output in context.
+
+### Prompt Lab
+
+A practice mode focused on prompt engineering. Each challenge presents a locked base system prompt and a hidden adversarial instruction that biases the model toward bad behavior — the user's goal is to write prompt additions robust enough to override that bias across a battery of test inputs.
+
+The workflow: browse challenges by category and difficulty → write additions in the Monaco prompt editors → submit → review pass/fail results per test input with per-criterion rubric scores and AI evaluator feedback → iterate.
+
+Challenge categories cover: Output Format Control, Specificity of Scope, Negative Instructions, Conditional Behavior, Quantity/Enumeration, and Tone & Register. Difficulties map to `Easy`, `Medium`, and `Hard`.
+
+**How scoring works:** Each submission triggers two parallel AI phases. Phase 1 runs the assembled prompt (locked base + user additions + hidden adversarial suffix) against every test input using Claude Haiku. Phase 2 sends each output to Claude Sonnet acting as an expert evaluator, which scores it against the rubric criteria and returns structured feedback.
 
 ## Prerequisites
 
@@ -14,7 +30,7 @@ An AI-powered coding practice tool. Users pick a programming language and diffic
 | Project | Description |
 |---------|-------------|
 | `CodeSmith.Core` | Shared models, enums, interfaces, and custom exceptions |
-| `CodeSmith.Infrastructure` | Anthropic SDK integration and in-memory session storage |
+| `CodeSmith.Infrastructure` | Anthropic SDK integration, in-memory session storage, and Prompt Lab service |
 | `CodeSmith.Api` | ASP.NET Core Web API with rate limiting, CORS, and middleware |
 | `CodeSmith.CLI` | Interactive console client for the API |
 | `CodeSmith.Web` | React 19 frontend (Vite, TypeScript, Tailwind CSS v4, TanStack Query v5) |
