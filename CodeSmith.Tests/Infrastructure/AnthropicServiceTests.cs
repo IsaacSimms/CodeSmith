@@ -156,4 +156,28 @@ public class AnthropicServiceTests
         await Assert.ThrowsAsync<SessionNotFoundException>(
             () => service.GetGuidanceAsync(Guid.NewGuid(), "help me"));
     }
+
+    // == Problem Variety Array Tests == //
+
+    [Fact]
+    public void ProblemCategories_HasAtLeastEightEntries()
+    {
+        Assert.True(AnthropicService.ProblemCategories.Length >= 8,
+            $"Expected at least 8 categories for variety, but found {AnthropicService.ProblemCategories.Length}.");
+    }
+
+    [Fact]
+    public void ProblemAngles_HasAtLeastFiveEntries()
+    {
+        Assert.True(AnthropicService.ProblemAngles.Length >= 5,
+            $"Expected at least 5 angles for variety, but found {AnthropicService.ProblemAngles.Length}.");
+    }
+
+    [Fact]
+    public void ProblemAngles_ContainsStandardImplementationMultipleTimesForWeighting()
+    {
+        var count = AnthropicService.ProblemAngles.Count(a => a == "Standard implementation");
+        Assert.True(count >= 2,
+            $"Expected 'Standard implementation' to appear at least twice for baseline weighting, but found {count}.");
+    }
 }
