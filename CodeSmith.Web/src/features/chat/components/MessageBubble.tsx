@@ -1,10 +1,44 @@
 // == Message Bubble Component == //
+import Markdown from "react-markdown";
+import type { Components } from "react-markdown";
 import type { MessageRole } from "../types";
+import { CodeBlock } from "./CodeBlock";
 
 interface MessageBubbleProps {
   role: MessageRole;
   content: string;
 }
+
+// == Markdown component overrides for assistant messages == //
+const markdownComponents: Components = {
+  // Fenced code blocks
+  code({ className, children, ...props }) {
+    const languageMatch = /language-(\w+)/.exec(className ?? "");
+    const isBlock = !!languageMatch;
+
+    if (isBlock) {
+      return (
+        <CodeBlock language={languageMatch[1]}>
+          {String(children).replace(/\n$/, "")}
+        </CodeBlock>
+      );
+    }
+
+    // Inline code
+    return (
+      <code
+        className="rounded bg-gray-800 px-1 py-0.5 font-mono text-sm text-monokai-yellow"
+        {...props}
+      >
+        {children}
+      </code>
+    );
+  },
+  // Paragraph — prevent double-wrapping block elements
+  p({ children }) {
+    return <p className="mb-2 last:mb-0 break-words">{children}</p>;
+  },
+};
 
 export function MessageBubble({ role, content }: MessageBubbleProps) {
   const isUser = role === "User";
@@ -16,7 +50,11 @@ export function MessageBubble({ role, content }: MessageBubbleProps) {
           isUser ? "bg-monokai-pink text-white" : "bg-gray-700 text-gray-100"
         }`}
       >
-        <p className="whitespace-pre-wrap break-words">{content}</p>
+        {isUser ? (
+          <p className="whitespace-pre-wrap break-words">{content}</p>
+        ) : (
+          <Markdown components={markdownComponents}>{content}</Markdown>
+        )}
       </div>
     </div>
   );

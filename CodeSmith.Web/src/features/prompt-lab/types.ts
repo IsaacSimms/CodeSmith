@@ -75,6 +75,7 @@ export interface AttemptResult {
 export interface PromptLabSession {
   sessionId: string;
   challengeId: string;
+  testInputs: TestInputSummary[];  // Dynamically generated at session start
   attempts: AttemptResult[];
   createdAt: string;
 }

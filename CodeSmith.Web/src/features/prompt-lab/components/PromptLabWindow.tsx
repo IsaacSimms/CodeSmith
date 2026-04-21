@@ -184,6 +184,7 @@ export function PromptLabWindow() {
         <div className="min-w-0" style={{ width: `${100 - leftPercent}%` }}>
           <ChallengePanel
             challenge={challenge}
+            testInputs={session.testInputs}
             isSubmitting={submitAttempt.isPending}
             lastAttempt={lastResult}
             attemptCount={session.attempts.length}

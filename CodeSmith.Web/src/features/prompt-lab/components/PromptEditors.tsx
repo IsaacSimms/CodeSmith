@@ -3,6 +3,8 @@ import Editor, { type OnMount } from "@monaco-editor/react";
 import type { ChallengeResponse } from "../types";
 import { defineMonokaiTheme } from "../../shared/monacoTheme";
 
+const MAX_PROMPT_CHARS = 30_000;
+
 interface PromptEditorsProps {
   challenge: ChallengeResponse;
   systemPromptContent: string;
@@ -44,7 +46,7 @@ export function PromptEditors({
       {/* == System Prompt Editor (shown when editable) == */}
       {systemEditable && (
         <div style={{ height: systemHeight }} className="flex min-h-0 flex-col">
-          <EditorHeader label="System Prompt" />
+          <EditorHeader label="System Prompt" charCount={systemPromptContent.length} />
           <div className="flex-1 overflow-hidden">
             <Editor
               height="100%"
@@ -77,7 +79,7 @@ export function PromptEditors({
       {/* == User Message Editor (shown when editable) == */}
       {userEditable && (
         <div style={{ height: userMessageHeight }} className="flex min-h-0 flex-col">
-          <EditorHeader label="User Message" />
+          <EditorHeader label="User Message" charCount={userMessageContent.length} />
           <div className="flex-1 overflow-hidden">
             <Editor
               height="100%"
@@ -107,10 +109,17 @@ export function PromptEditors({
 
 // == Editor Header Sub-component == //
 
-function EditorHeader({ label }: { label: string }) {
+function EditorHeader({ label, charCount }: { label: string; charCount: number }) {
+  const remaining   = MAX_PROMPT_CHARS - charCount;
+  const usageRatio  = charCount / MAX_PROMPT_CHARS;
+  const counterColor = usageRatio >= 1 ? "text-red-400" : usageRatio >= 0.8 ? "text-yellow-400" : "text-gray-600";
+
   return (
-    <div className="flex items-center gap-2 border-b border-gray-900 bg-gray-800 px-4 py-1.5">
+    <div className="flex items-center justify-between border-b border-gray-900 bg-gray-800 px-4 py-1.5">
       <h3 className="text-xs font-semibold text-gray-400">{label}</h3>
+      <span className={`font-mono text-xs tabular-nums ${counterColor}`}>
+        {remaining.toLocaleString()} / {MAX_PROMPT_CHARS.toLocaleString()}
+      </span>
     </div>
   );
 }

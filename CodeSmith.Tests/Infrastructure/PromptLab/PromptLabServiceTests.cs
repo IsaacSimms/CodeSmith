@@ -49,14 +49,15 @@ public class PromptLabServiceTests
             () => _service.GetChallenge("does-not-exist"));
     }
 
-    // == StartChallenge Tests == //
+    // == StartChallengeAsync Tests == //
 
     [Fact]
-    public void StartChallenge_WithValidId_CreatesAndStoresSession()
+    public async Task StartChallengeAsync_WithValidId_CreatesAndStoresSession()
     {
         var challengeId = _service.GetChallenges()[0].ChallengeId;
 
-        var session = _service.StartChallenge(challengeId);
+        // Generation will fail (no real API key), triggering the fallback to static inputs
+        var session = await _service.StartChallengeAsync(challengeId);
 
         Assert.Equal(challengeId, session.ChallengeId);
         Assert.NotEqual(Guid.Empty, session.SessionId);
@@ -64,20 +65,31 @@ public class PromptLabServiceTests
     }
 
     [Fact]
-    public void StartChallenge_WithInvalidId_ThrowsChallengeNotFoundException()
+    public async Task StartChallengeAsync_WithInvalidId_ThrowsChallengeNotFoundException()
     {
-        Assert.Throws<ChallengeNotFoundException>(
-            () => _service.StartChallenge("does-not-exist"));
+        await Assert.ThrowsAsync<ChallengeNotFoundException>(
+            () => _service.StartChallengeAsync("does-not-exist"));
     }
 
     [Fact]
-    public void StartChallenge_InitializesEmptyAttemptsList()
+    public async Task StartChallengeAsync_InitializesEmptyAttemptsList()
     {
         var challengeId = _service.GetChallenges()[0].ChallengeId;
 
-        var session = _service.StartChallenge(challengeId);
+        var session = await _service.StartChallengeAsync(challengeId);
 
         Assert.Empty(session.Attempts);
+    }
+
+    [Fact]
+    public async Task StartChallengeAsync_SessionHasTestInputs()
+    {
+        var challengeId = _service.GetChallenges()[0].ChallengeId;
+
+        // Generation fails with a test key; fallback ensures static inputs are always present
+        var session = await _service.StartChallengeAsync(challengeId);
+
+        Assert.NotEmpty(session.TestInputs);
     }
 
     // == SubmitAttemptAsync Boundary Tests == //

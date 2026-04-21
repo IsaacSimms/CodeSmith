@@ -1,8 +1,9 @@
 // == Challenge Panel Component == //
-import type { ChallengeResponse, AttemptResult } from "../types";
+import type { ChallengeResponse, AttemptResult, TestInputSummary } from "../types";
 
 interface ChallengePanelProps {
   challenge: ChallengeResponse;
+  testInputs: TestInputSummary[];  // Session-specific generated inputs
   isSubmitting: boolean;
   lastAttempt: AttemptResult | null;
   attemptCount: number;
@@ -12,6 +13,7 @@ interface ChallengePanelProps {
 
 export function ChallengePanel({
   challenge,
+  testInputs,
   isSubmitting,
   lastAttempt,
   attemptCount,
@@ -49,10 +51,10 @@ export function ChallengePanel({
         {/* == Test Inputs == */}
         <section>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
-            Test Inputs ({challenge.testInputs.length})
+            Test Inputs ({testInputs.length})
           </h3>
           <div className="space-y-1">
-            {challenge.testInputs.map((input) => (
+            {testInputs.map((input) => (
               <div key={input.inputId} className="flex items-center gap-2 text-xs text-gray-400">
                 <span className="text-gray-600">·</span>
                 <span>{input.label}</span>

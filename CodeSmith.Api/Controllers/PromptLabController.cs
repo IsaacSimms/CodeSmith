@@ -46,17 +46,17 @@ public class PromptLabController : ControllerBase
 
     // == Start Challenge Endpoint == //
 
-    [HttpPost("sessions")]  // Creates a new Prompt Lab session for the specified challenge
-    [ProducesResponseType(typeof(PromptLabSession), StatusCodes.Status201Created)]
+    [HttpPost("sessions")]  // Creates a new Prompt Lab session and generates dynamic test inputs for the challenge
+    [ProducesResponseType(typeof(PromptLabSessionResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public IActionResult StartChallenge([FromBody] StartChallengeRequest request)
+    public async Task<IActionResult> StartChallenge([FromBody] StartChallengeRequest request, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.ChallengeId))
             return BadRequest(new { error = "ChallengeId is required." });
 
-        var session = _service.StartChallenge(request.ChallengeId); // Throws ChallengeNotFoundException → 404
-        return CreatedAtAction(nameof(StartChallenge), new { sessionId = session.SessionId }, session);
+        var session = await _service.StartChallengeAsync(request.ChallengeId, ct); // Throws ChallengeNotFoundException → 404
+        return CreatedAtAction(nameof(StartChallenge), new { sessionId = session.SessionId }, PromptLabSessionResponse.FromSession(session));
     }
 
     // == Submit Attempt Endpoint == //

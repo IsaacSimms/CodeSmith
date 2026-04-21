@@ -93,34 +93,35 @@ public class PromptLabControllerTests
     // == StartChallenge Tests == //
 
     [Fact]
-    public void StartChallenge_WithValidRequest_Returns201()
+    public async Task StartChallenge_WithValidRequest_Returns201()
     {
         var session = new PromptLabSession { ChallengeId = "format-json-01" };
-        _service.StartChallenge("format-json-01").Returns(session);
+        _service.StartChallengeAsync("format-json-01", Arg.Any<CancellationToken>()).Returns(session);
 
-        var result = _controller.StartChallenge(new StartChallengeRequest { ChallengeId = "format-json-01" });
+        var result = await _controller.StartChallenge(new StartChallengeRequest { ChallengeId = "format-json-01" }, CancellationToken.None);
 
         var created = Assert.IsType<CreatedAtActionResult>(result);
         Assert.Equal(201, created.StatusCode);
-        var returned = Assert.IsType<PromptLabSession>(created.Value);
+        var returned = Assert.IsType<PromptLabSessionResponse>(created.Value);
         Assert.Equal("format-json-01", returned.ChallengeId);
     }
 
     [Fact]
-    public void StartChallenge_WithEmptyChallengeId_Returns400()
+    public async Task StartChallenge_WithEmptyChallengeId_Returns400()
     {
-        var result = _controller.StartChallenge(new StartChallengeRequest { ChallengeId = "" });
+        var result = await _controller.StartChallenge(new StartChallengeRequest { ChallengeId = "" }, CancellationToken.None);
 
         Assert.IsType<BadRequestObjectResult>(result);
     }
 
     [Fact]
-    public void StartChallenge_WithInvalidId_ThrowsChallengeNotFoundException()
+    public async Task StartChallenge_WithInvalidId_ThrowsChallengeNotFoundException()
     {
-        _service.When(s => s.StartChallenge("bad-id")).Throw(new ChallengeNotFoundException("bad-id"));
+        _service.StartChallengeAsync("bad-id", Arg.Any<CancellationToken>())
+            .Returns<PromptLabSession>(_ => throw new ChallengeNotFoundException("bad-id"));
 
-        Assert.Throws<ChallengeNotFoundException>(
-            () => _controller.StartChallenge(new StartChallengeRequest { ChallengeId = "bad-id" }));
+        await Assert.ThrowsAsync<ChallengeNotFoundException>(
+            () => _controller.StartChallenge(new StartChallengeRequest { ChallengeId = "bad-id" }, CancellationToken.None));
     }
 
     // == SubmitAttempt Tests == //
