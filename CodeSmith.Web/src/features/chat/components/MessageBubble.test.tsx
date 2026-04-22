@@ -65,6 +65,16 @@ describe("MessageBubble", () => {
     expect(codeBlock.textContent).toContain("const x = 1;");
   });
 
+  it("renders unlabeled fenced code blocks via CodeBlock for assistant messages", () => {
+    const content = "Here is some code:\n\n```\nconst x = 1;\n```";
+    render(<MessageBubble role="Assistant" content={content} />);
+
+    const codeBlock = screen.getByTestId("code-block");
+    expect(codeBlock).toBeInTheDocument();
+    expect(codeBlock).toHaveAttribute("data-language", "");
+    expect(codeBlock.textContent).toContain("const x = 1;");
+  });
+
   it("does not render CodeBlock for plain user messages", () => {
     render(<MessageBubble role="User" content="```typescript\nconst x = 1;\n```" />);
 

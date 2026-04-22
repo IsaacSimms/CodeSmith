@@ -14,12 +14,15 @@ const markdownComponents: Components = {
   // Fenced code blocks
   code({ className, children, ...props }) {
     const languageMatch = /language-(\w+)/.exec(className ?? "");
-    const isBlock = !!languageMatch;
+    const rawContent = String(children);
+    // react-markdown always appends \n to fenced block content (labeled or not).
+    // Inline code never has a trailing \n — use that to distinguish the two.
+    const isBlock = !!languageMatch || rawContent.endsWith("\n");
 
     if (isBlock) {
       return (
-        <CodeBlock language={languageMatch[1]}>
-          {String(children).replace(/\n$/, "")}
+        <CodeBlock language={languageMatch?.[1] ?? ""}>
+          {rawContent.replace(/\n$/, "")}
         </CodeBlock>
       );
     }

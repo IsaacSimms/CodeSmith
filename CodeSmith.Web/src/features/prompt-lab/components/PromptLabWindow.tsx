@@ -107,8 +107,8 @@ export function PromptLabWindow() {
   // == No session: show challenge selector == //
   if (!session || !challenge) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <div className="w-full max-w-2xl">
+      <div className="flex h-full items-center justify-center overflow-hidden">
+        <div className="max-h-full w-full max-w-2xl overflow-hidden">
           <ChallengeSelector
             challenges={getChallenges.data ?? []}
             isLoading={getChallenges.isLoading}
