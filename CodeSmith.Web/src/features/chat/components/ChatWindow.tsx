@@ -1,6 +1,7 @@
 // == Chat Window Component == //
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useNavigationContext } from "../../../contexts/NavigationContext";
 import type { ProblemSession, Difficulty, Language, ChatMessage, RunCodeResponse } from "../types";
 import { isDifficulty, isLanguage, languageLabels } from "../types";
 import { useCreateSession } from "../hooks/useCreateSession";
@@ -22,6 +23,18 @@ export function ChatWindow() {
   const sendMessage = useSendMessage();
   const runCode = useRunCode();
   const { leftPercent, dividerProps, containerRef } = useResizableSplit(75);
+  const { registerReset, unregisterReset } = useNavigationContext();
+
+  // == Register nav reset handler == //
+  useEffect(() => {
+    registerReset("pairedprogrammer", () => {
+      setSession(null);
+      setMessages([]);
+      setCode("");
+      setExecutionResult(null);
+    });
+    return () => unregisterReset("pairedprogrammer");
+  }, [registerReset, unregisterReset]);
 
   // == URL Param Seeding (Option A) == //
   const urlLangRaw = searchParams.get("lang");

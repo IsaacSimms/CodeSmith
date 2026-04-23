@@ -1,5 +1,6 @@
 // == Prompt Lab Window Component == //
 import { useEffect, useState } from "react";
+import { useNavigationContext } from "../../../contexts/NavigationContext";
 import type { ChallengeResponse, AttemptResult, PromptLabSession } from "../types";
 import { useGetChallenges } from "../hooks/useGetChallenges";
 import { useStartChallenge } from "../hooks/useStartChallenge";
@@ -21,6 +22,7 @@ export function PromptLabWindow() {
   const getChallenges = useGetChallenges();
   const startChallenge = useStartChallenge();
   const submitAttempt  = useSubmitAttempt();
+  const { registerReset, unregisterReset } = useNavigationContext();
 
   const { leftPercent, dividerProps, containerRef } = useResizableSplit(75);
 
@@ -28,6 +30,16 @@ export function PromptLabWindow() {
   const resultsOpen = submitAttempt.isPending || lastResult !== null;
   const { topPercent, setTopPercent, dividerProps: vertDividerProps, containerRef: vertContainerRef } =
     useResizableVerticalSplit(60);
+
+  // == Register nav reset handler == //
+  useEffect(() => {
+    registerReset("prompt-lab", () => {
+      setSession(null);
+      setChallenge(null);
+      setLastResult(null);
+    });
+    return () => unregisterReset("prompt-lab");
+  }, [registerReset, unregisterReset]);
 
   // Snap editors to full height when results close, restore split when they open
   useEffect(() => {
@@ -98,17 +110,11 @@ export function PromptLabWindow() {
     );
   }
 
-  function handleBack() {
-    setSession(null);
-    setChallenge(null);
-    setLastResult(null);
-  }
-
   // == No session: show challenge selector == //
   if (!session || !challenge) {
     return (
-      <div className="flex h-full items-center justify-center overflow-hidden">
-        <div className="max-h-full w-full max-w-2xl overflow-hidden">
+      <div className="flex h-full justify-center overflow-hidden px-4 py-6">
+        <div className="w-full max-w-2xl overflow-hidden">
           <ChallengeSelector
             challenges={getChallenges.data ?? []}
             isLoading={getChallenges.isLoading}
@@ -189,7 +195,6 @@ export function PromptLabWindow() {
             lastAttempt={lastResult}
             attemptCount={session.attempts.length}
             onSubmit={handleSubmit}
-            onBack={handleBack}
           />
         </div>
       </div>

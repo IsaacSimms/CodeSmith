@@ -8,7 +8,6 @@ interface ChallengePanelProps {
   lastAttempt: AttemptResult | null;
   attemptCount: number;
   onSubmit: () => void;
-  onBack: () => void;
 }
 
 export function ChallengePanel({
@@ -18,24 +17,13 @@ export function ChallengePanel({
   lastAttempt,
   attemptCount,
   onSubmit,
-  onBack,
 }: ChallengePanelProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* == Challenge Header == */}
       <div className="border-b border-gray-700 px-5 py-4">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <h2 className="text-base font-bold text-gray-100">{challenge.title}</h2>
-            <span className="mt-0.5 text-xs text-gray-500">{challenge.category.replace(/([A-Z])/g, " $1").trim()}</span>
-          </div>
-          <button
-            onClick={onBack}
-            className="shrink-0 rounded px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-700 hover:text-gray-300"
-          >
-            ← Back
-          </button>
-        </div>
+        <h2 className="text-base font-bold text-gray-100">{challenge.title}</h2>
+        <span className="mt-0.5 text-xs text-gray-500">{challenge.category.replace(/([A-Z])/g, " $1").trim()}</span>
       </div>
 
       {/* == Scrollable Content == */}

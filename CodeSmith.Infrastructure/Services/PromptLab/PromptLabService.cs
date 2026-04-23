@@ -23,8 +23,8 @@ public class PromptLabService : IPromptLabService
     private readonly ILogger<PromptLabService> _logger;
 
     private const string SimulationModel = "claude-haiku-4-5-20251001"; // Fast/cheap — called once per test input, in parallel
-    private const string EvaluationModel = "claude-sonnet-4-20250514";  // Accurate — called once per test input, in parallel
-    private const string GenerationModel  = "claude-sonnet-4-20250514";  // Quality generation — called once at session start
+    private const string EvaluationModel = "claude-sonnet-4-6";  // Accurate — called once per test input, in parallel
+    private const string GenerationModel  = "claude-sonnet-4-6";  // Quality generation — called once at session start
 
     public PromptLabService(
         IOptions<AnthropicOptions> options,
@@ -368,7 +368,7 @@ public class PromptLabService : IPromptLabService
         var response = await _client.Messages.Create(new MessageCreateParams
         {
             Model     = GenerationModel,
-            MaxTokens = 1024,
+            MaxTokens = 600,
             System    = "You generate test inputs for prompt engineering challenges. Return only a valid JSON array as specified — no preamble.",
             Messages  = [new() { Role = Role.User, Content = prompt }]
         }, ct);
