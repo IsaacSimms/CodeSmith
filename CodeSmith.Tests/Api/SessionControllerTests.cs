@@ -103,7 +103,7 @@ public class SessionControllerTests
         var sessionId = Guid.NewGuid();
         _anthropicService
             .GetGuidanceAsync(sessionId, "help", "int x = 1;", Arg.Any<bool>(), Arg.Any<CancellationToken>())
-            .Returns("Here's a hint...");
+            .Returns(new ChatResponse { Response = "Here's a hint...", ContextTokensUsed = 1234, ContextWindowSize = 200_000 });
 
         var result = await _controller.Chat(
             sessionId,
@@ -113,6 +113,8 @@ public class SessionControllerTests
         var okResult = Assert.IsType<OkObjectResult>(result);
         var response = Assert.IsType<ChatResponse>(okResult.Value);
         Assert.Equal("Here's a hint...", response.Response);
+        Assert.Equal(1234, response.ContextTokensUsed);
+        Assert.Equal(200_000, response.ContextWindowSize);
     }
 
     [Fact]
@@ -121,7 +123,7 @@ public class SessionControllerTests
         var sessionId = Guid.NewGuid();
         _anthropicService
             .GetGuidanceAsync(sessionId, "help", null, Arg.Any<bool>(), Arg.Any<CancellationToken>())
-            .Returns("Here's a hint...");
+            .Returns(new ChatResponse { Response = "Here's a hint..." });
 
         var result = await _controller.Chat(
             sessionId,

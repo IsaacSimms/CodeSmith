@@ -11,6 +11,7 @@ import { ChallengeSelector } from "./ChallengeSelector";
 import { ChallengePanel } from "./ChallengePanel";
 import { PromptEditors } from "./PromptEditors";
 import { ResultsPanel } from "./ResultsPanel";
+import { TokenUsageBar } from "../../../components/TokenUsageBar";
 
 export function PromptLabWindow() {
   const [session, setSession]                   = useState<PromptLabSession | null>(null);
@@ -138,6 +139,18 @@ export function PromptLabWindow() {
         <span className="rounded bg-gray-700 px-3 py-1 text-xs text-gray-300">
           {challenge.category.replace(/([A-Z])/g, " $1").trim()}
         </span>
+
+        {/* == Prompt Size Bar (appears after first submission) == */}
+        {lastResult !== null && (
+          <div className="ml-auto w-72">
+            <TokenUsageBar
+              tokensUsed={lastResult.promptTokensUsed}
+              contextWindowSize={lastResult.contextWindowSize}
+              label="Prompt Size"
+              description="Tokens your prompt uses per simulation call. Unlike the paired programmer, this stays roughly constant between submissions."
+            />
+          </div>
+        )}
       </div>
 
       {/* == Split Screen Body == */}

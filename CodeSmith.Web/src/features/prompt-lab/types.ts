@@ -70,6 +70,8 @@ export interface AttemptResult {
   overallFeedback: string;
   results: TestInputResult[];
   submittedAt: string;
+  promptTokensUsed: number;  // Input tokens for one simulation call — representative prompt size
+  contextWindowSize: number; // Model context window limit (200,000 for all current models)
 }
 
 export interface PromptLabSession {

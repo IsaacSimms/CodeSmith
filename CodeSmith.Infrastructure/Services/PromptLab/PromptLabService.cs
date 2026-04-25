@@ -22,9 +22,10 @@ public class PromptLabService : IPromptLabService
     private readonly IPromptLabSessionStore _sessionStore;
     private readonly ILogger<PromptLabService> _logger;
 
-    private const string SimulationModel = "claude-haiku-4-5-20251001"; // Fast/cheap — called once per test input, in parallel
-    private const string EvaluationModel = "claude-sonnet-4-6";  // Accurate — called once per test input, in parallel
-    private const string GenerationModel  = "claude-sonnet-4-6";  // Quality generation — called once at session start
+    private const string SimulationModel  = "claude-haiku-4-5-20251001"; // Fast/cheap — called once per test input, in parallel
+    private const string EvaluationModel  = "claude-sonnet-4-6";         // Accurate — called once per test input, in parallel
+    private const string GenerationModel  = "claude-sonnet-4-6";         // Quality generation — called once at session start
+    private const int    ContextWindowSize = 200_000;                     // Token limit for all models used in this service
 
     public PromptLabService(
         IOptions<AnthropicOptions> options,
@@ -89,10 +90,12 @@ public class PromptLabService : IPromptLabService
         try
         {
             // == Phase 1: Simulate (parallel Haiku calls) == //
-            var simulationOutputs = await RunSimulationsAsync(challenge, testInputs, systemPromptContent, userMessageContent, ct);
+            var (simulationOutputs, promptTokens) = await RunSimulationsAsync(challenge, testInputs, systemPromptContent, userMessageContent, ct);
 
             // == Phase 2: Evaluate (parallel Sonnet calls) == //
             var attempt = await EvaluateAttemptAsync(challenge, testInputs, systemPromptContent, userMessageContent, simulationOutputs, ct);
+            attempt.PromptTokensUsed = promptTokens;
+            attempt.ContextWindowSize = ContextWindowSize;
 
             // == Persist result == //
             session.Attempts.Add(attempt);
@@ -110,7 +113,7 @@ public class PromptLabService : IPromptLabService
 
     // == Simulation Phase == //
 
-    private async Task<List<(TestInput Input, string Output)>> RunSimulationsAsync(
+    private async Task<(List<(TestInput Input, string Output)> Outputs, int PromptTokens)> RunSimulationsAsync(
         Challenge challenge,
         List<TestInput> testInputs,
         string systemPromptContent,
@@ -132,10 +135,14 @@ public class PromptLabService : IPromptLabService
             return SimulateOneInputAsync(input, effectiveSystemPrompt, message, ct);
         });
 
-        return [.. await Task.WhenAll(tasks)];
+        var results = await Task.WhenAll(tasks);
+
+        // All simulation calls share the same prompt — first result's input token count is representative
+        var promptTokens = results.Length > 0 ? results[0].InputTokens : 0;
+        return (results.Select(r => (r.Input, r.Output)).ToList(), promptTokens);
     }
 
-    private async Task<(TestInput Input, string Output)> SimulateOneInputAsync(
+    private async Task<(TestInput Input, string Output, int InputTokens)> SimulateOneInputAsync(
         TestInput input,
         string systemPrompt,
         string userMessage,
@@ -151,7 +158,7 @@ public class PromptLabService : IPromptLabService
 
         var output = ExtractTextContent(response);
         _logger.LogDebug("Simulation output for input {InputId}: {Output}", input.InputId, output);
-        return (input, output);
+        return (input, output, (int)response.Usage.InputTokens);
     }
 
     // Substitutes {input} in the user's template with the test input value.
@@ -168,16 +175,16 @@ public class PromptLabService : IPromptLabService
     {
         var sb = new StringBuilder();
         sb.AppendLine(challenge.LockedSystemPrompt);
-        if (!string.IsNullOrWhiteSpace(userSystemContent))
-        {
-            sb.AppendLine();
-            sb.AppendLine(userSystemContent);
-        }
-        // Hidden adversarial prompt is appended last so it influences model behavior
+        // Adversarial prompt comes before user additions so user instructions can override it
         if (!string.IsNullOrWhiteSpace(challenge.HiddenAdversarialPrompt))
         {
             sb.AppendLine();
             sb.AppendLine(challenge.HiddenAdversarialPrompt);
+        }
+        if (!string.IsNullOrWhiteSpace(userSystemContent))
+        {
+            sb.AppendLine();
+            sb.AppendLine(userSystemContent);
         }
         return sb.ToString().Trim();
     }

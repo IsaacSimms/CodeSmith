@@ -66,7 +66,7 @@ public class SessionController : ControllerBase
     {
         var response = await _anthropicService.GetGuidanceAsync(sessionId, request.Message, request.EditorContent, request.IsCodeAnalysis, ct);
 
-        return Ok(new ChatResponse { Response = response });
+        return Ok(response);
     }
 
     // == Run Code Endpoint == //

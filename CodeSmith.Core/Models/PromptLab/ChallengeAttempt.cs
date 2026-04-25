@@ -14,4 +14,6 @@ public class ChallengeAttempt
     public int MaxScore { get; set; }                                     // Maximum possible score for this attempt
     public string OverallFeedback { get; set; } = string.Empty;          // Evaluator's summary feedback for the whole attempt
     public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;         // UTC timestamp of the attempt
+    public int PromptTokensUsed { get; set; }                            // Input tokens consumed by one simulation call (representative prompt size)
+    public int ContextWindowSize { get; set; } = 200_000;                // Model context window limit in tokens
 }

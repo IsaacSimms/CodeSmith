@@ -65,6 +65,8 @@ export interface ChatRequest {
 
 export interface ChatResponse {
   response: string;
+  contextTokensUsed: number;  // Input tokens this turn — grows with conversation history
+  contextWindowSize: number;  // Model context window limit (200,000 for all current models)
 }
 
 export interface RunCodeRequest {

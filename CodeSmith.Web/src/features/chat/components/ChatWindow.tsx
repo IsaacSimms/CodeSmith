@@ -18,6 +18,8 @@ export function ChatWindow() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [code, setCode] = useState("");
   const [executionResult, setExecutionResult] = useState<RunCodeResponse | null>(null);
+  const [contextTokensUsed, setContextTokensUsed] = useState<number | null>(null);
+  const [contextWindowSize, setContextWindowSize] = useState(200_000);
 
   const createSession = useCreateSession();
   const sendMessage = useSendMessage();
@@ -32,6 +34,7 @@ export function ChatWindow() {
       setMessages([]);
       setCode("");
       setExecutionResult(null);
+      setContextTokensUsed(null);
     });
     return () => unregisterReset("pairedprogrammer");
   }, [registerReset, unregisterReset]);
@@ -90,6 +93,8 @@ export function ChatWindow() {
             timestamp: new Date().toISOString(),
           };
           setMessages((prev) => [...prev, assistantMessage]);
+          setContextTokensUsed(data.contextTokensUsed);
+          setContextWindowSize(data.contextWindowSize);
         },
       }
     );
@@ -181,6 +186,8 @@ export function ChatWindow() {
             messages={messages}
             onSendMessage={handleSendMessage}
             isSending={sendMessage.isPending}
+            contextTokensUsed={contextTokensUsed}
+            contextWindowSize={contextWindowSize}
           />
         </div>
       </div>

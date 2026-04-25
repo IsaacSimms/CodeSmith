@@ -3,15 +3,18 @@ import { useRef, useEffect } from "react";
 import type { ChatMessage } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
+import { TokenUsageBar } from "../../../components/TokenUsageBar";
 
 interface ChatPanelProps {
   problemDescription: string;
   messages: ChatMessage[];
   onSendMessage: (message: string) => void;
   isSending: boolean;
+  contextTokensUsed: number | null;  // null before first message is sent
+  contextWindowSize: number;
 }
 
-export function ChatPanel({ problemDescription, messages, onSendMessage, isSending }: ChatPanelProps) {
+export function ChatPanel({ problemDescription, messages, onSendMessage, isSending, contextTokensUsed, contextWindowSize }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -35,6 +38,16 @@ export function ChatPanel({ problemDescription, messages, onSendMessage, isSendi
           <div ref={messagesEndRef} />
         </div>
       </div>
+
+      {/* == Context Usage Bar (appears after first reply) == */}
+      {contextTokensUsed !== null && (
+        <TokenUsageBar
+          tokensUsed={contextTokensUsed}
+          contextWindowSize={contextWindowSize}
+          label="Context"
+          description="Conversation history sent to the AI this turn. Grows with each message."
+        />
+      )}
 
       {/* == Input == */}
       <ChatInput onSend={onSendMessage} isLoading={isSending} />

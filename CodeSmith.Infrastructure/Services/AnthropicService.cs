@@ -188,7 +188,9 @@ public class AnthropicService : IAnthropicService
         }
     }
 
-    public async Task<string> GetGuidanceAsync(Guid sessionId, string userMessage, string? editorContent = null, bool isCodeAnalysis = false, CancellationToken ct = default)
+    private const int ContextWindowSize = 200_000;  // Token limit for all models used in this service
+
+    public async Task<ChatResponse> GetGuidanceAsync(Guid sessionId, string userMessage, string? editorContent = null, bool isCodeAnalysis = false, CancellationToken ct = default)
     {
         var session = _sessionStore.Get(sessionId)
             ?? throw new SessionNotFoundException(sessionId);
@@ -243,7 +245,12 @@ public class AnthropicService : IAnthropicService
 
             _sessionStore.Set(session);
 
-            return responseText;
+            return new ChatResponse
+            {
+                Response           = responseText,
+                ContextTokensUsed  = (int)response.Usage.InputTokens,
+                ContextWindowSize  = ContextWindowSize
+            };
         }
         catch (Exception ex) when (ex is not AnthropicApiException and not SessionNotFoundException)
         {
