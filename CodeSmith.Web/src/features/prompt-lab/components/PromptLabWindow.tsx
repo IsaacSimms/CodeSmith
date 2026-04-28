@@ -135,6 +135,12 @@ export function PromptLabWindow() {
     <div className="flex h-full flex-col">
       {/* == Session Badge Row == */}
       <div className="flex items-center gap-2 border-b border-gray-700 px-6 py-2">
+        <button
+          onClick={() => { setSession(null); setChallenge(null); setLastResult(null); }}
+          className="text-xs text-gray-400 transition-colors hover:text-white"
+        >
+          ← Back
+        </button>
         <span className="rounded bg-gray-700 px-3 py-1 text-xs text-gray-300">{challenge.difficulty}</span>
         <span className="rounded bg-gray-700 px-3 py-1 text-xs text-gray-300">
           {challenge.category.replace(/([A-Z])/g, " $1").trim()}

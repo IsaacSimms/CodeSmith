@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { ChatWindow } from "./ChatWindow";
 import * as apiClient from "../../../lib/apiClient";
+import { NavigationProvider } from "../../../contexts/NavigationContext";
 import type { ProblemSession } from "../types";
 
 vi.mock("../../../lib/apiClient");
@@ -28,7 +29,9 @@ function renderChatWindow() {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <ChatWindow />
+        <NavigationProvider>
+          <ChatWindow />
+        </NavigationProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -132,7 +135,7 @@ describe("ChatWindow", () => {
     });
 
     it("shows user message immediately after sending", async () => {
-      vi.mocked(apiClient.sendMessage).mockResolvedValue({ response: "Try a for loop" });
+      vi.mocked(apiClient.sendMessage).mockResolvedValue({ response: "Try a for loop", contextTokensUsed: 100, contextWindowSize: 200_000 });
       const user = await renderWithSession();
 
       const input = screen.getByPlaceholderText("Ask for guidance...");
@@ -142,7 +145,7 @@ describe("ChatWindow", () => {
     });
 
     it("shows assistant response after sending a message", async () => {
-      vi.mocked(apiClient.sendMessage).mockResolvedValue({ response: "Try a for loop" });
+      vi.mocked(apiClient.sendMessage).mockResolvedValue({ response: "Try a for loop", contextTokensUsed: 100, contextWindowSize: 200_000 });
       const user = await renderWithSession();
 
       const input = screen.getByPlaceholderText("Ask for guidance...");

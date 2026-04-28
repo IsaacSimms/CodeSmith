@@ -20,7 +20,11 @@ interface UseResizableVerticalSplitResult {
 }
 
 // == Hook == //
-export function useResizableVerticalSplit(initialPercent = DEFAULT_TOP_PERCENT): UseResizableVerticalSplitResult {
+export function useResizableVerticalSplit(
+  initialPercent = DEFAULT_TOP_PERCENT,
+  minPercent = MIN_TOP_PERCENT,
+  maxPercent = MAX_TOP_PERCENT,
+): UseResizableVerticalSplitResult {
   const [topPercent, setTopPercent] = useState(initialPercent);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -45,7 +49,7 @@ export function useResizableVerticalSplit(initialPercent = DEFAULT_TOP_PERCENT):
       if (rect.height === 0) return;
 
       const rawPercent = ((event.clientY - rect.top) / rect.height) * 100;
-      const clamped = Math.min(MAX_TOP_PERCENT, Math.max(MIN_TOP_PERCENT, rawPercent));
+      const clamped = Math.min(maxPercent, Math.max(minPercent, rawPercent));
       setTopPercent(clamped);
     }
 
@@ -62,7 +66,7 @@ export function useResizableVerticalSplit(initialPercent = DEFAULT_TOP_PERCENT):
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
     };
-  }, [isDragging]);
+  }, [isDragging, minPercent, maxPercent]);
 
   return {
     topPercent,

@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { PromptLabWindow } from "./PromptLabWindow";
 import * as apiClient from "../../../lib/apiClient";
+import { NavigationProvider } from "../../../contexts/NavigationContext";
 import type { ChallengeResponse, PromptLabSession, AttemptResult } from "../types";
 
 vi.mock("../../../lib/apiClient");
@@ -41,16 +42,19 @@ const mockChallenge: ChallengeResponse = {
 const mockSession: PromptLabSession = {
   sessionId:   "session-abc",
   challengeId: "format-json-01",
+  testInputs:  mockChallenge.testInputs,
   attempts:    [],
   createdAt:   "2026-04-16T00:00:00Z",
 };
 
 const mockAttemptResult: AttemptResult = {
-  attemptId:       "attempt-1",
-  totalScore:      4,
-  maxScore:        5,
-  overallFeedback: "Good attempt.",
-  submittedAt:     "2026-04-16T00:01:00Z",
+  attemptId:        "attempt-1",
+  totalScore:       4,
+  maxScore:         5,
+  overallFeedback:  "Good attempt.",
+  submittedAt:      "2026-04-16T00:01:00Z",
+  promptTokensUsed: 500,
+  contextWindowSize: 200_000,
   results: [
     {
       inputId: "input-1", label: "Solar planets",
@@ -69,7 +73,9 @@ function renderPromptLabWindow() {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <PromptLabWindow />
+        <NavigationProvider>
+          <PromptLabWindow />
+        </NavigationProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );
