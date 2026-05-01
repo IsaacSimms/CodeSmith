@@ -16,4 +16,5 @@ public class ChallengeAttempt
     public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;         // UTC timestamp of the attempt
     public int PromptTokensUsed { get; set; }                            // Input tokens consumed by one simulation call (representative prompt size)
     public int ContextWindowSize { get; set; } = 200_000;                // Model context window limit in tokens
+    public string AdversarialHint { get; set; } = string.Empty;          // Revealed after submission — what the user was fighting against (for education)
 }

@@ -1,18 +1,17 @@
-// == AI Service Exception == //
+// == Anthropic API Exception == //
 namespace CodeSmith.Core.Exceptions;
 
 /// <summary>
-/// Thrown when an AI provider API returns an error or the SDK call fails.
-/// Wraps upstream exceptions with a clean, safe message.
+/// Thrown when the Anthropic API returns an error or an SDK call fails.
 /// </summary>
-public class AiServiceException : Exception
+public class AnthropicApiException : Exception
 {
-    public AiServiceException(string message)
+    public AnthropicApiException(string message)
         : base(message)
     {
     }
 
-    public AiServiceException(string message, Exception innerException)
+    public AnthropicApiException(string message, Exception innerException)
         : base(message, innerException)
     {
     }

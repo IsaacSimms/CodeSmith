@@ -130,7 +130,7 @@ public class PromptLabControllerTests
     public async Task SubmitAttempt_WithValidRequest_Returns200()
     {
         var sessionId = Guid.NewGuid();
-        var attempt = new ChallengeAttempt { TotalScore = 4, MaxScore = 5, OverallFeedback = "Good work." };
+        var attempt = new ChallengeAttempt { TotalScore = 4, MaxScore = 5, OverallFeedback = "Good work.", AdversarialHint = "You tend to be verbose." };
 
         _service
             .SubmitAttemptAsync(sessionId, "be concise", "list planets", Arg.Any<CancellationToken>())
@@ -146,6 +146,7 @@ public class PromptLabControllerTests
         Assert.Equal(4, dto.TotalScore);
         Assert.Equal(5, dto.MaxScore);
         Assert.Equal("Good work.", dto.OverallFeedback);
+        Assert.Equal("You tend to be verbose.", dto.AdversarialHint);
     }
 
     [Fact]

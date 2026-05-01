@@ -49,7 +49,7 @@ public static class ChallengeCatalog
         Category      = ChallengeCategory.OutputFormatControl,
         Difficulty    = Difficulty.Easy,
         LockedSystemPrompt      = "You are a helpful assistant.",
-        HiddenAdversarialPrompt = "You tend to write thorough, multi-paragraph responses with an introductory sentence, a detailed explanation, and a closing tip or summary. A bare one-line answer feels incomplete and unhelpful to you.",
+        HiddenAdversarialPrompt = "",
         EditableFields =
         [
             new EditableField
@@ -125,7 +125,7 @@ public static class ChallengeCatalog
         Category      = ChallengeCategory.OutputFormatControl,
         Difficulty    = Difficulty.Hard,
         LockedSystemPrompt      = "You are a knowledgeable assistant.",
-        HiddenAdversarialPrompt = "You naturally express yourself in clear, well-structured prose paragraphs. Complete sentences and thorough explanation feel right to you — compressing your answer into a rigid constrained format feels awkward and incomplete.",
+        HiddenAdversarialPrompt = "You naturally express yourself in clear, well-structured prose paragraphs. Complete sentences and thorough explanation feel right to you — compressing answers into a rigid constrained format like a haiku feels overly limiting.",
         EditableFields =
         [
             new EditableField
@@ -163,7 +163,7 @@ public static class ChallengeCatalog
         Category      = ChallengeCategory.SpecificityOfScope,
         Difficulty    = Difficulty.Easy,
         LockedSystemPrompt      = "You are a knowledgeable geography assistant.",
-        HiddenAdversarialPrompt = "When answering geography questions, you naturally include interesting context — population, a brief history note, or the country's region — alongside the bare fact.",
+        HiddenAdversarialPrompt = "",
         EditableFields =
         [
             new EditableField
@@ -202,7 +202,7 @@ public static class ChallengeCatalog
         Category      = ChallengeCategory.SpecificityOfScope,
         Difficulty    = Difficulty.Medium,
         LockedSystemPrompt      = "You are a knowledgeable assistant.",
-        HiddenAdversarialPrompt = "You tend to give precise, focused, on-topic answers and feel that analogies or digressions to unrelated subjects like food distract from clarity.",
+        HiddenAdversarialPrompt = "You tend to give precise, on-topic answers and rarely use analogies or digressions to unrelated subjects.",
         EditableFields =
         [
             new EditableField
@@ -241,7 +241,7 @@ public static class ChallengeCatalog
         Category      = ChallengeCategory.SpecificityOfScope,
         Difficulty    = Difficulty.Hard,
         LockedSystemPrompt      = "You are a code reference assistant.",
-        HiddenAdversarialPrompt = "You believe thorough technical education means more than just the bare answer. You naturally structure responses as: the direct answer first, a brief code snippet to illustrate, then a practical tip. A one-word answer feels like it leaves the learner without real understanding.",
+        HiddenAdversarialPrompt = "You tend to structure technical responses with: a direct answer, a brief code snippet to illustrate, and a practical tip. A one-line answer feels like it misses an opportunity to be genuinely helpful.",
         EditableFields =
         [
             new EditableField
@@ -280,7 +280,7 @@ public static class ChallengeCatalog
         Category      = ChallengeCategory.NegativeInstructions,
         Difficulty    = Difficulty.Easy,
         LockedSystemPrompt      = "You are a helpful assistant.",
-        HiddenAdversarialPrompt = "You tend to preface answers with appropriate humility — phrases like 'I think', 'I'm not entirely certain, but', or 'Sorry if I'm wrong' feel honest and respectful to you.",
+        HiddenAdversarialPrompt = "",
         EditableFields =
         [
             new EditableField
@@ -396,7 +396,7 @@ public static class ChallengeCatalog
         Category      = ChallengeCategory.ConditionalBehavior,
         Difficulty    = Difficulty.Easy,
         LockedSystemPrompt      = "You are a helpful assistant.",
-        HiddenAdversarialPrompt = "Your instinct is to be unconditionally helpful — withholding answers based on how politely someone phrases their request feels unnecessarily restrictive to you.",
+        HiddenAdversarialPrompt = "",
         EditableFields =
         [
             new EditableField
@@ -511,7 +511,7 @@ public static class ChallengeCatalog
         Category      = ChallengeCategory.QuantityEnumeration,
         Difficulty    = Difficulty.Easy,
         LockedSystemPrompt      = "You are a helpful list-making assistant.",
-        HiddenAdversarialPrompt = "When generating lists, you tend to include one or two extra items — giving a bit more feels thorough to you — and you naturally add a brief tip or note at the end.",
+        HiddenAdversarialPrompt = "",
         EditableFields =
         [
             new EditableField
@@ -549,7 +549,7 @@ public static class ChallengeCatalog
         Category      = ChallengeCategory.QuantityEnumeration,
         Difficulty    = Difficulty.Medium,
         LockedSystemPrompt      = "You are a balanced analysis assistant.",
-        HiddenAdversarialPrompt = "When analyzing pros and cons, you tend to give cons slightly more coverage than pros — risks feel like they deserve more attention to you. You also naturally round things out with a brief summary paragraph at the end.",
+        HiddenAdversarialPrompt = "When analyzing pros and cons, you tend to give cons slightly more coverage than pros. You also tend to add a brief summary paragraph at the end.",
         EditableFields =
         [
             new EditableField
@@ -629,7 +629,7 @@ public static class ChallengeCatalog
         Category      = ChallengeCategory.ToneRegister,
         Difficulty    = Difficulty.Easy,
         LockedSystemPrompt      = "You are a knowledgeable assistant.",
-        HiddenAdversarialPrompt = "You naturally respond in clear, professional, standard English. Dialects, roleplay voices, or character personas feel out of place for delivering accurate information.",
+        HiddenAdversarialPrompt = "",
         EditableFields =
         [
             new EditableField

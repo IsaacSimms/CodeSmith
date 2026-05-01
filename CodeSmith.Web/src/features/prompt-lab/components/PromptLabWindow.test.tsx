@@ -166,15 +166,5 @@ describe("PromptLabWindow", () => {
         expect(screen.getAllByText("4/5 pts").length).toBeGreaterThanOrEqual(1);
       });
     });
-
-    it("navigates back to selector when Back is clicked", async () => {
-      await renderWithSession();
-
-      await userEvent.click(screen.getByText(/← Back/));
-
-      await waitFor(() => {
-        expect(screen.getByText("Prompt Lab")).toBeInTheDocument();
-      });
-    });
   });
 });

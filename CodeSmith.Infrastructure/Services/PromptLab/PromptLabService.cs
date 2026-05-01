@@ -201,6 +201,7 @@ public class PromptLabService : IPromptLabService
             UserMessageContent  = userMessageContent,
             MaxScore            = testInputs.Count * challenge.Rubric.Sum(r => r.MaxPoints),
             Results             = [.. inputResults],
+            AdversarialHint     = challenge.HiddenAdversarialPrompt ?? "",
         };
 
         attempt.TotalScore      = attempt.Results.Sum(r => r.CriterionScores.Sum(s => s.Points));

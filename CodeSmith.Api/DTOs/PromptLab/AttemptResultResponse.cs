@@ -16,17 +16,19 @@ public class AttemptResultResponse
     public DateTime SubmittedAt { get; set; }
     public int PromptTokensUsed { get; set; }    // Input tokens for one simulation call — representative prompt size
     public int ContextWindowSize { get; set; }   // Model context window limit in tokens
+    public string AdversarialHint { get; set; } = string.Empty; // Revealed after submission for educational value
 
     public static AttemptResultResponse FromAttempt(ChallengeAttempt attempt) => new()
     {
-        AttemptId        = attempt.AttemptId,
-        TotalScore       = attempt.TotalScore,
-        MaxScore         = attempt.MaxScore,
-        OverallFeedback  = attempt.OverallFeedback,
-        Results          = attempt.Results.Select(TestInputResultDto.From).ToList(),
-        SubmittedAt      = attempt.SubmittedAt,
-        PromptTokensUsed = attempt.PromptTokensUsed,
-        ContextWindowSize = attempt.ContextWindowSize
+        AttemptId         = attempt.AttemptId,
+        TotalScore        = attempt.TotalScore,
+        MaxScore          = attempt.MaxScore,
+        OverallFeedback   = attempt.OverallFeedback,
+        Results           = attempt.Results.Select(TestInputResultDto.From).ToList(),
+        SubmittedAt       = attempt.SubmittedAt,
+        PromptTokensUsed  = attempt.PromptTokensUsed,
+        ContextWindowSize = attempt.ContextWindowSize,
+        AdversarialHint   = attempt.AdversarialHint
     };
 }
 

@@ -21,8 +21,8 @@ export function TokenUsageBar({ tokensUsed, contextWindowSize, label, descriptio
       {/* == Hover Hit Area + Tooltip Anchor == */}
       <div className="group relative cursor-default px-4 py-2">
 
-        {/* == Hover Tooltip (floats above the bar) == */}
-        <div className="pointer-events-none absolute bottom-full left-0 right-0 z-10 mb-1 rounded-md border border-gray-700 bg-gray-800 px-3 py-2 shadow-lg opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+        {/* == Hover Tooltip (floats below the bar) == */}
+        <div className="pointer-events-none absolute top-full left-0 right-0 z-10 mt-1 rounded-md border border-gray-700 bg-gray-800 px-3 py-2 shadow-lg opacity-0 transition-opacity duration-200 group-hover:opacity-100">
           <div className="mb-1 flex items-baseline justify-between">
             <span className="text-xs font-semibold text-gray-400">{label}</span>
             <span className="font-mono text-xs tabular-nums text-gray-500">
