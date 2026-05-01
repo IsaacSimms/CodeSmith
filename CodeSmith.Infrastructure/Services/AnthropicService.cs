@@ -138,8 +138,16 @@ public class AnthropicService : IAnthropicService
 
     public async Task<ProblemSession> GenerateProblemAsync(Difficulty difficulty, Language language, CancellationToken ct = default)
     {
+        return await GenerateProblemAsyncInternal(difficulty, language, retryCount: 0, ct);
+    }
+
+    private async Task<ProblemSession> GenerateProblemAsyncInternal(Difficulty difficulty, Language language, int retryCount, CancellationToken ct = default)
+    {
         var languageLabel = GetLanguageLabel(language);
-        _logger.LogInformation("Generating {Difficulty} {Language} problem", difficulty, languageLabel);
+        var maxRetries = 2;
+
+        if (retryCount == 0)
+            _logger.LogInformation("Generating {Difficulty} {Language} problem", difficulty, languageLabel);
 
         try
         {
@@ -148,25 +156,63 @@ public class AnthropicService : IAnthropicService
 
             var systemPrompt = string.Format(ProblemGenerationSystemPromptTemplate, languageLabel);
 
-            _logger.LogInformation("Generating problem with category '{Category}' and angle '{Angle}'", category, angle);
+            if (retryCount == 0)
+                _logger.LogInformation("Generating problem with category '{Category}' and angle '{Angle}'", category, angle);
+            else
+                _logger.LogInformation("Regenerating problem (Attempt {AttemptNumber}/{MaxRetries})", retryCount + 1, maxRetries + 1);
 
             var response = await _client.Messages.Create(new MessageCreateParams
             {
                 Model = ProblemModel,
-                MaxTokens = 900,
+                MaxTokens = 2000,
                 System = systemPrompt,
                 Messages =
                 [
                     new()
                     {
                         Role = Role.User,
-                        Content = $"Generate a {difficulty} difficulty {languageLabel} coding problem. Topic area: {category}. Approach: {angle}."
+                        Content = retryCount > 0
+                            ? $"Generate a {difficulty} difficulty {languageLabel} coding problem. Topic area: {category}. Approach: {angle}. Note: A previous attempt was cut off due to token limits. Please generate a complete problem."
+                            : $"Generate a {difficulty} difficulty {languageLabel} coding problem. Topic area: {category}. Approach: {angle}."
                     }
                 ]
             }, ct);
 
             var responseText = ExtractTextContent(response);
             var (description, starterCode) = ParseProblemResponse(responseText);
+
+            // Detect truncation: if stop_reason is max_tokens, the response was cut off
+            if (response.StopReason == "max_tokens")
+            {
+                _logger.LogWarning("Problem generation hit max_tokens limit at attempt {AttemptNumber}/{MaxRetries}. Response was truncated.", retryCount + 1, maxRetries + 1);
+
+                if (retryCount < maxRetries)
+                {
+                    _logger.LogInformation("Retrying problem generation...");
+                    return await GenerateProblemAsyncInternal(difficulty, language, retryCount + 1, ct);
+                }
+
+                // Out of retries
+                _logger.LogError("Problem generation failed after {MaxRetries} retry attempts. The model consistently exceeded token limits.", maxRetries);
+                throw new AnthropicApiException(
+                    "Failed to generate a complete coding problem after multiple attempts. The problem description or starter code was too large to generate. Please try again or select a different difficulty level.");
+            }
+
+            // Validate that both sections were properly parsed
+            if (string.IsNullOrWhiteSpace(description) || string.IsNullOrWhiteSpace(starterCode))
+            {
+                _logger.LogWarning("Problem generation produced incomplete output: description={DescriptionLength} chars, code={CodeLength} chars", description.Length, starterCode.Length);
+
+                if (retryCount < maxRetries)
+                {
+                    _logger.LogInformation("Retrying problem generation due to incomplete output...");
+                    return await GenerateProblemAsyncInternal(difficulty, language, retryCount + 1, ct);
+                }
+
+                _logger.LogError("Problem generation produced incomplete output after {MaxRetries} retry attempts.", maxRetries);
+                throw new AnthropicApiException(
+                    "Failed to generate a complete coding problem after multiple attempts. The response was malformed or incomplete. Please try again.");
+            }
 
             var session = new ProblemSession
             {
