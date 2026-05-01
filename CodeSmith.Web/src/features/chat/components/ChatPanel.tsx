@@ -30,7 +30,7 @@ export function ChatPanel({ problemDescription, messages, onSendMessage, isSendi
 
         {/* == Problem Description == */}
         <div
-          className="overflow-y-auto border-b border-gray-900 bg-gray-800 px-4 py-3"
+          className="overflow-y-auto border-b border-gray-900 bg-gray-900 px-4 py-3"
           style={{ height: `${topPercent}%` }}
         >
           <h2 className="mb-1 text-sm font-semibold text-gray-400">Problem</h2>

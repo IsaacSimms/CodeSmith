@@ -11,7 +11,7 @@ export function TerminalPanel({ result, isRunning, onClear }: TerminalPanelProps
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* == Panel Header == */}
-      <div className="flex items-center justify-between border-b border-gray-900 bg-gray-800 px-4 py-1.5">
+      <div className="flex items-center justify-between border-b border-gray-900 bg-gray-900 px-4 py-1.5">
         <div className="flex items-center gap-2">
           <h3 className="text-xs font-semibold text-gray-400">Output</h3>
 

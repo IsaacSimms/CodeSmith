@@ -24,7 +24,7 @@ export function CodeBlock({ language, children }: CodeBlockProps) {
   return (
     <div className="my-2 overflow-hidden rounded-lg border border-gray-600">
       {/* Header bar */}
-      <div className="flex items-center justify-between bg-gray-800 px-4 py-1.5">
+      <div className="flex items-center justify-between bg-gray-900 px-4 py-1.5">
         <span className="font-mono text-xs text-gray-400">{displayLanguage}</span>
         <button
           onClick={handleCopy}

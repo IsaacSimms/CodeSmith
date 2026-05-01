@@ -5,21 +5,24 @@ using CodeSmith.Core.Enums;
 using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
+using CodeSmith.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 
 namespace CodeSmith.Tests.Api;
 
 public class SessionControllerTests
 {
-    private readonly IAnthropicService _anthropicService = Substitute.For<IAnthropicService>();
+    private readonly ITutoringService _tutoringService = Substitute.For<ITutoringService>();
     private readonly ICodeExecutionService _codeExecutionService = Substitute.For<ICodeExecutionService>();
     private readonly ISessionStore _sessionStore = Substitute.For<ISessionStore>();
     private readonly SessionController _controller;
 
     public SessionControllerTests()
     {
-        _controller = new SessionController(_anthropicService, _codeExecutionService, _sessionStore);
+        var aiOptions = Options.Create(new AiOptions { ActiveProvider = "Anthropic" });
+        _controller = new SessionController(_tutoringService, _codeExecutionService, _sessionStore, aiOptions);
     }
 
     // == CreateSession Tests == //
@@ -35,8 +38,8 @@ public class SessionControllerTests
             StarterCode = "// stub"
         };
 
-        _anthropicService
-            .GenerateProblemAsync(Difficulty.Easy, Language.CSharp, Arg.Any<CancellationToken>())
+        _tutoringService
+            .GenerateProblemAsync(Difficulty.Easy, Language.CSharp, AiProvider.Anthropic, Arg.Any<CancellationToken>())
             .Returns(expectedSession);
 
         var result = await _controller.CreateSession(
@@ -83,8 +86,8 @@ public class SessionControllerTests
     [InlineData(Language.TypeScript)]
     public async Task CreateSession_ForwardsLanguageToService(Language language)
     {
-        _anthropicService
-            .GenerateProblemAsync(Difficulty.Medium, language, Arg.Any<CancellationToken>())
+        _tutoringService
+            .GenerateProblemAsync(Difficulty.Medium, language, AiProvider.Anthropic, Arg.Any<CancellationToken>())
             .Returns(new ProblemSession { Difficulty = Difficulty.Medium, Language = language });
 
         var result = await _controller.CreateSession(
@@ -92,7 +95,7 @@ public class SessionControllerTests
             CancellationToken.None);
 
         Assert.IsType<CreatedAtActionResult>(result);
-        await _anthropicService.Received(1).GenerateProblemAsync(Difficulty.Medium, language, Arg.Any<CancellationToken>());
+        await _tutoringService.Received(1).GenerateProblemAsync(Difficulty.Medium, language, AiProvider.Anthropic, Arg.Any<CancellationToken>());
     }
 
     // == Chat Tests == //
@@ -101,7 +104,7 @@ public class SessionControllerTests
     public async Task Chat_WithValidRequest_Returns200()
     {
         var sessionId = Guid.NewGuid();
-        _anthropicService
+        _tutoringService
             .GetGuidanceAsync(sessionId, "help", "int x = 1;", Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(new ChatResponse { Response = "Here's a hint...", ContextTokensUsed = 1234, ContextWindowSize = 200_000 });
 
@@ -121,7 +124,7 @@ public class SessionControllerTests
     public async Task Chat_WithNullEditorContent_PassesNullToService()
     {
         var sessionId = Guid.NewGuid();
-        _anthropicService
+        _tutoringService
             .GetGuidanceAsync(sessionId, "help", null, Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(new ChatResponse { Response = "Here's a hint..." });
 
@@ -132,7 +135,7 @@ public class SessionControllerTests
 
         var okResult = Assert.IsType<OkObjectResult>(result);
         Assert.IsType<ChatResponse>(okResult.Value);
-        await _anthropicService.Received(1).GetGuidanceAsync(sessionId, "help", null, Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        await _tutoringService.Received(1).GetGuidanceAsync(sessionId, "help", null, Arg.Any<bool>(), Arg.Any<CancellationToken>());
     }
 
     // == RunCode Tests == //

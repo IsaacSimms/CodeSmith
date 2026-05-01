@@ -81,7 +81,7 @@ function ChallengeCard({
     <button
       onClick={() => onSelect(challenge.challengeId)}
       disabled={isStarting}
-      className="w-full rounded-lg border border-gray-700 bg-gray-800 px-4 py-3 text-left transition-colors hover:border-gray-500 hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+      className="w-full rounded-lg border border-gray-700 bg-gray-900 px-4 py-3 text-left transition-colors hover:border-gray-500 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
     >
       <div className="flex items-start justify-between gap-2">
         <span className="text-sm font-medium text-gray-100">{challenge.title}</span>

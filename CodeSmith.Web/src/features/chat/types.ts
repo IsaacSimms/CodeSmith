@@ -4,6 +4,8 @@ export type Difficulty = "Easy" | "Medium" | "Hard";
 
 export type Language = "CSharp" | "Cpp" | "Go" | "Rust" | "Python" | "Java" | "TypeScript";
 
+export type AiProvider = "Anthropic" | "OpenAi";
+
 export type MessageRole = "User" | "Assistant";
 
 // == Language Display Labels == //
@@ -55,6 +57,12 @@ export interface ProblemSession {
 export interface CreateSessionRequest {
   difficulty: Difficulty;
   language: Language;
+  provider?: AiProvider;  // Optional — omit to use the server's configured default
+}
+
+export interface ProvidersResponse {
+  activeProvider: string;
+  availableProviders: string[];
 }
 
 export interface ChatRequest {

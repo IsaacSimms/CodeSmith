@@ -34,10 +34,10 @@ public class ExceptionHandlingMiddlewareTests
     }
 
     [Fact]
-    public async Task AnthropicApiException_Returns502()
+    public async Task AiServiceException_Returns502()
     {
         var middleware = CreateMiddleware(_ =>
-            throw new AnthropicApiException("API error"));
+            throw new AiServiceException("API error"));
 
         var context = new DefaultHttpContext();
         context.Response.Body = new MemoryStream();

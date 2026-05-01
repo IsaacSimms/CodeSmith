@@ -11,6 +11,7 @@ public class ProblemSession
     public Guid SessionId { get; set; } = Guid.NewGuid();          // Unique identifier for this session
     public Difficulty Difficulty { get; set; }                      // The difficulty level of the problem
     public Language Language { get; set; }                          // The programming language for this session
+    public AiProvider Provider { get; set; }                        // The AI provider used to generate this session's problem and guidance
     public string ProblemDescription { get; set; } = string.Empty;  // The problem description presented to the user
     public string StarterCode { get; set; } = string.Empty;         // The starter code template for the problem
     public List<ChatMessage> Messages { get; set; } = [];           // The conversation history for this session

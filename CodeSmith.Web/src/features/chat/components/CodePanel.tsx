@@ -40,7 +40,7 @@ export function CodePanel({
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* == Panel Header == */}
-      <div className="flex items-center justify-between border-b border-gray-900 bg-gray-800 px-4 py-2">
+      <div className="flex items-center justify-between border-b border-gray-900 bg-gray-900 px-4 py-2">
         <h2 className="text-sm font-semibold text-gray-400">Code</h2>
         <div className="flex items-center gap-2">
           <button

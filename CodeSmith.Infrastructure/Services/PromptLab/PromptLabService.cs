@@ -1,14 +1,11 @@
 // == Prompt Lab Service == //
 using System.Text;
 using System.Text.Json;
-using Anthropic;
-using Anthropic.Models.Messages;
 using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
+using CodeSmith.Core.Models;
 using CodeSmith.Core.Models.PromptLab;
-using CodeSmith.Infrastructure.Configuration;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace CodeSmith.Infrastructure.Services.PromptLab;
 
@@ -18,21 +15,20 @@ namespace CodeSmith.Infrastructure.Services.PromptLab;
 /// </summary>
 public class PromptLabService : IPromptLabService
 {
-    private readonly AnthropicClient _client;
+    private readonly ILlmService _llmService;
     private readonly IPromptLabSessionStore _sessionStore;
     private readonly ILogger<PromptLabService> _logger;
 
-    private const string SimulationModel  = "claude-haiku-4-5-20251001"; // Fast/cheap — called once per test input, in parallel
-    private const string EvaluationModel  = "claude-sonnet-4-6";         // Accurate — called once per test input, in parallel
-    private const string GenerationModel  = "claude-sonnet-4-6";         // Quality generation — called once at session start
-    private const int    ContextWindowSize = 200_000;                     // Token limit for all models used in this service
+    private const int SimulationMaxTokens  = 512;  // Per-input simulation response budget
+    private const int EvaluationMaxTokens  = 512;  // Per-input evaluation (JSON rubric scoring) budget
+    private const int GenerationMaxTokens  = 600;  // Test input generation (JSON array of 4 inputs) budget
 
     public PromptLabService(
-        IOptions<AnthropicOptions> options,
+        ILlmService llmService,
         IPromptLabSessionStore sessionStore,
         ILogger<PromptLabService> logger)
     {
-        _client       = new AnthropicClient { ApiKey = options.Value.ApiKey };
+        _llmService   = llmService;
         _sessionStore = sessionStore;
         _logger       = logger;
     }
@@ -89,13 +85,13 @@ public class PromptLabService : IPromptLabService
 
         try
         {
-            // == Phase 1: Simulate (parallel Haiku calls) == //
-            var (simulationOutputs, promptTokens) = await RunSimulationsAsync(challenge, testInputs, systemPromptContent, userMessageContent, ct);
+            // == Phase 1: Simulate (parallel fast-model calls) == //
+            var (simulationOutputs, promptTokens, contextWindowSize) = await RunSimulationsAsync(challenge, testInputs, systemPromptContent, userMessageContent, ct);
 
-            // == Phase 2: Evaluate (parallel Sonnet calls) == //
+            // == Phase 2: Evaluate (parallel accurate-model calls) == //
             var attempt = await EvaluateAttemptAsync(challenge, testInputs, systemPromptContent, userMessageContent, simulationOutputs, ct);
             attempt.PromptTokensUsed = promptTokens;
-            attempt.ContextWindowSize = ContextWindowSize;
+            attempt.ContextWindowSize = contextWindowSize;
 
             // == Persist result == //
             session.Attempts.Add(attempt);
@@ -104,16 +100,16 @@ public class PromptLabService : IPromptLabService
             _logger.LogInformation("Attempt complete for session {SessionId}: {Score}/{Max}", sessionId, attempt.TotalScore, attempt.MaxScore);
             return attempt;
         }
-        catch (Exception ex) when (ex is not AnthropicApiException and not SessionNotFoundException and not ChallengeNotFoundException)
+        catch (Exception ex) when (ex is not AiServiceException and not SessionNotFoundException and not ChallengeNotFoundException)
         {
             _logger.LogError(ex, "Failed to process attempt for session {SessionId}", sessionId);
-            throw new AnthropicApiException("Failed to evaluate prompt attempt. Please try again.", ex);
+            throw new AiServiceException("Failed to evaluate prompt attempt. Please try again.", ex);
         }
     }
 
     // == Simulation Phase == //
 
-    private async Task<(List<(TestInput Input, string Output)> Outputs, int PromptTokens)> RunSimulationsAsync(
+    private async Task<(List<(TestInput Input, string Output)> Outputs, int PromptTokens, int ContextWindowSize)> RunSimulationsAsync(
         Challenge challenge,
         List<TestInput> testInputs,
         string systemPromptContent,
@@ -139,26 +135,20 @@ public class PromptLabService : IPromptLabService
 
         // All simulation calls share the same prompt — first result's input token count is representative
         var promptTokens = results.Length > 0 ? results[0].InputTokens : 0;
-        return (results.Select(r => (r.Input, r.Output)).ToList(), promptTokens);
+        var contextWindowSize = results.Length > 0 ? results[0].ContextWindowSize : 0;
+        return (results.Select(r => (r.Input, r.Output)).ToList(), promptTokens, contextWindowSize);
     }
 
-    private async Task<(TestInput Input, string Output, int InputTokens)> SimulateOneInputAsync(
+    private async Task<(TestInput Input, string Output, int InputTokens, int ContextWindowSize)> SimulateOneInputAsync(
         TestInput input,
         string systemPrompt,
         string userMessage,
         CancellationToken ct)
     {
-        var response = await _client.Messages.Create(new MessageCreateParams
-        {
-            Model     = SimulationModel,
-            MaxTokens = 512,
-            System    = systemPrompt,
-            Messages  = [new() { Role = Role.User, Content = userMessage }]
-        }, ct);
+        var response = await _llmService.SimulatePromptAsync(systemPrompt, userMessage, SimulationMaxTokens, ct);
 
-        var output = ExtractTextContent(response);
-        _logger.LogDebug("Simulation output for input {InputId}: {Output}", input.InputId, output);
-        return (input, output, (int)response.Usage.InputTokens);
+        _logger.LogDebug("Simulation output for input {InputId}: {Output}", input.InputId, response.Content);
+        return (input, response.Content, response.InputTokensUsed, response.ContextWindowSize);
     }
 
     // Substitutes {input} in the user's template with the test input value.
@@ -224,26 +214,19 @@ public class PromptLabService : IPromptLabService
         string simulationOutput,
         CancellationToken ct)
     {
+        var systemPrompt = """
+            You are an expert prompt engineering evaluator. Score this single model output against the rubric.
+            You MUST respond with ONLY valid JSON matching this exact schema — no preamble, no explanation:
+            {
+              "passed": true,
+              "criterionScores": [{ "criterionId": "string", "points": 0 }],
+              "feedback": "string"
+            }
+            """;
         var prompt = BuildSingleInputEvaluationPrompt(challenge, input, simulationOutput);
 
-        var response = await _client.Messages.Create(new MessageCreateParams
-        {
-            Model     = EvaluationModel,
-            MaxTokens = 512,
-            System    = """
-                You are an expert prompt engineering evaluator. Score this single model output against the rubric.
-                You MUST respond with ONLY valid JSON matching this exact schema — no preamble, no explanation:
-                {
-                  "passed": true,
-                  "criterionScores": [{ "criterionId": "string", "points": 0 }],
-                  "feedback": "string"
-                }
-                """,
-            Messages = [new() { Role = Role.User, Content = prompt }]
-        }, ct);
-
-        var json = ExtractTextContent(response);
-        return ParseSingleInputResult(challenge, input, simulationOutput, json);
+        var response = await _llmService.EvaluateResponseAsync(systemPrompt, prompt, EvaluationMaxTokens, ct);
+        return ParseSingleInputResult(challenge, input, simulationOutput, response.Content);
     }
 
     private static string BuildSingleInputEvaluationPrompt(Challenge challenge, TestInput input, string output)
@@ -372,15 +355,10 @@ public class PromptLabService : IPromptLabService
             No preamble, no markdown fences, no explanation — JSON array only.
             """;
 
-        var response = await _client.Messages.Create(new MessageCreateParams
-        {
-            Model     = GenerationModel,
-            MaxTokens = 600,
-            System    = "You generate test inputs for prompt engineering challenges. Return only a valid JSON array as specified — no preamble.",
-            Messages  = [new() { Role = Role.User, Content = prompt }]
-        }, ct);
+        const string generationSystemPrompt = "You generate test inputs for prompt engineering challenges. Return only a valid JSON array as specified — no preamble.";
+        var response = await _llmService.GenerateTestInputsAsync(generationSystemPrompt, prompt, GenerationMaxTokens, ct);
 
-        var json  = ExtractJson(ExtractTextContent(response));
+        var json  = ExtractJson(response.Content);
         var items = System.Text.Json.JsonSerializer.Deserialize<List<GeneratedTestInputDto>>(json)
             ?? throw new InvalidOperationException("Generation returned null JSON.");
 
@@ -410,17 +388,6 @@ public class PromptLabService : IPromptLabService
     }
 
     // == Helpers == //
-
-    private static string ExtractTextContent(Message response)  // Extracts text content from an Anthropic message response
-    {
-        var texts = new List<string>();
-        foreach (var block in response.Content)
-        {
-            if (block.TryPickText(out var textBlock))
-                texts.Add(textBlock.Text);
-        }
-        return string.Join("", texts);
-    }
 
     private static string ExtractJson(string text)  // Strips markdown code fences if the model wraps JSON despite instructions
     {

@@ -6,6 +6,7 @@ import type {
   ChatResponse,
   RunCodeRequest,
   RunCodeResponse,
+  ProvidersResponse,
   ApiError,
 } from "../features/chat/types";
 import type {
@@ -43,6 +44,10 @@ async function request<T>(url: string, options: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+export function getProviders(): Promise<ProvidersResponse> {
+  return request<ProvidersResponse>("/api/providers", { method: "GET" });
 }
 
 export function createSession(body: CreateSessionRequest): Promise<ProblemSession> {

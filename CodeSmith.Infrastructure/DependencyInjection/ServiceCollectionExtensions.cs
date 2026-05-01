@@ -1,4 +1,5 @@
 // == Infrastructure DI Registration == //
+using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Infrastructure.Configuration;
 using CodeSmith.Infrastructure.Services;
@@ -21,16 +22,29 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration)
     {
         // Bind configuration
-        services.Configure<AnthropicOptions>(
-            configuration.GetSection(AnthropicOptions.SectionName));
-        services.Configure<CodeExecutionOptions>(
-            configuration.GetSection(CodeExecutionOptions.SectionName));
+        services.Configure<AnthropicOptions>(configuration.GetSection(AnthropicOptions.SectionName));
+        services.Configure<OpenAiOptions>(configuration.GetSection(OpenAiOptions.SectionName));
+        services.Configure<AiOptions>(configuration.GetSection(AiOptions.SectionName));
+        services.Configure<CodeExecutionOptions>(configuration.GetSection(CodeExecutionOptions.SectionName));
 
         // Register session store as singleton (thread-safe ConcurrentDictionary)
         services.AddSingleton<ISessionStore, InMemorySessionStore>();
 
-        // Register Anthropic service as scoped
-        services.AddScoped<IAnthropicService, AnthropicService>();
+        // == LLM Provider Selection == //
+        // Both provider implementations are registered so their options are validated at startup.
+        // Only the active provider is bound to ILlmService — the other is never instantiated per-request.
+        services.AddScoped<AnthropicLlmService>();
+        services.AddScoped<OpenAiLlmService>();
+
+        var activeProvider = configuration.GetSection(AiOptions.SectionName)[nameof(AiOptions.ActiveProvider)] ?? "Anthropic";
+
+        if (Enum.TryParse<AiProvider>(activeProvider, ignoreCase: true, out var provider) && provider == AiProvider.OpenAi)
+            services.AddScoped<ILlmService>(sp => sp.GetRequiredService<OpenAiLlmService>());
+        else
+            services.AddScoped<ILlmService>(sp => sp.GetRequiredService<AnthropicLlmService>());
+
+        // TutoringService is session-aware and delegates completions to ILlmService
+        services.AddScoped<ITutoringService, TutoringService>();
 
         // Register Prompt Lab services
         services.AddSingleton<IPromptLabSessionStore, InMemoryPromptLabSessionStore>();

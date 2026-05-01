@@ -6,7 +6,7 @@ export function Layout() {
   const { resetAll } = useNavigationContext();
 
   return (
-    <div className="flex h-screen flex-col bg-gray-900">
+    <div className="flex h-screen flex-col bg-gray-950">
       {/* == Top Nav == */}
       <nav className="flex items-center gap-6 border-b border-gray-700 px-6 py-3">
         <Link

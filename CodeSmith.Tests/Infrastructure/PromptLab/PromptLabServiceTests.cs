@@ -2,10 +2,8 @@
 using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models.PromptLab;
-using CodeSmith.Infrastructure.Configuration;
 using CodeSmith.Infrastructure.Services.PromptLab;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using NSubstitute;
 
 namespace CodeSmith.Tests.Infrastructure.PromptLab;
@@ -13,13 +11,13 @@ namespace CodeSmith.Tests.Infrastructure.PromptLab;
 public class PromptLabServiceTests
 {
     private readonly IPromptLabSessionStore _sessionStore = Substitute.For<IPromptLabSessionStore>();
+    private readonly ILlmService _llmService = Substitute.For<ILlmService>();
     private readonly ILogger<PromptLabService> _logger = Substitute.For<ILogger<PromptLabService>>();
     private readonly PromptLabService _service;
 
     public PromptLabServiceTests()
     {
-        var options = Options.Create(new AnthropicOptions { ApiKey = "test-key" });
-        _service = new PromptLabService(options, _sessionStore, _logger);
+        _service = new PromptLabService(_llmService, _sessionStore, _logger);
     }
 
     // == Catalog Tests == //

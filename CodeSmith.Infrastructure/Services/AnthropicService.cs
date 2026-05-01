@@ -1,7 +1,6 @@
-// == Anthropic Service Implementation == //
+﻿// == Anthropic LLM Service Implementation == //
 using Anthropic;
 using Anthropic.Models.Messages;
-using CodeSmith.Core.Enums;
 using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
@@ -12,347 +11,206 @@ using Microsoft.Extensions.Options;
 namespace CodeSmith.Infrastructure.Services;
 
 /// <summary>
-/// Implementation of <see cref="IAnthropicService"/> using the official Anthropic C# SDK.
-/// Manages Claude API calls for problem generation and guided tutoring.
+/// Implementation of <see cref="ILlmService"/> using the official Anthropic C# SDK.
+/// Stateless: no session management. Maps named capability methods to Claude models internally.
 /// </summary>
-public class AnthropicService : IAnthropicService
+public class AnthropicLlmService : ILlmService
 {
     private readonly AnthropicClient _client;
-    private readonly ISessionStore _sessionStore;
-    private readonly ILogger<AnthropicService> _logger;
+    private readonly ILogger<AnthropicLlmService> _logger;
 
-    private const string ProblemModel  = "claude-sonnet-4-6"; // Rich generation, used once per session
-    private const string GuidanceModel = "claude-haiku-4-5-20251001"; // Fast/cheap, used for every chat message
+    private const string AccurateModel = "claude-sonnet-4-6";         // Used for generation, evaluation, test input creation
+    private const string FastModel     = "claude-haiku-4-5-20251001"; // Used for guidance and simulation — fast and cheap
+    private const int    ContextWindow = 200_000;                     // Token limit shared by all Claude models used here
+    private const int    MaxRetries    = 2;
 
-    // == Problem Variety Data == //
-    // "Standard implementation" appears 3× for roughly 30% baseline probability; other entries add creative variety
-    internal static readonly string[] ProblemCategories =
-    [
-        "arrays and strings",
-        "hash maps and sets",
-        "trees and graphs",
-        "dynamic programming",
-        "object-oriented design",
-        "functional patterns and recursion",
-        "real-world simulation",
-        "math and number theory",
-        "state machines",
-        "parsing and string processing",
-        "bit manipulation",
-        "sorting and searching",
-    ];
-
-    internal static readonly string[] ProblemAngles =
-    [
-        "Standard implementation",
-        "Standard implementation",
-        "Standard implementation",
-        "Bug fix — the starter code contains one or more subtle bugs the student must find and fix",
-        "Performance optimization — a naive solution is provided; the student must improve its time or space complexity",
-        "Feature extension — working code exists but lacks a specific feature the student must add",
-        "Unusual constraints — solve with a restriction such as no built-in library methods, single pass, or O(1) extra space",
-        "Edge-case gauntlet — design tests that specifically stress boundary conditions and non-obvious inputs",
-        "Real-world domain — frame the problem inside an interesting context (e.g., a game loop, compiler pass, OS scheduler, library catalog, financial ledger)",
-        "Refactoring — code that works but is poorly structured; the student must improve it without changing behavior",
-    ];
-
-    // == System Prompts == //
-    private const string ProblemGenerationSystemPromptTemplate =
-        """
-        You are an expert coding tutor who creates {0} programming problems.
-        You will receive a topic area and an approach style in the user message — honor them faithfully when generating the problem.
-
-        Think creatively about framing. Do not default to "write a function that does X" every time. When the approach calls for it,
-        embed the problem in a richer real-world context: a game engine, a text parser, an inventory system, a mini-compiler, a
-        task scheduler, a financial ledger, etc. The scenario should feel plausible and interesting to a developer.
-
-        For test cases in the starter code: include a mix of typical inputs, edge cases, and non-obvious boundary conditions.
-        Do not only test the happy path — surprising or tricky inputs make the exercise more educational.
-
-        When asked to generate a problem, respond with exactly two sections:
-
-        DESCRIPTION:
-        (Write a clear problem description here)
-
-        STARTER_CODE:
-        (Write a {0} code stub/template here using idiomatic syntax for the language)
-
-        Do not include solutions or hints. The starter code should compile but be incomplete. Depending on the approach style,
-        it may contain a subtle bug to fix, a naive implementation to optimize, a partial feature to extend, or a working but
-        messy structure to refactor. Only output the required code in the STARTER_CODE section. Do not output ''' or any other formatting.
-        There is a code execution button in the solution, when pressed, it executes the current code and displays results to a terminal.
-        When outputting the STARTER_CODE, keep in mind that the user will be able to run it as-is, so it should be a valid code snippet
-        that compiles and runs without errors. Add multiple test cases in the starter code that the user can run to verify their solution.
-        The tests should be clearly labeled and cover a range of inputs including edge cases.
-        The user will be able to modify the code and re-run the tests, so they should be designed to help the user validate their solution as they work on it.
-        """;
-
-    private const string GuidanceSystemPromptTemplate =
-        """
-        You are an expert coding tutor helping a student solve a {0} programming problem.
-        Guide the student toward the solution without giving away the answer directly.
-        Ask leading questions, point out relevant concepts, and help them think through the problem.
-        If they are stuck, give small hints rather than full solutions.
-        Use {0} syntax and idioms in any code examples or snippets you provide.
-
-        The problem they are working on:
-        {1}
-
-        The starter code provided:
-        {2}
-        """;
-
-    private const string CodeAnalysisSystemPromptTemplate =
-        """
-        You are an expert coding tutor helping a student analyze the results of running their {0} code.
-        The student has just executed their solution and shared the output with you.
-        Interpret the execution results clearly: explain what the output means, whether the tests passed or failed,
-        and what the errors or unexpected values indicate — without revealing the fix directly.
-        Ask a leading question or give a small nudge to help the student figure out what to change next.
-        Use {0} syntax and idioms in any code examples or snippets you provide.
-
-        The problem they are working on:
-        {1}
-
-        The starter code provided:
-        {2}
-        """;
-
-    private const string EditorContentSection =
-        """
-
-
-        The student's current code in the editor:
-        {0}
-        """;
-
-    public AnthropicService(
+    public AnthropicLlmService(
         IOptions<AnthropicOptions> options,
-        ISessionStore sessionStore,
-        ILogger<AnthropicService> logger)
+        ILogger<AnthropicLlmService> logger)
     {
         _client = new AnthropicClient { ApiKey = options.Value.ApiKey };
-        _sessionStore = sessionStore;
         _logger = logger;
     }
 
-    public async Task<ProblemSession> GenerateProblemAsync(Difficulty difficulty, Language language, CancellationToken ct = default)
-    {
-        return await GenerateProblemAsyncInternal(difficulty, language, retryCount: 0, ct);
-    }
+    // == Problem Generation (Sonnet, with truncation retry) == //
 
-    private async Task<ProblemSession> GenerateProblemAsyncInternal(Difficulty difficulty, Language language, int retryCount, CancellationToken ct = default)
-    {
-        var languageLabel = GetLanguageLabel(language);
-        var maxRetries = 2;
+    public Task<LlmResponse> GenerateProblemAsync(string systemPrompt, string userMessage, int maxTokens, CancellationToken ct = default)
+        => GenerateWithRetryAsync(systemPrompt, userMessage, maxTokens, retryCount: 0, ct);
 
-        if (retryCount == 0)
-            _logger.LogInformation("Generating {Difficulty} {Language} problem", difficulty, languageLabel);
+    private async Task<LlmResponse> GenerateWithRetryAsync(string systemPrompt, string userMessage, int maxTokens, int retryCount, CancellationToken ct)
+    {
+        if (retryCount > 0)
+            _logger.LogInformation("Retrying problem generation (attempt {Attempt}/{Max})", retryCount + 1, MaxRetries + 1);
 
         try
         {
-            var category = ProblemCategories[Random.Shared.Next(ProblemCategories.Length)];
-            var angle    = ProblemAngles[Random.Shared.Next(ProblemAngles.Length)];
-
-            var systemPrompt = string.Format(ProblemGenerationSystemPromptTemplate, languageLabel);
-
-            if (retryCount == 0)
-                _logger.LogInformation("Generating problem with category '{Category}' and angle '{Angle}'", category, angle);
-            else
-                _logger.LogInformation("Regenerating problem (Attempt {AttemptNumber}/{MaxRetries})", retryCount + 1, maxRetries + 1);
+            var retryMessage = retryCount > 0
+                ? $"{userMessage} Note: A previous attempt was cut off due to token limits. Please generate a complete problem."
+                : userMessage;
 
             var response = await _client.Messages.Create(new MessageCreateParams
             {
-                Model = ProblemModel,
-                MaxTokens = 2000,
-                System = systemPrompt,
-                Messages =
-                [
-                    new()
-                    {
-                        Role = Role.User,
-                        Content = retryCount > 0
-                            ? $"Generate a {difficulty} difficulty {languageLabel} coding problem. Topic area: {category}. Approach: {angle}. Note: A previous attempt was cut off due to token limits. Please generate a complete problem."
-                            : $"Generate a {difficulty} difficulty {languageLabel} coding problem. Topic area: {category}. Approach: {angle}."
-                    }
-                ]
+                Model     = AccurateModel,
+                MaxTokens = maxTokens,
+                System    = systemPrompt,
+                Messages  = [new() { Role = Role.User, Content = retryMessage }]
             }, ct);
 
-            var responseText = ExtractTextContent(response);
-            var (description, starterCode) = ParseProblemResponse(responseText);
-
-            // Detect truncation: if stop_reason is max_tokens, the response was cut off
+            // Detect truncation — Anthropic signals this via StopReason == "max_tokens"
             if (response.StopReason == "max_tokens")
             {
-                _logger.LogWarning("Problem generation hit max_tokens limit at attempt {AttemptNumber}/{MaxRetries}. Response was truncated.", retryCount + 1, maxRetries + 1);
+                _logger.LogWarning("Problem generation hit max_tokens on attempt {Attempt}/{Max}", retryCount + 1, MaxRetries + 1);
 
-                if (retryCount < maxRetries)
-                {
-                    _logger.LogInformation("Retrying problem generation...");
-                    return await GenerateProblemAsyncInternal(difficulty, language, retryCount + 1, ct);
-                }
+                if (retryCount < MaxRetries)
+                    return await GenerateWithRetryAsync(systemPrompt, userMessage, maxTokens, retryCount + 1, ct);
 
-                // Out of retries
-                _logger.LogError("Problem generation failed after {MaxRetries} retry attempts. The model consistently exceeded token limits.", maxRetries);
-                throw new AnthropicApiException(
-                    "Failed to generate a complete coding problem after multiple attempts. The problem description or starter code was too large to generate. Please try again or select a different difficulty level.");
+                _logger.LogError("Problem generation failed after {Max} retry attempts due to token limit", MaxRetries);
+                throw new AiServiceException(
+                    "Failed to generate a complete coding problem after multiple attempts. The problem was too large to generate. Please try again.");
             }
 
-            // Validate that both sections were properly parsed
-            if (string.IsNullOrWhiteSpace(description) || string.IsNullOrWhiteSpace(starterCode))
+            return new LlmResponse
             {
-                _logger.LogWarning("Problem generation produced incomplete output: description={DescriptionLength} chars, code={CodeLength} chars", description.Length, starterCode.Length);
-
-                if (retryCount < maxRetries)
-                {
-                    _logger.LogInformation("Retrying problem generation due to incomplete output...");
-                    return await GenerateProblemAsyncInternal(difficulty, language, retryCount + 1, ct);
-                }
-
-                _logger.LogError("Problem generation produced incomplete output after {MaxRetries} retry attempts.", maxRetries);
-                throw new AnthropicApiException(
-                    "Failed to generate a complete coding problem after multiple attempts. The response was malformed or incomplete. Please try again.");
-            }
-
-            var session = new ProblemSession
-            {
-                Difficulty = difficulty,
-                Language = language,
-                ProblemDescription = description,
-                StarterCode = starterCode
+                Content           = ExtractTextContent(response),
+                InputTokensUsed   = (int)response.Usage.InputTokens,
+                ContextWindowSize = ContextWindow
             };
-
-            _sessionStore.Set(session);
-
-            _logger.LogInformation("Created session {SessionId} with {Difficulty} {Language} problem", session.SessionId, difficulty, languageLabel);
-            return session;
         }
-        catch (Exception ex) when (ex is not AnthropicApiException)
+        catch (Exception ex) when (ex is not AiServiceException)
         {
-            _logger.LogError(ex, "Failed to generate problem from Anthropic API");
-            throw new AnthropicApiException("Failed to generate coding problem. Please try again.", ex);
+            _logger.LogError(ex, "Anthropic API call failed during problem generation");
+            throw new AiServiceException("Failed to generate coding problem. Please try again.", ex);
         }
     }
 
-    private const int ContextWindowSize = 200_000;  // Token limit for all models used in this service
+    // == Guidance (Haiku, multi-turn history) == //
 
-    public async Task<ChatResponse> GetGuidanceAsync(Guid sessionId, string userMessage, string? editorContent = null, bool isCodeAnalysis = false, CancellationToken ct = default)
+    public async Task<LlmResponse> GetGuidanceAsync(string systemPrompt, IReadOnlyList<ChatMessage> history, int maxTokens, CancellationToken ct = default)
     {
-        var session = _sessionStore.Get(sessionId)
-            ?? throw new SessionNotFoundException(sessionId);
-
-        _logger.LogInformation("Processing guidance request for session {SessionId}", sessionId);
-
         try
         {
-            // Add user message to history
-            session.Messages.Add(new Core.Models.ChatMessage
+            var messages = history.Select(m => new MessageParam
             {
-                Role = MessageRole.User,
-                Content = userMessage,
-                Timestamp = DateTime.UtcNow
-            });
-
-            // Build conversation history for Claude
-            var messages = session.Messages.Select(m => new MessageParam
-            {
-                Role = m.Role == MessageRole.User ? Role.User : Role.Assistant,
+                Role    = m.Role == Core.Enums.MessageRole.User ? Role.User : Role.Assistant,
                 Content = m.Content
             }).ToList();
 
-            var promptTemplate = isCodeAnalysis ? CodeAnalysisSystemPromptTemplate : GuidanceSystemPromptTemplate;
-            var systemPrompt = string.Format(
-                promptTemplate,
-                GetLanguageLabel(session.Language),
-                session.ProblemDescription,
-                session.StarterCode);
-
-            // Append the student's current editor content when available
-            if (!string.IsNullOrWhiteSpace(editorContent))
-                systemPrompt += string.Format(EditorContentSection, editorContent);
-
             var response = await _client.Messages.Create(new MessageCreateParams
             {
-                Model = GuidanceModel,
-                MaxTokens = 1024,
-                System = systemPrompt,
-                Messages = messages
+                Model     = FastModel,
+                MaxTokens = maxTokens,
+                System    = systemPrompt,
+                Messages  = messages
             }, ct);
 
-            var responseText = ExtractTextContent(response);
-
-            // Add assistant response to history
-            session.Messages.Add(new Core.Models.ChatMessage
+            return new LlmResponse
             {
-                Role = MessageRole.Assistant,
-                Content = responseText,
-                Timestamp = DateTime.UtcNow
-            });
-
-            _sessionStore.Set(session);
-
-            return new ChatResponse
-            {
-                Response           = responseText,
-                ContextTokensUsed  = (int)response.Usage.InputTokens,
-                ContextWindowSize  = ContextWindowSize
+                Content           = ExtractTextContent(response),
+                InputTokensUsed   = (int)response.Usage.InputTokens,
+                ContextWindowSize = ContextWindow
             };
         }
-        catch (Exception ex) when (ex is not AnthropicApiException and not SessionNotFoundException)
+        catch (Exception ex) when (ex is not AiServiceException)
         {
-            _logger.LogError(ex, "Failed to get guidance from Anthropic API for session {SessionId}", sessionId);
-            throw new AnthropicApiException("Failed to get guidance. Please try again.", ex);
+            _logger.LogError(ex, "Anthropic API call failed during guidance");
+            throw new AiServiceException("Failed to get guidance. Please try again.", ex);
         }
     }
 
-    // == Language Helpers == //
+    // == Prompt Lab: Simulate (Haiku) == //
 
-    internal static string GetLanguageLabel(Language language) => language switch  // Maps the Language enum to the human-readable label used in prompts and user messages
+    public async Task<LlmResponse> SimulatePromptAsync(string systemPrompt, string userMessage, int maxTokens, CancellationToken ct = default)
     {
-        Language.CSharp => "C#",
-        Language.Cpp    => "C++",
-        Language.Go     => "Go",
-        Language.Rust   => "Rust",
-        Language.Python => "Python",
-        Language.Java   => "Java",
-        Language.TypeScript => "TypeScript",
-        _ => throw new ArgumentOutOfRangeException(nameof(language), language, "Unknown language")
-    };
+        try
+        {
+            var response = await _client.Messages.Create(new MessageCreateParams
+            {
+                Model     = FastModel,
+                MaxTokens = maxTokens,
+                System    = systemPrompt,
+                Messages  = [new() { Role = Role.User, Content = userMessage }]
+            }, ct);
 
-    // == Response Parsing Helpers == //
+            return new LlmResponse
+            {
+                Content           = ExtractTextContent(response),
+                InputTokensUsed   = (int)response.Usage.InputTokens,
+                ContextWindowSize = ContextWindow
+            };
+        }
+        catch (Exception ex) when (ex is not AiServiceException)
+        {
+            _logger.LogError(ex, "Anthropic API call failed during prompt simulation");
+            throw new AiServiceException("Failed to simulate prompt. Please try again.", ex);
+        }
+    }
 
-    internal static string ExtractTextContent(Message response)  // Extracts text content from an Anthropic message response
+    // == Prompt Lab: Evaluate (Sonnet) == //
+
+    public async Task<LlmResponse> EvaluateResponseAsync(string systemPrompt, string userMessage, int maxTokens, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _client.Messages.Create(new MessageCreateParams
+            {
+                Model     = AccurateModel,
+                MaxTokens = maxTokens,
+                System    = systemPrompt,
+                Messages  = [new() { Role = Role.User, Content = userMessage }]
+            }, ct);
+
+            return new LlmResponse
+            {
+                Content           = ExtractTextContent(response),
+                InputTokensUsed   = (int)response.Usage.InputTokens,
+                ContextWindowSize = ContextWindow
+            };
+        }
+        catch (Exception ex) when (ex is not AiServiceException)
+        {
+            _logger.LogError(ex, "Anthropic API call failed during response evaluation");
+            throw new AiServiceException("Failed to evaluate response. Please try again.", ex);
+        }
+    }
+
+    // == Prompt Lab: Generate Test Inputs (Sonnet) == //
+
+    public async Task<LlmResponse> GenerateTestInputsAsync(string systemPrompt, string userMessage, int maxTokens, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await _client.Messages.Create(new MessageCreateParams
+            {
+                Model     = AccurateModel,
+                MaxTokens = maxTokens,
+                System    = systemPrompt,
+                Messages  = [new() { Role = Role.User, Content = userMessage }]
+            }, ct);
+
+            return new LlmResponse
+            {
+                Content           = ExtractTextContent(response),
+                InputTokensUsed   = (int)response.Usage.InputTokens,
+                ContextWindowSize = ContextWindow
+            };
+        }
+        catch (Exception ex) when (ex is not AiServiceException)
+        {
+            _logger.LogError(ex, "Anthropic API call failed during test input generation");
+            throw new AiServiceException("Failed to generate test inputs. Please try again.", ex);
+        }
+    }
+
+    // == Helpers == //
+
+    internal static string ExtractTextContent(Message response)  // Extracts concatenated text from all content blocks in an Anthropic response
     {
         var texts = new List<string>();
         foreach (var block in response.Content)
         {
             if (block.TryPickText(out var textBlock))
-            {
                 texts.Add(textBlock.Text);
-            }
         }
         return string.Join("", texts);
-    }
-
-    internal static (string Description, string StarterCode) ParseProblemResponse(string responseText)  // Parses the structured problem response into description and starter code
-    {
-        var description = string.Empty;
-        var starterCode = string.Empty;
-
-        var descIndex = responseText.IndexOf("DESCRIPTION:", StringComparison.OrdinalIgnoreCase);
-        var codeIndex = responseText.IndexOf("STARTER_CODE:", StringComparison.OrdinalIgnoreCase);
-
-        if (descIndex >= 0 && codeIndex >= 0)
-        {
-            description = responseText[(descIndex + "DESCRIPTION:".Length)..codeIndex].Trim();
-            starterCode = responseText[(codeIndex + "STARTER_CODE:".Length)..].Trim();
-        }
-        else
-        {
-            // Fallback: treat entire response as description
-            description = responseText.Trim();
-        }
-
-        return (description, starterCode);
     }
 }

@@ -4,7 +4,9 @@ using CodeSmith.Core.Enums;
 using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
+using CodeSmith.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace CodeSmith.Api.Controllers;
 
@@ -12,26 +14,43 @@ namespace CodeSmith.Api.Controllers;
 /// Handles coding problem session creation, chat interactions, and code execution.
 /// </summary>
 [ApiController]
-[Route("api/session")]
+[Route("api")]
 public class SessionController : ControllerBase
 {
-    private readonly IAnthropicService _anthropicService;
+    private readonly ITutoringService _tutoringService;
     private readonly ICodeExecutionService _codeExecutionService;
     private readonly ISessionStore _sessionStore;
+    private readonly AiOptions _aiOptions;
 
     public SessionController(
-        IAnthropicService anthropicService,
+        ITutoringService tutoringService,
         ICodeExecutionService codeExecutionService,
-        ISessionStore sessionStore)
+        ISessionStore sessionStore,
+        IOptions<AiOptions> aiOptions)
     {
-        _anthropicService = anthropicService;
-        _codeExecutionService = codeExecutionService;
-        _sessionStore = sessionStore;
+        _tutoringService       = tutoringService;
+        _codeExecutionService  = codeExecutionService;
+        _sessionStore          = sessionStore;
+        _aiOptions             = aiOptions.Value;
+    }
+
+    // == Providers Endpoint == //
+
+    [HttpGet("providers")]  // Returns the active provider and the list of all known providers
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public IActionResult GetProviders()
+    {
+        var allProviders = Enum.GetNames<AiProvider>();
+        return Ok(new
+        {
+            activeProvider     = _aiOptions.ActiveProvider,
+            availableProviders = allProviders
+        });
     }
 
     // == Create Session Endpoint == //
 
-    [HttpPost]  // Creates a new coding problem session at the specified difficulty level
+    [HttpPost("session")]  // Creates a new coding problem session at the specified difficulty level
     [ProducesResponseType(typeof(ProblemSession), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> CreateSession(
@@ -48,14 +67,22 @@ public class SessionController : ControllerBase
             return BadRequest(new { error = "Invalid language value. Use CSharp, Cpp, Go, Rust, Python, Java, or TypeScript." });
         }
 
-        var session = await _anthropicService.GenerateProblemAsync(request.Difficulty, request.Language, ct);
+        // Resolve provider: use the request's override if supplied, else fall back to the server's configured default
+        var providerName = request.Provider.HasValue
+            ? request.Provider.Value.ToString()
+            : _aiOptions.ActiveProvider;
+
+        if (!Enum.TryParse<AiProvider>(providerName, ignoreCase: true, out var provider))
+            return BadRequest(new { error = $"Unknown AI provider '{providerName}'." });
+
+        var session = await _tutoringService.GenerateProblemAsync(request.Difficulty, request.Language, provider, ct);
 
         return CreatedAtAction(nameof(CreateSession), new { sessionId = session.SessionId }, session);
     }
 
     // == Chat Endpoint == //
 
-    [HttpPost("{sessionId:guid}/chat")]  // Sends a message within an existing session and receives guided assistance
+    [HttpPost("session/{sessionId:guid}/chat")]  // Sends a message within an existing session and receives guided assistance
     [ProducesResponseType(typeof(ChatResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -64,14 +91,14 @@ public class SessionController : ControllerBase
         [FromBody] ChatRequest request,
         CancellationToken ct)
     {
-        var response = await _anthropicService.GetGuidanceAsync(sessionId, request.Message, request.EditorContent, request.IsCodeAnalysis, ct);
+        var response = await _tutoringService.GetGuidanceAsync(sessionId, request.Message, request.EditorContent, request.IsCodeAnalysis, ct);
 
         return Ok(response);
     }
 
     // == Run Code Endpoint == //
 
-    [HttpPost("{sessionId:guid}/run")]  // Executes user code in a sandboxed process with a 10-second timeout
+    [HttpPost("session/{sessionId:guid}/run")]  // Executes user code in a sandboxed process with a 10-second timeout
     [ProducesResponseType(typeof(RunCodeResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

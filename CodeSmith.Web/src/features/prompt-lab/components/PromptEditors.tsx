@@ -115,7 +115,7 @@ function EditorHeader({ label, charCount }: { label: string; charCount: number }
   const counterColor = usageRatio >= 1 ? "text-red-400" : usageRatio >= 0.8 ? "text-yellow-400" : "text-gray-600";
 
   return (
-    <div className="flex items-center justify-between border-b border-gray-900 bg-gray-800 px-4 py-1.5">
+    <div className="flex items-center justify-between border-b border-gray-900 bg-gray-900 px-4 py-1.5">
       <h3 className="text-xs font-semibold text-gray-400">{label}</h3>
       <span className={`font-mono text-xs tabular-nums ${counterColor}`}>
         {remaining.toLocaleString()} / {MAX_PROMPT_CHARS.toLocaleString()}

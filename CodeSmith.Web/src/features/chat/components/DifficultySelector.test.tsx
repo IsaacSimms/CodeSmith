@@ -4,6 +4,11 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DifficultySelector } from "./DifficultySelector";
 
+// Stub useProviders so tests run without a network — single-provider mode hides the picker
+vi.mock("../hooks/useProviders", () => ({
+  useProviders: () => ({ data: { activeProvider: "Anthropic", availableProviders: ["Anthropic"] } }),
+}));
+
 describe("DifficultySelector", () => {
   it("renders all three difficulty buttons", () => {
     render(<DifficultySelector onSelect={vi.fn()} isLoading={false} />);
@@ -45,7 +50,7 @@ describe("DifficultySelector", () => {
     expect(screen.getByRole("radio", { name: "C#" })).toHaveAttribute("aria-checked", "false");
   });
 
-  it("calls onSelect with the chosen difficulty and default language", async () => {
+  it("calls onSelect with the chosen difficulty, default language, and active provider", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     render(<DifficultySelector onSelect={onSelect} isLoading={false} />);
@@ -53,7 +58,7 @@ describe("DifficultySelector", () => {
     await user.click(screen.getByRole("button", { name: "Hard" }));
 
     expect(onSelect).toHaveBeenCalledOnce();
-    expect(onSelect).toHaveBeenCalledWith("Hard", "CSharp");
+    expect(onSelect).toHaveBeenCalledWith("Hard", "CSharp", "Anthropic");
   });
 
   it("calls onSelect with selected language after clicking a pill", async () => {
@@ -64,7 +69,7 @@ describe("DifficultySelector", () => {
     await user.click(screen.getByRole("radio", { name: "Python" }));
     await user.click(screen.getByRole("button", { name: "Medium" }));
 
-    expect(onSelect).toHaveBeenCalledWith("Medium", "Python");
+    expect(onSelect).toHaveBeenCalledWith("Medium", "Python", "Anthropic");
   });
 
   it("disables buttons when loading", () => {

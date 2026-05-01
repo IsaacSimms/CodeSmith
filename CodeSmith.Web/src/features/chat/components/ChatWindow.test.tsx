@@ -71,7 +71,7 @@ describe("ChatWindow", () => {
         expect(screen.getByText("Write a function that adds two numbers.")).toBeInTheDocument();
       });
 
-      expect(vi.mocked(apiClient.createSession).mock.calls[0]?.[0]).toEqual({ difficulty: "Easy", language: "CSharp" });
+      expect(vi.mocked(apiClient.createSession).mock.calls[0]?.[0]).toEqual({ difficulty: "Easy", language: "CSharp", provider: "Anthropic" });
     });
 
     it("displays the starter code after session creation", async () => {

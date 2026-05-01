@@ -14,7 +14,7 @@ export function HomePage() {
           {/* == Paired Programmer CTA == */}
           <Link
             to="/pairedprogrammer"
-            className="flex flex-col rounded-xl border border-gray-700 bg-gray-800 px-8 py-6 text-left transition-colors hover:border-monokai-pink hover:bg-gray-700"
+            className="flex flex-col rounded-xl border border-gray-700 bg-gray-900 px-8 py-6 text-left transition-colors hover:border-monokai-pink hover:bg-gray-800"
           >
             <span className="mb-2 text-lg font-semibold text-white">Paired Programmer</span>
             <span className="text-sm text-gray-400">
@@ -27,7 +27,7 @@ export function HomePage() {
           {/* == Prompt Lab CTA == */}
           <Link
             to="/prompt-lab"
-            className="flex flex-col rounded-xl border border-gray-700 bg-gray-800 px-8 py-6 text-left transition-colors hover:border-monokai-pink hover:bg-gray-700"
+            className="flex flex-col rounded-xl border border-gray-700 bg-gray-900 px-8 py-6 text-left transition-colors hover:border-monokai-pink hover:bg-gray-800"
           >
             <span className="mb-2 text-lg font-semibold text-white">Prompt Lab</span>
             <span className="text-sm text-gray-400">

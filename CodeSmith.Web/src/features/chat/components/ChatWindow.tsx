@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useNavigationContext } from "../../../contexts/NavigationContext";
-import type { ProblemSession, Difficulty, Language, ChatMessage, RunCodeResponse } from "../types";
+import type { ProblemSession, Difficulty, Language, AiProvider, ChatMessage, RunCodeResponse } from "../types";
 import { isDifficulty, isLanguage, languageLabels } from "../types";
 import { useCreateSession } from "../hooks/useCreateSession";
 import { useSendMessage } from "../hooks/useSendMessage";
@@ -45,9 +45,9 @@ export function ChatWindow() {
   const initialLanguage: Language | undefined = isLanguage(urlLangRaw) ? urlLangRaw : undefined;
   const initialDifficulty: Difficulty | undefined = isDifficulty(urlDifficultyRaw) ? urlDifficultyRaw : undefined;
 
-  function handleStart(difficulty: Difficulty, language: Language) {
+  function handleStart(difficulty: Difficulty, language: Language, provider: AiProvider = "Anthropic") {
     createSession.mutate(
-      { difficulty, language },
+      { difficulty, language, provider },
       {
         onSuccess: (data) => {
           setSession(data);
@@ -68,7 +68,7 @@ export function ChatWindow() {
     if (!initialDifficulty || !initialLanguage) return;
 
     autoStartedRef.current = true;
-    handleStart(initialDifficulty, initialLanguage);
+    handleStart(initialDifficulty, initialLanguage, "Anthropic");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -162,7 +162,7 @@ export function ChatWindow() {
             code={code}
             onCodeChange={setCode}
             language={session.language}
-            onGenerateNew={() => handleStart(session.difficulty, session.language)}
+            onGenerateNew={() => handleStart(session.difficulty, session.language, "Anthropic")}  
             isGenerating={createSession.isPending}
             onRunCode={handleRunCode}
             isRunning={runCode.isPending}

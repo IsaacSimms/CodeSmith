@@ -37,7 +37,7 @@ public class ExceptionHandlingMiddleware
         {
             SessionNotFoundException ex   => (StatusCodes.Status404NotFound, ex.Message),
             ChallengeNotFoundException ex => (StatusCodes.Status404NotFound, ex.Message),
-            AnthropicApiException ex      => (StatusCodes.Status502BadGateway, ex.Message),
+            AiServiceException ex         => (StatusCodes.Status502BadGateway, ex.Message),
             CodeExecutionException ex     => (StatusCodes.Status500InternalServerError, ex.Message),
             OperationCanceledException    => (StatusCodes.Status499ClientClosedRequest, "Request was cancelled."),
             _                             => (StatusCodes.Status500InternalServerError, "An unexpected error occurred.")

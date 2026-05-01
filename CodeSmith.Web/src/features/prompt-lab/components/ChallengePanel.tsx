@@ -73,7 +73,7 @@ export function ChallengePanel({
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
               Best Score ({attemptCount} attempt{attemptCount !== 1 ? "s" : ""})
             </h3>
-            <div className="rounded border border-gray-700 bg-gray-800/50 px-3 py-2">
+            <div className="rounded border border-gray-700 bg-gray-900/50 px-3 py-2">
               <span className="text-sm font-bold text-gray-200">
                 {lastAttempt.totalScore}/{lastAttempt.maxScore} pts
               </span>
