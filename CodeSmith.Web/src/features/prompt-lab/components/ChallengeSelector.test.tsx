@@ -130,9 +130,10 @@ describe("ChallengeSelector", () => {
   });
 
   it("shows test input count and rubric count", () => {
+    const challenges = [mockChallenges[0]] as ChallengeResponse[];
     render(
       <ChallengeSelector
-        challenges={[mockChallenges[0]]}
+        challenges={challenges}
         isLoading={false}
         isStarting={false}
         onSelect={vi.fn()}

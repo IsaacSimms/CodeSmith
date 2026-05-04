@@ -1,7 +1,7 @@
 // == Submit Attempt Hook == //
 import { useMutation } from "@tanstack/react-query";
 import { submitPromptLabAttempt } from "../../../lib/apiClient";
-import type { SubmitAttemptRequest, AttemptResult } from "../types";
+import type { AttemptResult } from "../types";
 
 interface SubmitAttemptVariables {
   sessionId: string;

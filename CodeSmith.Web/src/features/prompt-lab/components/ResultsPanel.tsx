@@ -135,6 +135,14 @@ function TestInputRow({ result }: { result: TestInputResult }) {
             </div>
           )}
 
+          {/* User prompt */}
+          {result.userMessage && (
+            <div>
+              <p className="mb-1 text-xs text-sky-400">User Prompt</p>
+              <pre className="whitespace-pre-wrap break-words text-gray-200">{result.userMessage}</pre>
+            </div>
+          )}
+
           {/* Simulation output */}
           {result.simulationOutput && (
             <div>

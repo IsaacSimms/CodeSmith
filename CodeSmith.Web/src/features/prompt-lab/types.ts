@@ -57,6 +57,7 @@ export interface CriterionScore {
 export interface TestInputResult {
   inputId: string;
   label: string;
+  userMessage: string;
   simulationOutput: string;
   passed: boolean;
   criterionScores: CriterionScore[];

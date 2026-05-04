@@ -55,9 +55,10 @@ const mockAttemptResult: AttemptResult = {
   submittedAt:      "2026-04-16T00:01:00Z",
   promptTokensUsed: 500,
   contextWindowSize: 200_000,
+  adversarialHint:  "Try harder.",
   results: [
     {
-      inputId: "input-1", label: "Solar planets",
+      inputId: "input-1", label: "Solar planets", userMessage: "List solar planets in JSON format",
       simulationOutput: '["Mercury"]', passed: true,
       criterionScores: [{ criterionId: "valid-json", criterionName: "Valid JSON", points: 3, maxPoints: 3 }],
       feedback: "Correct JSON.",

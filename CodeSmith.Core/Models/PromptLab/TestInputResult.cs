@@ -8,6 +8,7 @@ public class TestInputResult
 {
     public string InputId { get; set; } = string.Empty;              // Matches TestInput.InputId
     public string Label { get; set; } = string.Empty;                 // Display label for the test
+    public string UserMessage { get; set; } = string.Empty;           // The actual computed user message sent to the model for this test
     public string SimulationOutput { get; set; } = string.Empty;      // Raw output from the simulated model
     public bool Passed { get; set; }                                   // True if all rubric criteria were met
     public List<CriterionScore> CriterionScores { get; set; } = [];   // Per-criterion breakdown

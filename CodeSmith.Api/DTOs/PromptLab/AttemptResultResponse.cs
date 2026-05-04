@@ -37,6 +37,7 @@ public class TestInputResultDto
 {
     public string InputId { get; set; } = string.Empty;
     public string Label { get; set; } = string.Empty;
+    public string UserMessage { get; set; } = string.Empty;
     public string SimulationOutput { get; set; } = string.Empty;
     public bool Passed { get; set; }
     public List<CriterionScoreDto> CriterionScores { get; set; } = [];
@@ -46,6 +47,7 @@ public class TestInputResultDto
     {
         InputId          = result.InputId,
         Label            = result.Label,
+        UserMessage      = result.UserMessage,
         SimulationOutput = result.SimulationOutput,
         Passed           = result.Passed,
         CriterionScores  = result.CriterionScores.Select(CriterionScoreDto.From).ToList(),

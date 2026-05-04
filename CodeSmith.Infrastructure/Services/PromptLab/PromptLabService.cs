@@ -189,9 +189,18 @@ public class PromptLabService : IPromptLabService
         List<(TestInput Input, string Output)> simulationOutputs,
         CancellationToken ct)
     {
+        // Determine which field supplies the user message content for each test input (same logic as simulation phase)
+        bool userMessageIsEditable = challenge.EditableFields.Any(f => f.FieldType == Core.Enums.PromptFieldType.UserMessage);
+
         // Evaluate each test input in isolation (parallel) so outputs cannot contaminate each other's scores
         var resultTasks = simulationOutputs
-            .Select(pair => EvaluateOneInputAsync(challenge, pair.Input, pair.Output, ct));
+            .Select(pair =>
+            {
+                var computedUserMessage = userMessageIsEditable
+                    ? BuildUserMessage(userMessageContent, pair.Input.UserMessage)
+                    : pair.Input.UserMessage;
+                return EvaluateOneInputAsync(challenge, pair.Input, pair.Output, computedUserMessage, ct);
+            });
 
         var inputResults = await Task.WhenAll(resultTasks);
 
@@ -213,6 +222,7 @@ public class PromptLabService : IPromptLabService
         Challenge challenge,
         TestInput input,
         string simulationOutput,
+        string computedUserMessage,
         CancellationToken ct)
     {
         var systemPrompt = """
@@ -227,7 +237,7 @@ public class PromptLabService : IPromptLabService
         var prompt = BuildSingleInputEvaluationPrompt(challenge, input, simulationOutput);
 
         var response = await _llmService.EvaluateResponseAsync(systemPrompt, prompt, EvaluationMaxTokens, ct);
-        return ParseSingleInputResult(challenge, input, simulationOutput, response.Content);
+        return ParseSingleInputResult(challenge, input, simulationOutput, computedUserMessage, response.Content);
     }
 
     private static string BuildSingleInputEvaluationPrompt(Challenge challenge, TestInput input, string output)
@@ -256,6 +266,7 @@ public class PromptLabService : IPromptLabService
         Challenge challenge,
         TestInput input,
         string simulationOutput,
+        string computedUserMessage,
         string json)
     {
         try
@@ -290,6 +301,7 @@ public class PromptLabService : IPromptLabService
             {
                 InputId          = input.InputId,
                 Label            = input.Label,
+                UserMessage      = computedUserMessage,
                 SimulationOutput = simulationOutput,
                 Passed           = passed,
                 CriterionScores  = criterionScores,
@@ -302,6 +314,7 @@ public class PromptLabService : IPromptLabService
             {
                 InputId          = input.InputId,
                 Label            = input.Label,
+                UserMessage      = computedUserMessage,
                 SimulationOutput = simulationOutput,
                 Passed           = false,
                 Feedback         = "Could not parse evaluation response."

@@ -6,15 +6,19 @@ import { ResultsPanel } from "./ResultsPanel";
 import type { AttemptResult } from "../types";
 
 const defaultResult: AttemptResult = {
-  attemptId:       "attempt-1",
-  totalScore:      4,
-  maxScore:        5,
-  overallFeedback: "Good effort. Near-perfect JSON output.",
-  submittedAt:     "2026-04-16T00:00:00Z",
+  attemptId:        "attempt-1",
+  totalScore:       4,
+  maxScore:         5,
+  overallFeedback:  "Good effort. Near-perfect JSON output.",
+  submittedAt:      "2026-04-16T00:00:00Z",
+  promptTokensUsed: 500,
+  contextWindowSize: 200_000,
+  adversarialHint:  "Try to list only terrestrial planets.",
   results: [
     {
       inputId:          "input-1",
       label:            "Solar planets",
+      userMessage:      "List the names of solar planets in JSON array format",
       simulationOutput: '["Mercury","Venus","Earth"]',
       passed:           true,
       criterionScores:  [
@@ -57,7 +61,19 @@ describe("ResultsPanel", () => {
   it("shows fail indicator for failing test inputs", () => {
     const failResult: AttemptResult = {
       ...defaultResult,
-      results: [{ ...defaultResult.results[0], passed: false }],
+      results: [{
+        ...defaultResult.results[0],
+        inputId: "input-1",
+        label: "Solar planets",
+        userMessage: "List the names of solar planets in JSON array format",
+        simulationOutput: '["Mercury","Venus","Earth"]',
+        passed: false,
+        criterionScores: [
+          { criterionId: "valid-json",   criterionName: "Valid JSON",  points: 3, maxPoints: 3 },
+          { criterionId: "no-preamble",  criterionName: "No Preamble", points: 1, maxPoints: 2 },
+        ],
+        feedback: "Valid JSON but slight preamble detected.",
+      }],
     };
 
     render(<ResultsPanel result={failResult} isEvaluating={false} onClear={vi.fn()} />);
