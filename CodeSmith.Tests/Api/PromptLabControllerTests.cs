@@ -7,6 +7,7 @@ using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models.PromptLab;
 using Microsoft.AspNetCore.Mvc;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 
 namespace CodeSmith.Tests.Api;
 
@@ -96,7 +97,7 @@ public class PromptLabControllerTests
     public async Task StartChallenge_WithValidRequest_Returns201()
     {
         var session = new PromptLabSession { ChallengeId = "format-json-01" };
-        _service.StartChallengeAsync("format-json-01", Arg.Any<CancellationToken>()).Returns(session);
+        _service.StartChallengeAsync("format-json-01", Arg.Any<AiProvider>(), Arg.Any<CancellationToken>()).Returns(session);
 
         var result = await _controller.StartChallenge(new StartChallengeRequest { ChallengeId = "format-json-01" }, CancellationToken.None);
 
@@ -117,8 +118,8 @@ public class PromptLabControllerTests
     [Fact]
     public async Task StartChallenge_WithInvalidId_ThrowsChallengeNotFoundException()
     {
-        _service.StartChallengeAsync("bad-id", Arg.Any<CancellationToken>())
-            .Returns<PromptLabSession>(_ => throw new ChallengeNotFoundException("bad-id"));
+        _service.StartChallengeAsync("bad-id", Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ChallengeNotFoundException("bad-id"));
 
         await Assert.ThrowsAsync<ChallengeNotFoundException>(
             () => _controller.StartChallenge(new StartChallengeRequest { ChallengeId = "bad-id" }, CancellationToken.None));

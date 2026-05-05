@@ -1,4 +1,5 @@
 // == Prompt Lab Service Interface == //
+using CodeSmith.Core.Enums;
 using CodeSmith.Core.Models.PromptLab;
 
 namespace CodeSmith.Core.Interfaces;
@@ -14,8 +15,8 @@ public interface IPromptLabService
     // Returns a single challenge by ID; throws ChallengeNotFoundException if not found
     Challenge GetChallenge(string challengeId);
 
-    // Creates a new Prompt Lab session and generates dynamic test inputs via Claude; throws ChallengeNotFoundException if invalid
-    Task<PromptLabSession> StartChallengeAsync(string challengeId, CancellationToken ct = default);
+    // Creates a new Prompt Lab session and generates dynamic test inputs via the chosen provider; throws ChallengeNotFoundException if invalid
+    Task<PromptLabSession> StartChallengeAsync(string challengeId, AiProvider provider = AiProvider.Anthropic, CancellationToken ct = default);
 
     // Runs the user's prompt against all test inputs (simulation) and evaluates the results; throws SessionNotFoundException if invalid
     Task<ChallengeAttempt> SubmitAttemptAsync(

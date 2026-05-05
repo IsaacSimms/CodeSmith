@@ -1,7 +1,7 @@
 // == Prompt Lab Feature Types == //
-import type { Difficulty } from "../chat/types";
+import type { Difficulty, AiProvider } from "../chat/types";
 
-export type { Difficulty };
+export type { Difficulty, AiProvider };
 
 export type ChallengeCategory =
   | "OutputFormatControl"
@@ -79,6 +79,7 @@ export interface AttemptResult {
 export interface PromptLabSession {
   sessionId: string;
   challengeId: string;
+  provider: AiProvider;  // AI provider locked at session start
   testInputs: TestInputSummary[];  // Dynamically generated at session start
   attempts: AttemptResult[];
   createdAt: string;
@@ -88,6 +89,7 @@ export interface PromptLabSession {
 
 export interface StartChallengeRequest {
   challengeId: string;
+  provider?: AiProvider;
 }
 
 export interface SubmitAttemptRequest {

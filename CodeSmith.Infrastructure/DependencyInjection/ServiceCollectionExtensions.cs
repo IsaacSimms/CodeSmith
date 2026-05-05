@@ -1,5 +1,4 @@
 // == Infrastructure DI Registration == //
-using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Infrastructure.Configuration;
 using CodeSmith.Infrastructure.Services;
@@ -30,20 +29,14 @@ public static class ServiceCollectionExtensions
         // Register session store as singleton (thread-safe ConcurrentDictionary)
         services.AddSingleton<ISessionStore, InMemorySessionStore>();
 
-        // == LLM Provider Selection == //
-        // Both provider implementations are registered so their options are validated at startup.
-        // Only the active provider is bound to ILlmService — the other is never instantiated per-request.
+        // == LLM Provider Registration == //
+        // Both implementations are registered so the factory can resolve either at call time.
+        // The factory selects the correct service per request based on the session's stored provider.
         services.AddScoped<AnthropicLlmService>();
         services.AddScoped<OpenAiLlmService>();
+        services.AddScoped<ILlmServiceFactory, LlmServiceFactory>();
 
-        var activeProvider = configuration.GetSection(AiOptions.SectionName)[nameof(AiOptions.ActiveProvider)] ?? "Anthropic";
-
-        if (Enum.TryParse<AiProvider>(activeProvider, ignoreCase: true, out var provider) && provider == AiProvider.OpenAi)
-            services.AddScoped<ILlmService>(sp => sp.GetRequiredService<OpenAiLlmService>());
-        else
-            services.AddScoped<ILlmService>(sp => sp.GetRequiredService<AnthropicLlmService>());
-
-        // TutoringService is session-aware and delegates completions to ILlmService
+        // TutoringService is session-aware and delegates completions to ILlmServiceFactory
         services.AddScoped<ITutoringService, TutoringService>();
 
         // Register Prompt Lab services

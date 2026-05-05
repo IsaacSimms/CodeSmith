@@ -1,6 +1,7 @@
 // == Prompt Lab Service == //
 using System.Text;
 using System.Text.Json;
+using CodeSmith.Core.Enums;
 using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
@@ -15,7 +16,7 @@ namespace CodeSmith.Infrastructure.Services.PromptLab;
 /// </summary>
 public class PromptLabService : IPromptLabService
 {
-    private readonly ILlmService _llmService;
+    private readonly ILlmServiceFactory _factory;
     private readonly IPromptLabSessionStore _sessionStore;
     private readonly ILogger<PromptLabService> _logger;
 
@@ -24,11 +25,11 @@ public class PromptLabService : IPromptLabService
     private const int GenerationMaxTokens  = 600;  // Test input generation (JSON array of 4 inputs) budget
 
     public PromptLabService(
-        ILlmService llmService,
+        ILlmServiceFactory factory,
         IPromptLabSessionStore sessionStore,
         ILogger<PromptLabService> logger)
     {
-        _llmService   = llmService;
+        _factory      = factory;
         _sessionStore = sessionStore;
         _logger       = logger;
     }
@@ -43,14 +44,14 @@ public class PromptLabService : IPromptLabService
         return challenge ?? throw new ChallengeNotFoundException(challengeId);
     }
 
-    public async Task<PromptLabSession> StartChallengeAsync(string challengeId, CancellationToken ct = default)
+    public async Task<PromptLabSession> StartChallengeAsync(string challengeId, AiProvider provider = AiProvider.Anthropic, CancellationToken ct = default)
     {
         var challenge = GetChallenge(challengeId); // Validates the ID — throws ChallengeNotFoundException if invalid
 
         List<TestInput> testInputs;
         try
         {
-            testInputs = await GenerateTestInputsAsync(challenge, ct);
+            testInputs = await GenerateTestInputsAsync(challenge, provider, ct);
         }
         catch (Exception ex)
         {
@@ -58,7 +59,7 @@ public class PromptLabService : IPromptLabService
             testInputs = challenge.TestInputs;
         }
 
-        var session = new PromptLabSession { ChallengeId = challengeId, TestInputs = testInputs };
+        var session = new PromptLabSession { ChallengeId = challengeId, Provider = provider, TestInputs = testInputs };
         _sessionStore.Set(session);
 
         _logger.LogInformation("Started session {SessionId} for {ChallengeId} with {Count} test inputs", session.SessionId, challengeId, testInputs.Count);
@@ -86,10 +87,10 @@ public class PromptLabService : IPromptLabService
         try
         {
             // == Phase 1: Simulate (parallel fast-model calls) == //
-            var (simulationOutputs, promptTokens, contextWindowSize) = await RunSimulationsAsync(challenge, testInputs, systemPromptContent, userMessageContent, ct);
+            var (simulationOutputs, promptTokens, contextWindowSize) = await RunSimulationsAsync(challenge, testInputs, systemPromptContent, userMessageContent, session.Provider, ct);
 
             // == Phase 2: Evaluate (parallel accurate-model calls) == //
-            var attempt = await EvaluateAttemptAsync(challenge, testInputs, systemPromptContent, userMessageContent, simulationOutputs, ct);
+            var attempt = await EvaluateAttemptAsync(challenge, testInputs, systemPromptContent, userMessageContent, simulationOutputs, session.Provider, ct);
             attempt.PromptTokensUsed = promptTokens;
             attempt.ContextWindowSize = contextWindowSize;
 
@@ -114,6 +115,7 @@ public class PromptLabService : IPromptLabService
         List<TestInput> testInputs,
         string systemPromptContent,
         string userMessageContent,
+        AiProvider provider,
         CancellationToken ct)
     {
         // Build the effective system prompt: locked base + user additions + hidden adversarial bias
@@ -128,7 +130,7 @@ public class PromptLabService : IPromptLabService
             var message = userMessageIsEditable
                 ? BuildUserMessage(userMessageContent, input.UserMessage)
                 : input.UserMessage;
-            return SimulateOneInputAsync(input, effectiveSystemPrompt, message, ct);
+            return SimulateOneInputAsync(input, effectiveSystemPrompt, message, provider, ct);
         });
 
         var results = await Task.WhenAll(tasks);
@@ -143,9 +145,10 @@ public class PromptLabService : IPromptLabService
         TestInput input,
         string systemPrompt,
         string userMessage,
+        AiProvider provider,
         CancellationToken ct)
     {
-        var response = await _llmService.SimulatePromptAsync(systemPrompt, userMessage, SimulationMaxTokens, ct);
+        var response = await _factory.GetService(provider).SimulatePromptAsync(systemPrompt, userMessage, SimulationMaxTokens, ct);
 
         _logger.LogDebug("Simulation output for input {InputId}: {Output}", input.InputId, response.Content);
         return (input, response.Content, response.InputTokensUsed, response.ContextWindowSize);
@@ -187,6 +190,7 @@ public class PromptLabService : IPromptLabService
         string systemPromptContent,
         string userMessageContent,
         List<(TestInput Input, string Output)> simulationOutputs,
+        AiProvider provider,
         CancellationToken ct)
     {
         // Determine which field supplies the user message content for each test input (same logic as simulation phase)
@@ -199,7 +203,7 @@ public class PromptLabService : IPromptLabService
                 var computedUserMessage = userMessageIsEditable
                     ? BuildUserMessage(userMessageContent, pair.Input.UserMessage)
                     : pair.Input.UserMessage;
-                return EvaluateOneInputAsync(challenge, pair.Input, pair.Output, computedUserMessage, ct);
+                return EvaluateOneInputAsync(challenge, pair.Input, pair.Output, computedUserMessage, provider, ct);
             });
 
         var inputResults = await Task.WhenAll(resultTasks);
@@ -223,6 +227,7 @@ public class PromptLabService : IPromptLabService
         TestInput input,
         string simulationOutput,
         string computedUserMessage,
+        AiProvider provider,
         CancellationToken ct)
     {
         var systemPrompt = """
@@ -236,7 +241,7 @@ public class PromptLabService : IPromptLabService
             """;
         var prompt = BuildSingleInputEvaluationPrompt(challenge, input, simulationOutput);
 
-        var response = await _llmService.EvaluateResponseAsync(systemPrompt, prompt, EvaluationMaxTokens, ct);
+        var response = await _factory.GetService(provider).EvaluateResponseAsync(systemPrompt, prompt, EvaluationMaxTokens, ct);
         return ParseSingleInputResult(challenge, input, simulationOutput, computedUserMessage, response.Content);
     }
 
@@ -335,7 +340,7 @@ public class PromptLabService : IPromptLabService
 
     // == Test Input Generation == //
 
-    private async Task<List<TestInput>> GenerateTestInputsAsync(Challenge challenge, CancellationToken ct)
+    private async Task<List<TestInput>> GenerateTestInputsAsync(Challenge challenge, AiProvider provider, CancellationToken ct)
     {
         // Pre-decide input 3 and 4 types server-side for a true 50/50 split
         var input3Type = Random.Shared.Next(2) == 0 ? "standard" : "edge case";
@@ -370,7 +375,7 @@ public class PromptLabService : IPromptLabService
             """;
 
         const string generationSystemPrompt = "You generate test inputs for prompt engineering challenges. Return only a valid JSON array as specified — no preamble.";
-        var response = await _llmService.GenerateTestInputsAsync(generationSystemPrompt, prompt, GenerationMaxTokens, ct);
+        var response = await _factory.GetService(provider).GenerateTestInputsAsync(generationSystemPrompt, prompt, GenerationMaxTokens, ct);
 
         var json  = ExtractJson(response.Content);
         var items = System.Text.Json.JsonSerializer.Deserialize<List<GeneratedTestInputDto>>(json)

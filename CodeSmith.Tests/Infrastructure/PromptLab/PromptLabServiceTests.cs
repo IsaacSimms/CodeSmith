@@ -11,13 +11,13 @@ namespace CodeSmith.Tests.Infrastructure.PromptLab;
 public class PromptLabServiceTests
 {
     private readonly IPromptLabSessionStore _sessionStore = Substitute.For<IPromptLabSessionStore>();
-    private readonly ILlmService _llmService = Substitute.For<ILlmService>();
+    private readonly ILlmServiceFactory _factory = Substitute.For<ILlmServiceFactory>();
     private readonly ILogger<PromptLabService> _logger = Substitute.For<ILogger<PromptLabService>>();
     private readonly PromptLabService _service;
 
     public PromptLabServiceTests()
     {
-        _service = new PromptLabService(_llmService, _sessionStore, _logger);
+        _service = new PromptLabService(_factory, _sessionStore, _logger);
     }
 
     // == Catalog Tests == //

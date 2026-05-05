@@ -1,5 +1,6 @@
 // == Start Challenge Request DTO == //
 using System.ComponentModel.DataAnnotations;
+using CodeSmith.Core.Enums;
 
 namespace CodeSmith.Api.DTOs.PromptLab;
 
@@ -9,4 +10,5 @@ namespace CodeSmith.Api.DTOs.PromptLab;
 public class StartChallengeRequest
 {
     [Required] public string ChallengeId { get; set; } = string.Empty;  // The challenge to start
+    public AiProvider? Provider { get; set; }  // AI provider for this session (defaults to Anthropic if omitted)
 }

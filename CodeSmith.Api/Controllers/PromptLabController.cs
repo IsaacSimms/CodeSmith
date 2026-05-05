@@ -1,5 +1,6 @@
 // == Prompt Lab Controller == //
 using CodeSmith.Api.DTOs.PromptLab;
+using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models.PromptLab;
 using Microsoft.AspNetCore.Mvc;
@@ -55,7 +56,8 @@ public class PromptLabController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.ChallengeId))
             return BadRequest(new { error = "ChallengeId is required." });
 
-        var session = await _service.StartChallengeAsync(request.ChallengeId, ct); // Throws ChallengeNotFoundException → 404
+        var provider = request.Provider ?? AiProvider.Anthropic;
+        var session = await _service.StartChallengeAsync(request.ChallengeId, provider, ct); // Throws ChallengeNotFoundException → 404
         return CreatedAtAction(nameof(StartChallenge), new { sessionId = session.SessionId }, PromptLabSessionResponse.FromSession(session));
     }
 

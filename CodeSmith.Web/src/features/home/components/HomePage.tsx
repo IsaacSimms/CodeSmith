@@ -1,9 +1,22 @@
 // == Home Page == //
 import { Link } from "react-router-dom";
+import { useProviders } from "../../chat/hooks/useProviders";
+import { useProviderPreference } from "../../../hooks/useProviderPreference";
+import type { AiProvider } from "../../chat/types";
+
+const providerLabels: Record<AiProvider, string> = {
+  Anthropic: "Anthropic Claude",
+  OpenAi:    "OpenAI",
+};
 
 export function HomePage() {
+  const { data: providersData } = useProviders();
+  const { provider, setProvider } = useProviderPreference();
+
+  const availableProviders = (providersData?.availableProviders ?? ["Anthropic"]) as AiProvider[];
+
   return (
-    <div className="flex h-full items-center justify-center p-6">
+    <div className="flex h-full flex-col items-center justify-center p-6">
       <section className="max-w-2xl text-center">
         <h1 className="mb-4 text-5xl font-bold text-white">Practice. Learn. Level up.</h1>
         <p className="mb-10 text-lg text-gray-300">
@@ -37,6 +50,31 @@ export function HomePage() {
             <span className="mt-4 text-sm font-medium text-monokai-pink">Start prompting →</span>
           </Link>
         </div>
+
+        {/* == Provider Toggle (only shown when multiple providers available) == */}
+        {availableProviders.length > 1 && (
+          <div className="mt-12 flex flex-col items-center gap-4">
+            <p className="text-sm text-gray-400">AI Provider</p>
+            <div className="flex gap-2">
+              {availableProviders.map((p) => {
+                const isSelected = provider === p;
+                return (
+                  <button
+                    key={p}
+                    onClick={() => setProvider(p)}
+                    className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${
+                      isSelected
+                        ? "border-blue-400 bg-blue-600 text-white"
+                        : "border-gray-600 bg-gray-900 text-gray-300 hover:border-gray-500 hover:bg-gray-800"
+                    }`}
+                  >
+                    {providerLabels[p] ?? p}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </section>
     </div>
   );

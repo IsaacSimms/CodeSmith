@@ -9,11 +9,11 @@ namespace CodeSmith.Infrastructure.Services;
 
 /// <summary>
 /// Implementation of <see cref="ITutoringService"/>. Owns prompt templates, session lifecycle,
-/// and conversation history. Delegates raw completions to the injected <see cref="ILlmService"/>.
+/// and conversation history. Delegates raw completions to the injected <see cref="ILlmServiceFactory"/>.
 /// </summary>
 public class TutoringService : ITutoringService
 {
-    private readonly ILlmService _llmService;
+    private readonly ILlmServiceFactory _factory;
     private readonly ISessionStore _sessionStore;
     private readonly ILogger<TutoringService> _logger;
 
@@ -123,11 +123,11 @@ public class TutoringService : ITutoringService
         """;
 
     public TutoringService(
-        ILlmService llmService,
+        ILlmServiceFactory factory,
         ISessionStore sessionStore,
         ILogger<TutoringService> logger)
     {
-        _llmService   = llmService;
+        _factory      = factory;
         _sessionStore = sessionStore;
         _logger       = logger;
     }
@@ -151,7 +151,7 @@ public class TutoringService : ITutoringService
         const int maxParseRetries = 2;
         for (var attempt = 0; attempt <= maxParseRetries; attempt++)
         {
-            var llmResponse = await _llmService.GenerateProblemAsync(systemPrompt, userMessage, ProblemMaxTokens, ct);
+            var llmResponse = await _factory.GetService(provider).GenerateProblemAsync(systemPrompt, userMessage, ProblemMaxTokens, ct);
             var (description, starterCode) = ParseProblemResponse(llmResponse.Content);
 
             if (!string.IsNullOrWhiteSpace(description) && !string.IsNullOrWhiteSpace(starterCode))
@@ -202,7 +202,7 @@ public class TutoringService : ITutoringService
         if (!string.IsNullOrWhiteSpace(editorContent))
             systemPrompt += string.Format(EditorContentSection, editorContent);
 
-        var llmResponse = await _llmService.GetGuidanceAsync(systemPrompt, session.Messages, GuidanceMaxTokens, ct);
+        var llmResponse = await _factory.GetService(session.Provider).GetGuidanceAsync(systemPrompt, session.Messages, GuidanceMaxTokens, ct);
 
         // Add assistant response to history
         session.Messages.Add(new ChatMessage

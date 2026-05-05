@@ -1,6 +1,7 @@
 // == Prompt Lab Window Component == //
 import { useEffect, useState } from "react";
 import { useNavigationContext } from "../../../contexts/NavigationContext";
+import { useProviderPreference } from "../../../hooks/useProviderPreference";
 import type { ChallengeResponse, AttemptResult, PromptLabSession } from "../types";
 import { useGetChallenges } from "../hooks/useGetChallenges";
 import { useStartChallenge } from "../hooks/useStartChallenge";
@@ -23,6 +24,7 @@ export function PromptLabWindow() {
   const getChallenges = useGetChallenges();
   const startChallenge = useStartChallenge();
   const submitAttempt  = useSubmitAttempt();
+  const { provider } = useProviderPreference();
   const { registerReset, unregisterReset } = useNavigationContext();
 
   const { leftPercent, dividerProps, containerRef } = useResizableSplit(75);
@@ -80,7 +82,7 @@ export function PromptLabWindow() {
     if (!found) return;
 
     startChallenge.mutate(
-      { challengeId },
+      { challengeId, provider },
       {
         onSuccess: (data) => {
           setSession(data);

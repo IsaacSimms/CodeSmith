@@ -42,6 +42,7 @@ const mockChallenge: ChallengeResponse = {
 const mockSession: PromptLabSession = {
   sessionId:   "session-abc",
   challengeId: "format-json-01",
+  provider:    "Anthropic",
   testInputs:  mockChallenge.testInputs,
   attempts:    [],
   createdAt:   "2026-04-16T00:00:00Z",

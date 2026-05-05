@@ -1,4 +1,5 @@
 // == Prompt Lab Session Response DTO == //
+using CodeSmith.Core.Enums;
 using CodeSmith.Core.Models.PromptLab;
 
 namespace CodeSmith.Api.DTOs.PromptLab;
@@ -11,6 +12,7 @@ public class PromptLabSessionResponse
 {
     public Guid SessionId { get; set; }
     public string ChallengeId { get; set; } = string.Empty;
+    public AiProvider Provider { get; set; } = AiProvider.Anthropic;
     public List<TestInputDto> TestInputs { get; set; } = [];  // Generated inputs for this session — labels only
     public List<object> Attempts { get; set; } = [];          // Empty on creation
     public DateTime CreatedAt { get; set; }
@@ -19,6 +21,7 @@ public class PromptLabSessionResponse
     {
         SessionId   = session.SessionId,
         ChallengeId = session.ChallengeId,
+        Provider    = session.Provider,
         TestInputs  = session.TestInputs.Select(TestInputDto.From).ToList(),
         Attempts    = [],
         CreatedAt   = session.CreatedAt

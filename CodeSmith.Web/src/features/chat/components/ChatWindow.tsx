@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useNavigationContext } from "../../../contexts/NavigationContext";
-import type { ProblemSession, Difficulty, Language, AiProvider, ChatMessage, RunCodeResponse } from "../types";
+import { useProviderPreference } from "../../../hooks/useProviderPreference";
+import type { ProblemSession, Difficulty, Language, ChatMessage, RunCodeResponse } from "../types";
 import { isDifficulty, isLanguage, languageLabels } from "../types";
 import { useCreateSession } from "../hooks/useCreateSession";
 import { useSendMessage } from "../hooks/useSendMessage";
@@ -24,6 +25,7 @@ export function ChatWindow() {
   const createSession = useCreateSession();
   const sendMessage = useSendMessage();
   const runCode = useRunCode();
+  const { provider } = useProviderPreference();
   const { leftPercent, dividerProps, containerRef } = useResizableSplit(75);
   const { registerReset, unregisterReset } = useNavigationContext();
 
@@ -45,7 +47,7 @@ export function ChatWindow() {
   const initialLanguage: Language | undefined = isLanguage(urlLangRaw) ? urlLangRaw : undefined;
   const initialDifficulty: Difficulty | undefined = isDifficulty(urlDifficultyRaw) ? urlDifficultyRaw : undefined;
 
-  function handleStart(difficulty: Difficulty, language: Language, provider: AiProvider = "Anthropic") {
+  function handleStart(difficulty: Difficulty, language: Language) {
     createSession.mutate(
       { difficulty, language, provider },
       {
@@ -68,7 +70,7 @@ export function ChatWindow() {
     if (!initialDifficulty || !initialLanguage) return;
 
     autoStartedRef.current = true;
-    handleStart(initialDifficulty, initialLanguage, "Anthropic");
+    handleStart(initialDifficulty, initialLanguage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -162,7 +164,7 @@ export function ChatWindow() {
             code={code}
             onCodeChange={setCode}
             language={session.language}
-            onGenerateNew={() => handleStart(session.difficulty, session.language, "Anthropic")}  
+            onGenerateNew={() => handleStart(session.difficulty, session.language)}  
             isGenerating={createSession.isPending}
             onRunCode={handleRunCode}
             isRunning={runCode.isPending}

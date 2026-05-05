@@ -98,9 +98,9 @@ public class TutoringServiceTests
         var sessionStore = Substitute.For<ISessionStore>();
         sessionStore.Get(Arg.Any<Guid>()).Returns((ProblemSession?)null);
 
-        var llmService = Substitute.For<ILlmService>();
+        var factory = Substitute.For<ILlmServiceFactory>();
         var logger = Substitute.For<ILogger<TutoringService>>();
-        var service = new TutoringService(llmService, sessionStore, logger);
+        var service = new TutoringService(factory, sessionStore, logger);
 
         await Assert.ThrowsAsync<SessionNotFoundException>(
             () => service.GetGuidanceAsync(Guid.NewGuid(), "help me", null, false, CancellationToken.None));
@@ -112,9 +112,9 @@ public class TutoringServiceTests
         var sessionStore = Substitute.For<ISessionStore>();
         sessionStore.Get(Arg.Any<Guid>()).Returns((ProblemSession?)null);
 
-        var llmService = Substitute.For<ILlmService>();
+        var factory = Substitute.For<ILlmServiceFactory>();
         var logger = Substitute.For<ILogger<TutoringService>>();
-        var service = new TutoringService(llmService, sessionStore, logger);
+        var service = new TutoringService(factory, sessionStore, logger);
 
         await Assert.ThrowsAsync<SessionNotFoundException>(
             () => service.GetGuidanceAsync(Guid.NewGuid(), "help me", "int x = 42;", false, CancellationToken.None));
