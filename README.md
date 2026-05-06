@@ -153,7 +153,7 @@ The API serves:
 
 ```bash
 cd CodeSmith.Web
-npm install       # first run only
+npm install
 npm run dev
 ```
 
