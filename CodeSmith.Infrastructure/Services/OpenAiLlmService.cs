@@ -11,10 +11,10 @@ using OpenAI.Chat;
 namespace CodeSmith.Infrastructure.Services;
 
 /// <summary>
-/// Implementation of <see cref="ILlmService"/> using the official OpenAI .NET SDK.
+/// Implementation of <see cref="ITutoringLlmService"/> and <see cref="IPromptLabLlmService"/> using the official OpenAI .NET SDK.
 /// Stateless: no session management. Maps named capability methods to GPT models internally.
 /// </summary>
-public class OpenAiLlmService : ILlmService
+public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService
 {
     private readonly OpenAIClient _client;
     private readonly ILogger<OpenAiLlmService> _logger;
@@ -45,7 +45,7 @@ public class OpenAiLlmService : ILlmService
 
             return new LlmResponse
             {
-                Content           = response.Value.Content[0].Text,
+                Content           = ExtractTextContent(response.Value),
                 InputTokensUsed   = response.Value.Usage.InputTokenCount,
                 ContextWindowSize = ContextWindow
             };
@@ -80,7 +80,7 @@ public class OpenAiLlmService : ILlmService
 
             return new LlmResponse
             {
-                Content           = response.Value.Content[0].Text,
+                Content           = ExtractTextContent(response.Value),
                 InputTokensUsed   = response.Value.Usage.InputTokenCount,
                 ContextWindowSize = ContextWindow
             };
@@ -106,7 +106,7 @@ public class OpenAiLlmService : ILlmService
 
             return new LlmResponse
             {
-                Content           = response.Value.Content[0].Text,
+                Content           = ExtractTextContent(response.Value),
                 InputTokensUsed   = response.Value.Usage.InputTokenCount,
                 ContextWindowSize = ContextWindow
             };
@@ -132,7 +132,7 @@ public class OpenAiLlmService : ILlmService
 
             return new LlmResponse
             {
-                Content           = response.Value.Content[0].Text,
+                Content           = ExtractTextContent(response.Value),
                 InputTokensUsed   = response.Value.Usage.InputTokenCount,
                 ContextWindowSize = ContextWindow
             };
@@ -158,7 +158,7 @@ public class OpenAiLlmService : ILlmService
 
             return new LlmResponse
             {
-                Content           = response.Value.Content[0].Text,
+                Content           = ExtractTextContent(response.Value),
                 InputTokensUsed   = response.Value.Usage.InputTokenCount,
                 ContextWindowSize = ContextWindow
             };
@@ -169,4 +169,9 @@ public class OpenAiLlmService : ILlmService
             throw new AiServiceException("OpenAI test input generation failed. Please try again.", ex);
         }
     }
+
+    // == Helpers == //
+
+    private static string ExtractTextContent(ChatCompletion response)
+        => response.Content.Count > 0 ? response.Content[0].Text : string.Empty;
 }

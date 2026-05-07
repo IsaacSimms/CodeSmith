@@ -1,4 +1,5 @@
 // == Infrastructure DI Registration == //
+using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Infrastructure.Configuration;
 using CodeSmith.Infrastructure.Services;
@@ -30,10 +31,27 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISessionStore, InMemorySessionStore>();
 
         // == LLM Provider Registration == //
-        // Both implementations are registered so the factory can resolve either at call time.
-        // The factory selects the correct service per request based on the session's stored provider.
-        services.AddScoped<AnthropicLlmService>();
-        services.AddScoped<OpenAiLlmService>();
+        // Both implementations are registered as singletons so they can be reused.
+        // Keyed services enable the factory to route by AiProvider enum at call time.
+        services.AddSingleton<AnthropicLlmService>();
+        services.AddSingleton<OpenAiLlmService>();
+
+        // Register keyed tutoring services (both providers implement ITutoringLlmService)
+        services.AddKeyedSingleton<ITutoringLlmService>(
+            AiProvider.Anthropic,
+            (sp, _) => sp.GetRequiredService<AnthropicLlmService>());
+        services.AddKeyedSingleton<ITutoringLlmService>(
+            AiProvider.OpenAi,
+            (sp, _) => sp.GetRequiredService<OpenAiLlmService>());
+
+        // Register keyed prompt-lab services (both providers implement IPromptLabLlmService)
+        services.AddKeyedSingleton<IPromptLabLlmService>(
+            AiProvider.Anthropic,
+            (sp, _) => sp.GetRequiredService<AnthropicLlmService>());
+        services.AddKeyedSingleton<IPromptLabLlmService>(
+            AiProvider.OpenAi,
+            (sp, _) => sp.GetRequiredService<OpenAiLlmService>());
+
         services.AddScoped<ILlmServiceFactory, LlmServiceFactory>();
 
         // TutoringService is session-aware and delegates completions to ILlmServiceFactory

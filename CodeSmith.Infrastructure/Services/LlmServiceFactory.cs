@@ -1,27 +1,26 @@
 // == LLM Service Factory == //
 using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace CodeSmith.Infrastructure.Services;
 
 /// <summary>
-/// Resolves the correct <see cref="ILlmService"/> at call time based on the requested <see cref="AiProvider"/>.
-/// Both implementations are registered in DI; this factory selects between them per request.
+/// Resolves the correct tutoring or prompt-lab LLM service implementation for a given provider at call time.
+/// Uses keyed DI to route by AiProvider enum.
 /// </summary>
 public class LlmServiceFactory : ILlmServiceFactory
 {
-    private readonly AnthropicLlmService _anthropic;
-    private readonly OpenAiLlmService    _openAi;
+    private readonly IServiceProvider _sp;
 
-    public LlmServiceFactory(AnthropicLlmService anthropic, OpenAiLlmService openAi)
+    public LlmServiceFactory(IServiceProvider sp)
     {
-        _anthropic = anthropic;
-        _openAi    = openAi;
+        _sp = sp;
     }
 
-    public ILlmService GetService(AiProvider provider) => provider switch
-    {
-        AiProvider.OpenAi => _openAi,
-        _                 => _anthropic,
-    };
+    public ITutoringLlmService GetTutoringService(AiProvider provider)
+        => _sp.GetRequiredKeyedService<ITutoringLlmService>(provider);
+
+    public IPromptLabLlmService GetPromptLabService(AiProvider provider)
+        => _sp.GetRequiredKeyedService<IPromptLabLlmService>(provider);
 }

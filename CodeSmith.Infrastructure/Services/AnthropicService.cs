@@ -11,10 +11,10 @@ using Microsoft.Extensions.Options;
 namespace CodeSmith.Infrastructure.Services;
 
 /// <summary>
-/// Implementation of <see cref="ILlmService"/> using the official Anthropic C# SDK.
+/// Implementation of <see cref="ITutoringLlmService"/> and <see cref="IPromptLabLlmService"/> using the official Anthropic C# SDK.
 /// Stateless: no session management. Maps named capability methods to Claude models internally.
 /// </summary>
-public class AnthropicLlmService : ILlmService
+public class AnthropicLlmService : ITutoringLlmService, IPromptLabLlmService
 {
     private readonly AnthropicClient _client;
     private readonly ILogger<AnthropicLlmService> _logger;
@@ -119,69 +119,28 @@ public class AnthropicLlmService : ILlmService
 
     // == Prompt Lab: Simulate (Haiku) == //
 
-    public async Task<LlmResponse> SimulatePromptAsync(string systemPrompt, string userMessage, int maxTokens, CancellationToken ct = default)
-    {
-        try
-        {
-            var response = await _client.Messages.Create(new MessageCreateParams
-            {
-                Model     = FastModel,
-                MaxTokens = maxTokens,
-                System    = systemPrompt,
-                Messages  = [new() { Role = Role.User, Content = userMessage }]
-            }, ct);
-
-            return new LlmResponse
-            {
-                Content           = ExtractTextContent(response),
-                InputTokensUsed   = (int)response.Usage.InputTokens,
-                ContextWindowSize = ContextWindow
-            };
-        }
-        catch (Exception ex) when (ex is not AiServiceException)
-        {
-            _logger.LogError(ex, "Anthropic API call failed during prompt simulation");
-            throw new AiServiceException("Failed to simulate prompt. Please try again.", ex);
-        }
-    }
+    public Task<LlmResponse> SimulatePromptAsync(string systemPrompt, string userMessage, int maxTokens, CancellationToken ct = default)
+        => CreateSingleTurnAsync(FastModel, systemPrompt, userMessage, maxTokens, "prompt simulation", ct);
 
     // == Prompt Lab: Evaluate (Sonnet) == //
 
-    public async Task<LlmResponse> EvaluateResponseAsync(string systemPrompt, string userMessage, int maxTokens, CancellationToken ct = default)
-    {
-        try
-        {
-            var response = await _client.Messages.Create(new MessageCreateParams
-            {
-                Model     = AccurateModel,
-                MaxTokens = maxTokens,
-                System    = systemPrompt,
-                Messages  = [new() { Role = Role.User, Content = userMessage }]
-            }, ct);
-
-            return new LlmResponse
-            {
-                Content           = ExtractTextContent(response),
-                InputTokensUsed   = (int)response.Usage.InputTokens,
-                ContextWindowSize = ContextWindow
-            };
-        }
-        catch (Exception ex) when (ex is not AiServiceException)
-        {
-            _logger.LogError(ex, "Anthropic API call failed during response evaluation");
-            throw new AiServiceException("Failed to evaluate response. Please try again.", ex);
-        }
-    }
+    public Task<LlmResponse> EvaluateResponseAsync(string systemPrompt, string userMessage, int maxTokens, CancellationToken ct = default)
+        => CreateSingleTurnAsync(AccurateModel, systemPrompt, userMessage, maxTokens, "response evaluation", ct);
 
     // == Prompt Lab: Generate Test Inputs (Sonnet) == //
 
-    public async Task<LlmResponse> GenerateTestInputsAsync(string systemPrompt, string userMessage, int maxTokens, CancellationToken ct = default)
+    public Task<LlmResponse> GenerateTestInputsAsync(string systemPrompt, string userMessage, int maxTokens, CancellationToken ct = default)
+        => CreateSingleTurnAsync(AccurateModel, systemPrompt, userMessage, maxTokens, "test input generation", ct);
+
+    // == Prompt Lab Single-Turn Helper == //
+
+    private async Task<LlmResponse> CreateSingleTurnAsync(string model, string systemPrompt, string userMessage, int maxTokens, string operationName, CancellationToken ct)
     {
         try
         {
             var response = await _client.Messages.Create(new MessageCreateParams
             {
-                Model     = AccurateModel,
+                Model     = model,
                 MaxTokens = maxTokens,
                 System    = systemPrompt,
                 Messages  = [new() { Role = Role.User, Content = userMessage }]
@@ -196,8 +155,8 @@ public class AnthropicLlmService : ILlmService
         }
         catch (Exception ex) when (ex is not AiServiceException)
         {
-            _logger.LogError(ex, "Anthropic API call failed during test input generation");
-            throw new AiServiceException("Failed to generate test inputs. Please try again.", ex);
+            _logger.LogError(ex, "Anthropic API call failed during {OperationName}", operationName);
+            throw new AiServiceException($"Failed during {operationName}. Please try again.", ex);
         }
     }
 

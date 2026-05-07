@@ -77,10 +77,6 @@ export function getChallenges(): Promise<ChallengeResponse[]> {
   return request<ChallengeResponse[]>("/api/prompt-lab/challenges", { method: "GET" });
 }
 
-export function getChallenge(challengeId: string): Promise<ChallengeResponse> {
-  return request<ChallengeResponse>(`/api/prompt-lab/challenges/${challengeId}`, { method: "GET" });
-}
-
 export function startPromptLabChallenge(body: StartChallengeRequest): Promise<PromptLabSession> {
   return request<PromptLabSession>("/api/prompt-lab/sessions", {
     method: "POST",

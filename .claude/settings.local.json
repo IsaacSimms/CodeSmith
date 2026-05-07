@@ -30,7 +30,8 @@
       "Bash(curl -sk https://localhost:7111/api/prompt-lab/challenges)",
       "mcp__playwright__browser_take_screenshot",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5175/api/session)",
-      "mcp__playwright__browser_evaluate"
+      "mcp__playwright__browser_evaluate",
+      "Bash(git rm *)"
     ]
   }
 }
