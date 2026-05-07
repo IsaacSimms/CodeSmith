@@ -95,12 +95,13 @@ public class TutoringServiceTests
     [Fact]
     public async Task GetGuidanceAsync_WithUnknownSession_ThrowsSessionNotFoundException()
     {
-        var sessionStore = Substitute.For<ISessionStore>();
-        sessionStore.Get(Arg.Any<Guid>()).Returns((ProblemSession?)null);
+        var sessionStore = Substitute.For<ISessionStore<ProblemSession>>();
+        sessionStore.Get(Arg.Any<string>()).Returns((ProblemSession?)null);
 
         var factory = Substitute.For<ILlmServiceFactory>();
+        var codeExecutionService = Substitute.For<ICodeExecutionService>();
         var logger = Substitute.For<ILogger<TutoringService>>();
-        var service = new TutoringService(factory, sessionStore, logger);
+        var service = new TutoringService(factory, sessionStore, codeExecutionService, logger);
 
         await Assert.ThrowsAsync<SessionNotFoundException>(
             () => service.GetGuidanceAsync(Guid.NewGuid(), "help me", null, false, CancellationToken.None));
@@ -109,12 +110,13 @@ public class TutoringServiceTests
     [Fact]
     public async Task GetGuidanceAsync_WithEditorContent_ThrowsSessionNotFoundButAcceptsParam()
     {
-        var sessionStore = Substitute.For<ISessionStore>();
-        sessionStore.Get(Arg.Any<Guid>()).Returns((ProblemSession?)null);
+        var sessionStore = Substitute.For<ISessionStore<ProblemSession>>();
+        sessionStore.Get(Arg.Any<string>()).Returns((ProblemSession?)null);
 
         var factory = Substitute.For<ILlmServiceFactory>();
+        var codeExecutionService = Substitute.For<ICodeExecutionService>();
         var logger = Substitute.For<ILogger<TutoringService>>();
-        var service = new TutoringService(factory, sessionStore, logger);
+        var service = new TutoringService(factory, sessionStore, codeExecutionService, logger);
 
         await Assert.ThrowsAsync<SessionNotFoundException>(
             () => service.GetGuidanceAsync(Guid.NewGuid(), "help me", "int x = 42;", false, CancellationToken.None));

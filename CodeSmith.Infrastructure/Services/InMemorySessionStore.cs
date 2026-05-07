@@ -1,26 +1,25 @@
-// == In-Memory Session Store == //
 using System.Collections.Concurrent;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
+using CodeSmith.Core.Models.PromptLab;
 
 namespace CodeSmith.Infrastructure.Services;
 
-/// <summary>
-/// Thread-safe in-memory implementation of <see cref="ISessionStore"/>
-/// using a <see cref="ConcurrentDictionary{TKey, TValue}"/>.
-/// </summary>
-public class InMemorySessionStore : ISessionStore
+public class InMemorySessionStore<TSession> : ISessionStore<TSession> where TSession : class
 {
-    private readonly ConcurrentDictionary<Guid, ProblemSession> _sessions = new();
+    private readonly ConcurrentDictionary<string, TSession> _sessions = new();
 
-    public ProblemSession? Get(Guid sessionId)
-    {
-        _sessions.TryGetValue(sessionId, out var session);
-        return session;
-    }
+    public TSession? Get(string sessionId)
+        => _sessions.TryGetValue(sessionId, out var session) ? session : null;
 
-    public void Set(ProblemSession session)
+    public void Set(TSession session)
     {
-        _sessions[session.SessionId] = session;
+        var sessionId = session switch
+        {
+            ProblemSession ps => ps.SessionId.ToString(),
+            PromptLabSession pls => pls.SessionId.ToString(),
+            _ => throw new ArgumentException($"Unknown session type: {session.GetType().Name}")
+        };
+        _sessions[sessionId] = session;
     }
 }

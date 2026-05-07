@@ -1,5 +1,6 @@
 // == In-Memory Session Store Tests == //
 using CodeSmith.Core.Enums;
+using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
 using CodeSmith.Infrastructure.Services;
 
@@ -7,12 +8,12 @@ namespace CodeSmith.Tests.Infrastructure;
 
 public class InMemorySessionStoreTests
 {
-    private readonly InMemorySessionStore _store = new();
+    private readonly ISessionStore<ProblemSession> _store = new InMemorySessionStore<ProblemSession>();
 
     [Fact]
     public void Get_UnknownId_ReturnsNull()
     {
-        var result = _store.Get(Guid.NewGuid());
+        var result = _store.Get(Guid.NewGuid().ToString());
 
         Assert.Null(result);
     }
@@ -27,7 +28,7 @@ public class InMemorySessionStoreTests
         };
 
         _store.Set(session);
-        var retrieved = _store.Get(session.SessionId);
+        var retrieved = _store.Get(session.SessionId.ToString());
 
         Assert.NotNull(retrieved);
         Assert.Equal(session.SessionId, retrieved.SessionId);
@@ -43,7 +44,7 @@ public class InMemorySessionStoreTests
         session.ProblemDescription = "Updated";
         _store.Set(session);
 
-        var retrieved = _store.Get(session.SessionId);
+        var retrieved = _store.Get(session.SessionId.ToString());
         Assert.Equal("Updated", retrieved!.ProblemDescription);
     }
 
@@ -56,8 +57,8 @@ public class InMemorySessionStoreTests
         _store.Set(session1);
         _store.Set(session2);
 
-        Assert.Equal("First", _store.Get(session1.SessionId)!.ProblemDescription);
-        Assert.Equal("Second", _store.Get(session2.SessionId)!.ProblemDescription);
+        Assert.Equal("First", _store.Get(session1.SessionId.ToString())!.ProblemDescription);
+        Assert.Equal("Second", _store.Get(session2.SessionId.ToString())!.ProblemDescription);
     }
 
     [Fact]
@@ -73,7 +74,7 @@ public class InMemorySessionStoreTests
         };
 
         _store.Set(session);
-        var retrieved = _store.Get(session.SessionId);
+        var retrieved = _store.Get(session.SessionId.ToString());
 
         Assert.Equal(Difficulty.Hard, retrieved!.Difficulty);
         Assert.Equal(Language.Rust, retrieved.Language);

@@ -17,7 +17,7 @@ namespace CodeSmith.Infrastructure.Services.PromptLab;
 public class PromptLabService : IPromptLabService
 {
     private readonly ILlmServiceFactory _factory;
-    private readonly IPromptLabSessionStore _sessionStore;
+    private readonly ISessionStore<PromptLabSession> _sessionStore;
     private readonly ILogger<PromptLabService> _logger;
 
     private const int SimulationMaxTokens  = 512;  // Per-input simulation response budget
@@ -26,7 +26,7 @@ public class PromptLabService : IPromptLabService
 
     public PromptLabService(
         ILlmServiceFactory factory,
-        IPromptLabSessionStore sessionStore,
+        ISessionStore<PromptLabSession> sessionStore,
         ILogger<PromptLabService> logger)
     {
         _factory      = factory;
@@ -74,7 +74,7 @@ public class PromptLabService : IPromptLabService
         string userMessageContent,
         CancellationToken ct = default)
     {
-        var session = _sessionStore.Get(sessionId)
+        var session = _sessionStore.Get(sessionId.ToString())
             ?? throw new SessionNotFoundException(sessionId);
 
         var challenge = GetChallenge(session.ChallengeId);

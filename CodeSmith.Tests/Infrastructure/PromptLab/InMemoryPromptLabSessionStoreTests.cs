@@ -1,17 +1,18 @@
 // == In-Memory Prompt Lab Session Store Tests == //
+using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models.PromptLab;
-using CodeSmith.Infrastructure.Services.PromptLab;
+using CodeSmith.Infrastructure.Services;
 
 namespace CodeSmith.Tests.Infrastructure.PromptLab;
 
 public class InMemoryPromptLabSessionStoreTests
 {
-    private readonly InMemoryPromptLabSessionStore _store = new();
+    private readonly ISessionStore<PromptLabSession> _store = new InMemorySessionStore<PromptLabSession>();
 
     [Fact]
     public void Get_UnknownId_ReturnsNull()
     {
-        var result = _store.Get(Guid.NewGuid());
+        var result = _store.Get(Guid.NewGuid().ToString());
 
         Assert.Null(result);
     }
@@ -22,7 +23,7 @@ public class InMemoryPromptLabSessionStoreTests
         var session = new PromptLabSession { ChallengeId = "format-json-01" };
 
         _store.Set(session);
-        var retrieved = _store.Get(session.SessionId);
+        var retrieved = _store.Get(session.SessionId.ToString());
 
         Assert.NotNull(retrieved);
         Assert.Equal(session.SessionId, retrieved.SessionId);
@@ -38,7 +39,7 @@ public class InMemoryPromptLabSessionStoreTests
         session.ChallengeId = "updated";
         _store.Set(session);
 
-        var retrieved = _store.Get(session.SessionId);
+        var retrieved = _store.Get(session.SessionId.ToString());
         Assert.Equal("updated", retrieved!.ChallengeId);
     }
 
@@ -51,8 +52,8 @@ public class InMemoryPromptLabSessionStoreTests
         _store.Set(session1);
         _store.Set(session2);
 
-        Assert.Equal("challenge-a", _store.Get(session1.SessionId)!.ChallengeId);
-        Assert.Equal("challenge-b", _store.Get(session2.SessionId)!.ChallengeId);
+        Assert.Equal("challenge-a", _store.Get(session1.SessionId.ToString())!.ChallengeId);
+        Assert.Equal("challenge-b", _store.Get(session2.SessionId.ToString())!.ChallengeId);
     }
 
     [Fact]
@@ -74,7 +75,7 @@ public class InMemoryPromptLabSessionStoreTests
         };
 
         _store.Set(session);
-        var retrieved = _store.Get(session.SessionId);
+        var retrieved = _store.Get(session.SessionId.ToString());
 
         Assert.Equal("format-json-01", retrieved!.ChallengeId);
         Assert.Single(retrieved.Attempts);

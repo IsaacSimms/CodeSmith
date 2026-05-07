@@ -18,20 +18,14 @@ namespace CodeSmith.Api.Controllers;
 public class SessionController : ControllerBase
 {
     private readonly ITutoringService _tutoringService;
-    private readonly ICodeExecutionService _codeExecutionService;
-    private readonly ISessionStore _sessionStore;
     private readonly AiOptions _aiOptions;
 
     public SessionController(
         ITutoringService tutoringService,
-        ICodeExecutionService codeExecutionService,
-        ISessionStore sessionStore,
         IOptions<AiOptions> aiOptions)
     {
-        _tutoringService       = tutoringService;
-        _codeExecutionService  = codeExecutionService;
-        _sessionStore          = sessionStore;
-        _aiOptions             = aiOptions.Value;
+        _tutoringService = tutoringService;
+        _aiOptions       = aiOptions.Value;
     }
 
     // == Providers Endpoint == //
@@ -107,11 +101,7 @@ public class SessionController : ControllerBase
         [FromBody] RunCodeRequest request,
         CancellationToken ct)
     {
-        var session = _sessionStore.Get(sessionId);
-        if (session is null)
-            throw new SessionNotFoundException(sessionId);
-
-        var result = await _codeExecutionService.ExecuteAsync(request.Language, request.Code, ct);
+        var result = await _tutoringService.RunCodeAsync(sessionId, request.Language, request.Code, ct);
 
         return Ok(new RunCodeResponse
         {

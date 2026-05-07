@@ -15,14 +15,12 @@ namespace CodeSmith.Tests.Api;
 public class SessionControllerTests
 {
     private readonly ITutoringService _tutoringService = Substitute.For<ITutoringService>();
-    private readonly ICodeExecutionService _codeExecutionService = Substitute.For<ICodeExecutionService>();
-    private readonly ISessionStore _sessionStore = Substitute.For<ISessionStore>();
     private readonly SessionController _controller;
 
     public SessionControllerTests()
     {
         var aiOptions = Options.Create(new AiOptions { ActiveProvider = "Anthropic" });
-        _controller = new SessionController(_tutoringService, _codeExecutionService, _sessionStore, aiOptions);
+        _controller = new SessionController(_tutoringService, aiOptions);
     }
 
     // == CreateSession Tests == //
@@ -144,9 +142,8 @@ public class SessionControllerTests
     public async Task RunCode_WithValidRequest_Returns200()
     {
         var sessionId = Guid.NewGuid();
-        _sessionStore.Get(sessionId).Returns(new ProblemSession { SessionId = sessionId });
-        _codeExecutionService
-            .ExecuteAsync(Language.Python, "print('hi')", Arg.Any<CancellationToken>())
+        _tutoringService
+            .RunCodeAsync(sessionId, Language.Python, "print('hi')", Arg.Any<CancellationToken>())
             .Returns(new CodeExecutionResult { Stdout = "hi\n", Stderr = "", ExitCode = 0, TimedOut = false });
 
         var result = await _controller.RunCode(
@@ -165,7 +162,9 @@ public class SessionControllerTests
     public async Task RunCode_WithInvalidSession_ThrowsSessionNotFound()
     {
         var sessionId = Guid.NewGuid();
-        _sessionStore.Get(sessionId).Returns((ProblemSession?)null);
+        _tutoringService
+            .RunCodeAsync(sessionId, Language.Python, "print('hi')", Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<CodeExecutionResult>(new SessionNotFoundException(sessionId)));
 
         await Assert.ThrowsAsync<SessionNotFoundException>(() =>
             _controller.RunCode(
@@ -178,9 +177,8 @@ public class SessionControllerTests
     public async Task RunCode_WithTimedOutExecution_ReturnsTimedOutFlag()
     {
         var sessionId = Guid.NewGuid();
-        _sessionStore.Get(sessionId).Returns(new ProblemSession { SessionId = sessionId });
-        _codeExecutionService
-            .ExecuteAsync(Language.Python, "while True: pass", Arg.Any<CancellationToken>())
+        _tutoringService
+            .RunCodeAsync(sessionId, Language.Python, "while True: pass", Arg.Any<CancellationToken>())
             .Returns(new CodeExecutionResult { Stdout = "", Stderr = "Process killed: execution exceeded 10 second timeout.", ExitCode = -1, TimedOut = true });
 
         var result = await _controller.RunCode(

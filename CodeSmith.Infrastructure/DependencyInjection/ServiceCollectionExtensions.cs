@@ -27,8 +27,9 @@ public static class ServiceCollectionExtensions
         services.Configure<AiOptions>(configuration.GetSection(AiOptions.SectionName));
         services.Configure<CodeExecutionOptions>(configuration.GetSection(CodeExecutionOptions.SectionName));
 
-        // Register session store as singleton (thread-safe ConcurrentDictionary)
-        services.AddSingleton<ISessionStore, InMemorySessionStore>();
+        // Register session stores as singletons (thread-safe ConcurrentDictionary generic)
+        services.AddSingleton<ISessionStore<CodeSmith.Core.Models.ProblemSession>, InMemorySessionStore<CodeSmith.Core.Models.ProblemSession>>();
+        services.AddSingleton<ISessionStore<CodeSmith.Core.Models.PromptLab.PromptLabSession>, InMemorySessionStore<CodeSmith.Core.Models.PromptLab.PromptLabSession>>();
 
         // == LLM Provider Registration == //
         // Both implementations are registered as singletons so they can be reused.
@@ -58,7 +59,6 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ITutoringService, TutoringService>();
 
         // Register Prompt Lab services
-        services.AddSingleton<IPromptLabSessionStore, InMemoryPromptLabSessionStore>();
         services.AddScoped<IPromptLabService, PromptLabService>();
 
         // == Code Execution Backend Selection == //

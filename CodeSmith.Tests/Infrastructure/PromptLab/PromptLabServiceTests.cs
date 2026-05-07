@@ -95,7 +95,7 @@ public class PromptLabServiceTests
     [Fact]
     public async Task SubmitAttemptAsync_WithUnknownSession_ThrowsSessionNotFoundException()
     {
-        _sessionStore.Get(Arg.Any<Guid>()).Returns((PromptLabSession?)null);
+        _sessionStore.Get(Arg.Any<string>()).Returns((PromptLabSession?)null);
 
         await Assert.ThrowsAsync<SessionNotFoundException>(
             () => _service.SubmitAttemptAsync(Guid.NewGuid(), "be concise", "list planets", CancellationToken.None));

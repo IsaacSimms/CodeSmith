@@ -14,7 +14,8 @@ namespace CodeSmith.Infrastructure.Services;
 public class TutoringService : ITutoringService
 {
     private readonly ILlmServiceFactory _factory;
-    private readonly ISessionStore _sessionStore;
+    private readonly ISessionStore<ProblemSession> _sessionStore;
+    private readonly ICodeExecutionService _codeExecutionService;
     private readonly ILogger<TutoringService> _logger;
 
     private const int ProblemMaxTokens  = 2000;  // Enough for a full problem description + starter code
@@ -124,12 +125,14 @@ public class TutoringService : ITutoringService
 
     public TutoringService(
         ILlmServiceFactory factory,
-        ISessionStore sessionStore,
+        ISessionStore<ProblemSession> sessionStore,
+        ICodeExecutionService codeExecutionService,
         ILogger<TutoringService> logger)
     {
-        _factory      = factory;
-        _sessionStore = sessionStore;
-        _logger       = logger;
+        _factory                 = factory;
+        _sessionStore            = sessionStore;
+        _codeExecutionService    = codeExecutionService;
+        _logger                  = logger;
     }
 
     // == Problem Generation == //
@@ -178,11 +181,21 @@ public class TutoringService : ITutoringService
         throw new AiServiceException("Failed to generate a complete coding problem after multiple attempts. The response was malformed. Please try again.");
     }
 
+    // == Code Execution == //
+
+    public async Task<CodeExecutionResult> RunCodeAsync(Guid sessionId, Language language, string code, CancellationToken ct = default)
+    {
+        var session = _sessionStore.Get(sessionId.ToString())
+            ?? throw new SessionNotFoundException(sessionId);
+
+        return await _codeExecutionService.ExecuteAsync(language, code, ct);
+    }
+
     // == Guidance == //
 
     public async Task<ChatResponse> GetGuidanceAsync(Guid sessionId, string userMessage, string? editorContent = null, bool isCodeAnalysis = false, CancellationToken ct = default)
     {
-        var session = _sessionStore.Get(sessionId)
+        var session = _sessionStore.Get(sessionId.ToString())
             ?? throw new SessionNotFoundException(sessionId);
 
         _logger.LogInformation("Processing guidance request for session {SessionId}", sessionId);
