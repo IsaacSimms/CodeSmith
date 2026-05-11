@@ -5,7 +5,7 @@ import { useProviderPreference } from "../../../hooks/useProviderPreference";
 import type { AiProvider } from "../../chat/types";
 
 const providerLabels: Record<AiProvider, string> = {
-  Anthropic: "Anthropic Claude",
+  Anthropic: "Anthropic",
   OpenAi:    "OpenAI",
 };
 
@@ -64,7 +64,7 @@ export function HomePage() {
                     onClick={() => setProvider(p)}
                     className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${
                       isSelected
-                        ? "border-blue-400 bg-blue-600 text-white"
+                        ? "border-monokai-pink bg-monokai-pink/20 text-white"
                         : "border-gray-600 bg-gray-900 text-gray-300 hover:border-gray-500 hover:bg-gray-800"
                     }`}
                   >
