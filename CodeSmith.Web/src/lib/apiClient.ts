@@ -22,7 +22,7 @@ class ApiClientError extends Error {
   apiError: ApiError;
 
   constructor(statusCode: number, apiError: ApiError) {
-    super(apiError.error);
+    super(apiError.detail ?? apiError.title ?? "An unexpected error occurred.");
     this.name = "ApiClientError";
     this.statusCode = statusCode;
     this.apiError = apiError;

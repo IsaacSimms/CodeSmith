@@ -154,7 +154,7 @@ public class TutoringService : ITutoringService
         const int maxParseRetries = 2;
         for (var attempt = 0; attempt <= maxParseRetries; attempt++)
         {
-            var llmResponse = await _factory.GetTutoringService(provider).GenerateProblemAsync(systemPrompt, userMessage, ProblemMaxTokens, ct);
+            var llmResponse = await _factory.GetLlmService<ITutoringLlmService>(provider).GenerateProblemAsync(systemPrompt, userMessage, ProblemMaxTokens, ct);
             var (description, starterCode) = ParseProblemResponse(llmResponse.Content);
 
             if (!string.IsNullOrWhiteSpace(description) && !string.IsNullOrWhiteSpace(starterCode))
@@ -215,7 +215,7 @@ public class TutoringService : ITutoringService
         if (!string.IsNullOrWhiteSpace(editorContent))
             systemPrompt += string.Format(EditorContentSection, editorContent);
 
-        var llmResponse = await _factory.GetTutoringService(session.Provider).GetGuidanceAsync(systemPrompt, session.Messages, GuidanceMaxTokens, ct);
+        var llmResponse = await _factory.GetLlmService<ITutoringLlmService>(session.Provider).GetGuidanceAsync(systemPrompt, session.Messages, GuidanceMaxTokens, ct);
 
         // Add assistant response to history
         session.Messages.Add(new ChatMessage

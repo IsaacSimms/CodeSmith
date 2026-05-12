@@ -1,7 +1,6 @@
 // == Session Controller == //
 using CodeSmith.Api.DTOs;
 using CodeSmith.Core.Enums;
-using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
 using CodeSmith.Infrastructure.Configuration;
@@ -61,15 +60,7 @@ public class SessionController : ControllerBase
             return BadRequest(new { error = "Invalid language value. Use CSharp, Cpp, Go, Rust, Python, Java, or TypeScript." });
         }
 
-        // Resolve provider: use the request's override if supplied, else fall back to the server's configured default
-        var providerName = request.Provider.HasValue
-            ? request.Provider.Value.ToString()
-            : _aiOptions.ActiveProvider;
-
-        if (!Enum.TryParse<AiProvider>(providerName, ignoreCase: true, out var provider))
-            return BadRequest(new { error = $"Unknown AI provider '{providerName}'." });
-
-        var session = await _tutoringService.GenerateProblemAsync(request.Difficulty, request.Language, provider, ct);
+        var session = await _tutoringService.GenerateProblemAsync(request.Difficulty, request.Language, request.Provider, ct);
 
         return CreatedAtAction(nameof(CreateSession), new { sessionId = session.SessionId }, session);
     }

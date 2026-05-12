@@ -16,5 +16,5 @@ public class CreateSessionRequest
     public Language Language { get; set; }      // The desired programming language for the coding problem
 
     [JsonConverter(typeof(JsonStringEnumConverter))]
-    public AiProvider? Provider { get; set; }   // Optional: the AI provider to use. Defaults to the server's configured active provider.
+    public AiProvider Provider { get; set; }    // The AI provider to use for this session
 }

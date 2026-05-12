@@ -148,7 +148,7 @@ public class PromptLabService : IPromptLabService
         AiProvider provider,
         CancellationToken ct)
     {
-        var response = await _factory.GetPromptLabService(provider).SimulatePromptAsync(systemPrompt, userMessage, SimulationMaxTokens, ct);
+        var response = await _factory.GetLlmService<IPromptLabLlmService>(provider).SimulatePromptAsync(systemPrompt, userMessage, SimulationMaxTokens, ct);
 
         _logger.LogDebug("Simulation output for input {InputId}: {Output}", input.InputId, response.Content);
         return (input, response.Content, response.InputTokensUsed, response.ContextWindowSize);
@@ -241,7 +241,7 @@ public class PromptLabService : IPromptLabService
             """;
         var prompt = BuildSingleInputEvaluationPrompt(challenge, input, simulationOutput);
 
-        var response = await _factory.GetPromptLabService(provider).EvaluateResponseAsync(systemPrompt, prompt, EvaluationMaxTokens, ct);
+        var response = await _factory.GetLlmService<IPromptLabLlmService>(provider).EvaluateResponseAsync(systemPrompt, prompt, EvaluationMaxTokens, ct);
         return ParseSingleInputResult(challenge, input, simulationOutput, computedUserMessage, response.Content);
     }
 
@@ -375,7 +375,7 @@ public class PromptLabService : IPromptLabService
             """;
 
         const string generationSystemPrompt = "You generate test inputs for prompt engineering challenges. Return only a valid JSON array as specified — no preamble.";
-        var response = await _factory.GetPromptLabService(provider).GenerateTestInputsAsync(generationSystemPrompt, prompt, GenerationMaxTokens, ct);
+        var response = await _factory.GetLlmService<IPromptLabLlmService>(provider).GenerateTestInputsAsync(generationSystemPrompt, prompt, GenerationMaxTokens, ct);
 
         var json  = ExtractJson(response.Content);
         var items = System.Text.Json.JsonSerializer.Deserialize<List<GeneratedTestInputDto>>(json)

@@ -6,21 +6,11 @@ using Microsoft.Extensions.DependencyInjection;
 namespace CodeSmith.Infrastructure.Services;
 
 /// <summary>
-/// Resolves the correct tutoring or prompt-lab LLM service implementation for a given provider at call time.
+/// Resolves a keyed LLM service implementation for the given provider at call time.
 /// Uses keyed DI to route by AiProvider enum.
 /// </summary>
-public class LlmServiceFactory : ILlmServiceFactory
+public class LlmServiceFactory(IServiceProvider sp) : ILlmServiceFactory
 {
-    private readonly IServiceProvider _sp;
-
-    public LlmServiceFactory(IServiceProvider sp)
-    {
-        _sp = sp;
-    }
-
-    public ITutoringLlmService GetTutoringService(AiProvider provider)
-        => _sp.GetRequiredKeyedService<ITutoringLlmService>(provider);
-
-    public IPromptLabLlmService GetPromptLabService(AiProvider provider)
-        => _sp.GetRequiredKeyedService<IPromptLabLlmService>(provider);
+    public T GetLlmService<T>(AiProvider provider) where T : class
+        => sp.GetRequiredKeyedService<T>(provider);
 }

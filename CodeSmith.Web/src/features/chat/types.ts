@@ -57,7 +57,7 @@ export interface ProblemSession {
 export interface CreateSessionRequest {
   difficulty: Difficulty;
   language: Language;
-  provider?: AiProvider;  // Optional — omit to use the server's configured default
+  provider: AiProvider;
 }
 
 export interface ProvidersResponse {
@@ -90,6 +90,7 @@ export interface RunCodeResponse {
 }
 
 export interface ApiError {
-  error: string;
-  statusCode: number;
+  title?: string;   // RFC 7807 short description
+  detail?: string;  // Safe, human-readable error message
+  status: number;   // HTTP status code
 }

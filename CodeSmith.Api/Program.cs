@@ -16,6 +16,8 @@ builder.Services.AddControllers()
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<AppExceptionHandler>();
 
 // Register CodeSmith Infrastructure services (Anthropic client, session store)
 builder.Services.AddCodeSmithInfrastructure(builder.Configuration);
@@ -53,7 +55,7 @@ var app = builder.Build();
 
 // == Middleware Pipeline == //
 
-app.UseExceptionHandling();
+app.UseExceptionHandler();
 app.UseRequestLogging();
 
 if (app.Environment.IsDevelopment())

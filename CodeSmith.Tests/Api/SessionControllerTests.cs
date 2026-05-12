@@ -41,7 +41,7 @@ public class SessionControllerTests
             .Returns(expectedSession);
 
         var result = await _controller.CreateSession(
-            new CreateSessionRequest { Difficulty = Difficulty.Easy, Language = Language.CSharp },
+            new CreateSessionRequest { Difficulty = Difficulty.Easy, Language = Language.CSharp, Provider = AiProvider.Anthropic },
             CancellationToken.None);
 
         var createdResult = Assert.IsType<CreatedAtActionResult>(result);
@@ -89,7 +89,7 @@ public class SessionControllerTests
             .Returns(new ProblemSession { Difficulty = Difficulty.Medium, Language = language });
 
         var result = await _controller.CreateSession(
-            new CreateSessionRequest { Difficulty = Difficulty.Medium, Language = language },
+            new CreateSessionRequest { Difficulty = Difficulty.Medium, Language = language, Provider = AiProvider.Anthropic },
             CancellationToken.None);
 
         Assert.IsType<CreatedAtActionResult>(result);

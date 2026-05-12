@@ -1,70 +1,41 @@
-// == Exception Handling Middleware == //
-using System.Text.Json;
+// == App Exception Handler == //
 using CodeSmith.Core.Exceptions;
+using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Mvc;
 
 namespace CodeSmith.Api.Middleware;
 
 /// <summary>
-/// Global exception handling middleware that maps domain exceptions
-/// to appropriate HTTP status codes without leaking stack traces.
+/// Maps domain exceptions to HTTP status codes and RFC 7807 ProblemDetails responses
+/// via the ASP.NET 8 IExceptionHandler pipeline.
 /// </summary>
-public class ExceptionHandlingMiddleware
+public class AppExceptionHandler(
+    ILogger<AppExceptionHandler> logger,
+    IProblemDetailsService problemDetailsService) : IExceptionHandler
 {
-    private readonly RequestDelegate _next;
-    private readonly ILogger<ExceptionHandlingMiddleware> _logger;
-
-    public ExceptionHandlingMiddleware(RequestDelegate next, ILogger<ExceptionHandlingMiddleware> logger)
+    public async ValueTask<bool> TryHandleAsync(HttpContext context, Exception exception, CancellationToken ct)
     {
-        _next = next;
-        _logger = logger;
-    }
+        var (status, title, detail) = MapException(exception);
 
-    public async Task InvokeAsync(HttpContext context)
-    {
-        try
+        logger.LogError(exception, "Unhandled {ExceptionType} on {Method} {Path}",
+            exception.GetType().Name, context.Request.Method, context.Request.Path);
+
+        context.Response.StatusCode = status;
+
+        return await problemDetailsService.TryWriteAsync(new ProblemDetailsContext
         {
-            await _next(context);
-        }
-        catch (Exception ex)
-        {
-            await HandleExceptionAsync(context, ex);
-        }
-    }
-
-    private async Task HandleExceptionAsync(HttpContext context, Exception exception)
-    {
-        var (statusCode, message) = exception switch
-        {
-            SessionNotFoundException ex   => (StatusCodes.Status404NotFound, ex.Message),
-            ChallengeNotFoundException ex => (StatusCodes.Status404NotFound, ex.Message),
-            AiServiceException ex         => (StatusCodes.Status502BadGateway, ex.Message),
-            CodeExecutionException ex     => (StatusCodes.Status500InternalServerError, ex.Message),
-            OperationCanceledException    => (StatusCodes.Status499ClientClosedRequest, "Request was cancelled."),
-            _                             => (StatusCodes.Status500InternalServerError, "An unexpected error occurred.")
-        };
-
-        // Log the real exception (not exposed to client)
-        _logger.LogError(exception, "Unhandled exception processing {Method} {Path}",
-            context.Request.Method, context.Request.Path);
-
-        context.Response.StatusCode = statusCode;
-        context.Response.ContentType = "application/json";
-
-        var response = JsonSerializer.Serialize(new
-        {
-            error = message,
-            statusCode
+            HttpContext    = context,
+            ProblemDetails = { Title = title, Detail = detail, Status = status }
         });
-
-        await context.Response.WriteAsync(response);
     }
-}
 
-// Extension method to register the exception handling middleware
-public static class ExceptionHandlingMiddlewareExtensions
-{
-    public static IApplicationBuilder UseExceptionHandling(this IApplicationBuilder app)
+    public static (int Status, string Title, string Detail) MapException(Exception exception) => exception switch
     {
-        return app.UseMiddleware<ExceptionHandlingMiddleware>();
-    }
+        SessionNotFoundException ex   => (StatusCodes.Status404NotFound,            "Session not found",    ex.Message),
+        ChallengeNotFoundException ex => (StatusCodes.Status404NotFound,            "Challenge not found",  ex.Message),
+        AiServiceException ex         => (StatusCodes.Status502BadGateway,          "AI service error",     ex.Message),
+        CodeExecutionException ex     => (StatusCodes.Status500InternalServerError, "Code execution error", ex.Message),
+        OperationCanceledException    => (StatusCodes.Status499ClientClosedRequest, "Request cancelled",    "Request was cancelled."),
+        _                             => (StatusCodes.Status500InternalServerError, "Unexpected error",     "An unexpected error occurred.")
+    };
 }

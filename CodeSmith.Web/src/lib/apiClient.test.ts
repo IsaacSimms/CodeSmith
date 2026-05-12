@@ -26,18 +26,18 @@ describe("createSession", () => {
       })
     );
 
-    const result = await createSession({ difficulty: "Easy", language: "CSharp" });
+    const result = await createSession({ difficulty: "Easy", language: "CSharp", provider: "Anthropic" });
 
     expect(fetch).toHaveBeenCalledWith("/api/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ difficulty: "Easy", language: "CSharp" }),
+      body: JSON.stringify({ difficulty: "Easy", language: "CSharp", provider: "Anthropic" }),
     });
     expect(result).toEqual(mockSession);
   });
 
   it("throws ApiClientError on non-ok response", async () => {
-    const errorBody = { error: "Invalid difficulty", statusCode: 400 };
+    const errorBody = { title: "Bad Request", detail: "Invalid difficulty", status: 400 };
 
     vi.stubGlobal(
       "fetch",
@@ -49,7 +49,7 @@ describe("createSession", () => {
     );
 
     try {
-      await createSession({ difficulty: "Easy", language: "CSharp" });
+      await createSession({ difficulty: "Easy", language: "CSharp", provider: "Anthropic" });
       expect.fail("Should have thrown");
     } catch (err) {
       expect(err).toBeInstanceOf(ApiClientError);
@@ -84,7 +84,7 @@ describe("sendMessage", () => {
   });
 
   it("throws ApiClientError when session not found", async () => {
-    const errorBody = { error: "Session not found", statusCode: 404 };
+    const errorBody = { title: "Session not found", detail: "Session 'bad-id' not found.", status: 404 };
 
     vi.stubGlobal(
       "fetch",
