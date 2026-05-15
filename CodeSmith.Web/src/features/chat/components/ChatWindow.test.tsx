@@ -10,6 +10,9 @@ import { NavigationProvider } from "../../../contexts/NavigationContext";
 import type { ProblemSession } from "../types";
 
 vi.mock("../../../lib/apiClient");
+vi.mock("../../../hooks/useProviderPreference", () => ({
+  useProviderPreference: () => ({ provider: "Anthropic", setProvider: vi.fn() }),
+}));
 
 const mockSession: ProblemSession = {
   sessionId: "test-session-id",

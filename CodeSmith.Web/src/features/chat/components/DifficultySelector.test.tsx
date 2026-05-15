@@ -4,11 +4,6 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DifficultySelector } from "./DifficultySelector";
 
-// Stub useProviders so tests run without a network — single-provider mode hides the picker
-vi.mock("../hooks/useProviders", () => ({
-  useProviders: () => ({ data: { activeProvider: "Anthropic", availableProviders: ["Anthropic"] } }),
-}));
-
 describe("DifficultySelector", () => {
   it("renders all three difficulty buttons", () => {
     render(<DifficultySelector onSelect={vi.fn()} isLoading={false} />);
@@ -58,7 +53,7 @@ describe("DifficultySelector", () => {
     await user.click(screen.getByRole("button", { name: "Hard" }));
 
     expect(onSelect).toHaveBeenCalledOnce();
-    expect(onSelect).toHaveBeenCalledWith("Hard", "CSharp", "Anthropic");
+    expect(onSelect).toHaveBeenCalledWith("Hard", "CSharp");
   });
 
   it("calls onSelect with selected language after clicking a pill", async () => {
@@ -69,7 +64,7 @@ describe("DifficultySelector", () => {
     await user.click(screen.getByRole("radio", { name: "Python" }));
     await user.click(screen.getByRole("button", { name: "Medium" }));
 
-    expect(onSelect).toHaveBeenCalledWith("Medium", "Python", "Anthropic");
+    expect(onSelect).toHaveBeenCalledWith("Medium", "Python");
   });
 
   it("disables buttons when loading", () => {

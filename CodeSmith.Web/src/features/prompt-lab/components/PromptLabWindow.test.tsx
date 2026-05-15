@@ -10,6 +10,9 @@ import { NavigationProvider } from "../../../contexts/NavigationContext";
 import type { ChallengeResponse, PromptLabSession, AttemptResult } from "../types";
 
 vi.mock("../../../lib/apiClient");
+vi.mock("../../../hooks/useProviderPreference", () => ({
+  useProviderPreference: () => ({ provider: "Anthropic", setProvider: vi.fn() }),
+}));
 vi.mock("@monaco-editor/react", () => ({ // Monaco doesn't run in jsdom
   default: ({ onChange, value }: { onChange?: (v: string) => void; value?: string }) => (
     <textarea

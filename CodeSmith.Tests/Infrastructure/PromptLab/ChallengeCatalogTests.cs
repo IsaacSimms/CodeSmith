@@ -87,10 +87,10 @@ public class ChallengeCatalogTests
     }
 
     [Fact]
-    public void All_AllChallengesHaveHiddenAdversarialPrompt()
+    public void All_MediumAndHardChallengesHaveHiddenAdversarialPrompt()
     {
-        // Every challenge must have anti-gaming mechanics
-        foreach (var challenge in ChallengeCatalog.All)
+        // Easy challenges are intentionally left without adversarial prompts to remain completable
+        foreach (var challenge in ChallengeCatalog.All.Where(c => c.Difficulty != Difficulty.Easy))
         {
             Assert.False(string.IsNullOrWhiteSpace(challenge.HiddenAdversarialPrompt),
                 $"Challenge '{challenge.ChallengeId}' is missing a HiddenAdversarialPrompt (required for anti-gaming)");
