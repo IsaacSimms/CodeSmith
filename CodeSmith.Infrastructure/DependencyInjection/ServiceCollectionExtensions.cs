@@ -55,10 +55,16 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<ILlmServiceFactory, LlmServiceFactory>();
 
+        // TutoringPromptTemplates is stateless — singleton is safe and avoids repeated allocations
+        services.AddSingleton<ITutoringPromptTemplates, TutoringPromptTemplates>();
+
         // TutoringService is session-aware and delegates completions to ILlmServiceFactory
         services.AddScoped<ITutoringService, TutoringService>();
 
         // Register Prompt Lab services
+        services.AddScoped<IPromptSimulator, PromptSimulator>();
+        services.AddScoped<IPromptEvaluator, PromptEvaluator>();
+        services.AddScoped<ITestInputGenerator, TestInputGenerator>();
         services.AddScoped<IPromptLabService, PromptLabService>();
 
         // == Code Execution Backend Selection == //

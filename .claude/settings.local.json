@@ -35,7 +35,9 @@
       "PowerShell(Start-Sleep -Seconds 4; \\(Invoke-WebRequest -Uri \"http://localhost:5173\" -UseBasicParsing -ErrorAction SilentlyContinue\\).StatusCode)",
       "mcp__playwright__browser_press_key",
       "mcp__playwright__browser_type",
-      "mcp__playwright__browser_wait_for"
+      "mcp__playwright__browser_wait_for",
+      "Skill(improve-codebase-architecture)",
+      "Skill(improve-codebase-architecture:*)"
     ]
   }
 }
