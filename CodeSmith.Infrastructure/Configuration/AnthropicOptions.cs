@@ -7,6 +7,10 @@ namespace CodeSmith.Infrastructure.Configuration;
 /// </summary>
 public class AnthropicOptions
 {
-    public const string SectionName = "Anthropic";                // Configuration section name
-    public string ApiKey { get; set; } = string.Empty;             // The Anthropic API key. Must be provided via configuration, never hardcoded.
+    public const string SectionName = "Anthropic";                           // Configuration section name
+    public string ApiKey       { get; set; } = string.Empty;                 // The Anthropic API key. Must be provided via configuration, never hardcoded.
+    public string AccurateModel { get; set; } = "claude-sonnet-4-6";         // Used for generation, evaluation, and test input creation
+    public string FastModel     { get; set; } = "claude-haiku-4-5-20251001"; // Used for guidance and simulation — fast and cheap
+    public int    ContextWindow { get; set; } = 200_000;                     // Token limit shared by all Claude models used here
+    public int    MaxRetries    { get; set; } = 2;                           // Retry attempts for truncated problem generation responses
 }

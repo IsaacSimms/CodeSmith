@@ -1,21 +1,25 @@
 // == App Exception Handler == //
-using CodeSmith.Core.Exceptions;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CodeSmith.Api.Middleware;
 
 /// <summary>
-/// Maps domain exceptions to HTTP status codes and RFC 7807 ProblemDetails responses
-/// via the ASP.NET 8 IExceptionHandler pipeline.
+/// Iterates registered IExceptionMapper adapters to produce RFC 7807 ProblemDetails responses.
+/// Falls back to 500 when no mapper claims the exception. Adding new exception types
+/// requires only a new IExceptionMapper registration — this class never changes.
 /// </summary>
 public class AppExceptionHandler(
+    IEnumerable<IExceptionMapper> mappers,
     ILogger<AppExceptionHandler> logger,
     IProblemDetailsService problemDetailsService) : IExceptionHandler
 {
     public async ValueTask<bool> TryHandleAsync(HttpContext context, Exception exception, CancellationToken ct)
     {
-        var (status, title, detail) = MapException(exception);
+        var mapped = mappers.Select(m => m.Map(exception)).FirstOrDefault(pd => pd is not null);
+        var status = mapped?.Status ?? StatusCodes.Status500InternalServerError;
+        var title  = mapped?.Title  ?? "Unexpected error";
+        var detail = mapped?.Detail ?? "An unexpected error occurred.";
 
         logger.LogError(exception, "Unhandled {ExceptionType} on {Method} {Path}",
             exception.GetType().Name, context.Request.Method, context.Request.Path);
@@ -28,14 +32,4 @@ public class AppExceptionHandler(
             ProblemDetails = { Title = title, Detail = detail, Status = status }
         });
     }
-
-    public static (int Status, string Title, string Detail) MapException(Exception exception) => exception switch
-    {
-        SessionNotFoundException ex   => (StatusCodes.Status404NotFound,            "Session not found",    ex.Message),
-        ChallengeNotFoundException ex => (StatusCodes.Status404NotFound,            "Challenge not found",  ex.Message),
-        AiServiceException ex         => (StatusCodes.Status502BadGateway,          "AI service error",     ex.Message),
-        CodeExecutionException ex     => (StatusCodes.Status500InternalServerError, "Code execution error", ex.Message),
-        OperationCanceledException    => (StatusCodes.Status499ClientClosedRequest, "Request cancelled",    "Request was cancelled."),
-        _                             => (StatusCodes.Status500InternalServerError, "Unexpected error",     "An unexpected error occurred.")
-    };
 }

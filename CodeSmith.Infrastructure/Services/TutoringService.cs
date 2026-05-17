@@ -8,27 +8,29 @@ using Microsoft.Extensions.Logging;
 namespace CodeSmith.Infrastructure.Services;
 
 /// <summary>
-/// Session-aware tutoring orchestration. Delegates prompt construction to ITutoringPromptTemplates
+/// Session-aware tutoring orchestration. Delegates problem generation to IProblemGenerator
 /// and raw completions to ILlmServiceFactory.
 /// </summary>
 public class TutoringService : ITutoringService
 {
+    private readonly IProblemGenerator _problemGenerator;
     private readonly ILlmServiceFactory _factory;
     private readonly ISessionStore<ProblemSession> _sessionStore;
     private readonly ICodeExecutionService _codeExecutionService;
     private readonly ITutoringPromptTemplates _templates;
     private readonly ILogger<TutoringService> _logger;
 
-    private const int ProblemMaxTokens  = 2000;  // Enough for a full problem description + starter code
-    private const int GuidanceMaxTokens = 1024;  // Per-message guidance response budget
+    private const int GuidanceMaxTokens = 1024; // Per-message guidance response budget
 
     public TutoringService(
+        IProblemGenerator problemGenerator,
         ILlmServiceFactory factory,
         ISessionStore<ProblemSession> sessionStore,
         ICodeExecutionService codeExecutionService,
         ITutoringPromptTemplates templates,
         ILogger<TutoringService> logger)
     {
+        _problemGenerator     = problemGenerator;
         _factory              = factory;
         _sessionStore         = sessionStore;
         _codeExecutionService = codeExecutionService;
@@ -40,39 +42,20 @@ public class TutoringService : ITutoringService
 
     public async Task<ProblemSession> GenerateProblemAsync(Difficulty difficulty, Language language, AiProvider provider, CancellationToken ct = default)
     {
-        var request = _templates.ProblemGeneration(difficulty, language);
-        _logger.LogInformation("Generating {Difficulty} {Language} problem via {Provider}", difficulty, request.LanguageLabel, provider);
-        _logger.LogInformation("Category '{Category}', angle '{Angle}'", request.Category, request.Angle);
+        var (description, starterCode) = await _problemGenerator.GenerateAsync(difficulty, language, provider, ct);
 
-        // Retry up to 2 times if the parsed output is incomplete (malformed response, not truncation — truncation is handled by the provider)
-        const int maxParseRetries = 2;
-        for (var attempt = 0; attempt <= maxParseRetries; attempt++)
+        var session = new ProblemSession
         {
-            var llmResponse = await _factory.GetLlmService<ITutoringLlmService>(provider).GenerateProblemAsync(request.SystemPrompt, request.UserMessage, ProblemMaxTokens, ct);
-            var (description, starterCode) = _templates.ParseProblemResponse(llmResponse.Content);
+            Difficulty         = difficulty,
+            Language           = language,
+            Provider           = provider,
+            ProblemDescription = description,
+            StarterCode        = starterCode
+        };
 
-            if (!string.IsNullOrWhiteSpace(description) && !string.IsNullOrWhiteSpace(starterCode))
-            {
-                var session = new ProblemSession
-                {
-                    Difficulty         = difficulty,
-                    Language           = language,
-                    Provider           = provider,
-                    ProblemDescription = description,
-                    StarterCode        = starterCode
-                };
-
-                _sessionStore.Set(session);
-                _logger.LogInformation("Created session {SessionId} for {Difficulty} {Language}", session.SessionId, difficulty, request.LanguageLabel);
-                return session;
-            }
-
-            _logger.LogWarning("Problem generation produced incomplete output on attempt {Attempt}/{Max} — description={Desc} chars, code={Code} chars",
-                attempt + 1, maxParseRetries + 1, description.Length, starterCode.Length);
-        }
-
-        _logger.LogError("Problem generation produced malformed output after {Max} attempts", maxParseRetries + 1);
-        throw new AiServiceException("Failed to generate a complete coding problem after multiple attempts. The response was malformed. Please try again.");
+        _sessionStore.Set(session);
+        _logger.LogInformation("Created session {SessionId} for {Difficulty} {Language}", session.SessionId, difficulty, language);
+        return session;
     }
 
     // == Code Execution == //

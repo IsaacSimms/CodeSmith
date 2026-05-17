@@ -17,16 +17,14 @@ namespace CodeSmith.Infrastructure.Services;
 public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService
 {
     private readonly OpenAIClient _client;
+    private readonly OpenAiOptions _options;
     private readonly ILogger<OpenAiLlmService> _logger;
-
-    private const string AccurateModel = "gpt-4.1";       // Used for generation, evaluation, test input creation
-    private const string FastModel     = "gpt-4.1-mini";  // Used for guidance and simulation — fast and cheap
-    private const int    ContextWindow = 1_047_576;        // Token limit for GPT-4.1 / GPT-4.1-mini
 
     public OpenAiLlmService(IOptions<OpenAiOptions> options, ILogger<OpenAiLlmService> logger)
     {
-        _client = new OpenAIClient(options.Value.ApiKey);
-        _logger = logger;
+        _options = options.Value;
+        _client  = new OpenAIClient(_options.ApiKey);
+        _logger  = logger;
     }
 
     // == Problem Generation (accurate model) == //
@@ -35,7 +33,7 @@ public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService
     {
         try
         {
-            var chatClient = _client.GetChatClient(AccurateModel);
+            var chatClient = _client.GetChatClient(_options.AccurateModel);
             var response   = await chatClient.CompleteChatAsync(
                 [new SystemChatMessage(systemPrompt), new UserChatMessage(userMessage)],
                 new ChatCompletionOptions { MaxOutputTokenCount = maxTokens },
@@ -47,7 +45,7 @@ public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService
             {
                 Content           = ExtractTextContent(response.Value),
                 InputTokensUsed   = response.Value.Usage.InputTokenCount,
-                ContextWindowSize = ContextWindow
+                ContextWindowSize = _options.ContextWindow
             };
         }
         catch (Exception ex)
@@ -72,7 +70,7 @@ public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService
                     : (OpenAI.Chat.ChatMessage)new AssistantChatMessage(msg.Content));
             }
 
-            var chatClient = _client.GetChatClient(FastModel);
+            var chatClient = _client.GetChatClient(_options.FastModel);
             var response   = await chatClient.CompleteChatAsync(
                 messages,
                 new ChatCompletionOptions { MaxOutputTokenCount = maxTokens },
@@ -82,7 +80,7 @@ public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService
             {
                 Content           = ExtractTextContent(response.Value),
                 InputTokensUsed   = response.Value.Usage.InputTokenCount,
-                ContextWindowSize = ContextWindow
+                ContextWindowSize = _options.ContextWindow
             };
         }
         catch (Exception ex)
@@ -98,7 +96,7 @@ public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService
     {
         try
         {
-            var chatClient = _client.GetChatClient(FastModel);
+            var chatClient = _client.GetChatClient(_options.FastModel);
             var response   = await chatClient.CompleteChatAsync(
                 [new SystemChatMessage(systemPrompt), new UserChatMessage(userMessage)],
                 new ChatCompletionOptions { MaxOutputTokenCount = maxTokens },
@@ -108,7 +106,7 @@ public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService
             {
                 Content           = ExtractTextContent(response.Value),
                 InputTokensUsed   = response.Value.Usage.InputTokenCount,
-                ContextWindowSize = ContextWindow
+                ContextWindowSize = _options.ContextWindow
             };
         }
         catch (Exception ex)
@@ -124,7 +122,7 @@ public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService
     {
         try
         {
-            var chatClient = _client.GetChatClient(AccurateModel);
+            var chatClient = _client.GetChatClient(_options.AccurateModel);
             var response   = await chatClient.CompleteChatAsync(
                 [new SystemChatMessage(systemPrompt), new UserChatMessage(userMessage)],
                 new ChatCompletionOptions { MaxOutputTokenCount = maxTokens },
@@ -134,7 +132,7 @@ public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService
             {
                 Content           = ExtractTextContent(response.Value),
                 InputTokensUsed   = response.Value.Usage.InputTokenCount,
-                ContextWindowSize = ContextWindow
+                ContextWindowSize = _options.ContextWindow
             };
         }
         catch (Exception ex)
@@ -150,7 +148,7 @@ public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService
     {
         try
         {
-            var chatClient = _client.GetChatClient(AccurateModel);
+            var chatClient = _client.GetChatClient(_options.AccurateModel);
             var response   = await chatClient.CompleteChatAsync(
                 [new SystemChatMessage(systemPrompt), new UserChatMessage(userMessage)],
                 new ChatCompletionOptions { MaxOutputTokenCount = maxTokens },
@@ -160,7 +158,7 @@ public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService
             {
                 Content           = ExtractTextContent(response.Value),
                 InputTokensUsed   = response.Value.Usage.InputTokenCount,
-                ContextWindowSize = ContextWindow
+                ContextWindowSize = _options.ContextWindow
             };
         }
         catch (Exception ex)

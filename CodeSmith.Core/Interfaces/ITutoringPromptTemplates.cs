@@ -16,8 +16,6 @@ public interface ITutoringPromptTemplates
     string GuidanceSystemPrompt(Language language, string problemDescription, string starterCode,
                                 string? editorContent = null, bool isCodeAnalysis = false);
 
-    // Parses the structured DESCRIPTION / STARTER_CODE response into its two sections
-    (string Description, string StarterCode) ParseProblemResponse(string responseText);
 }
 
 // Carries everything TutoringService needs from a single ProblemGeneration call,

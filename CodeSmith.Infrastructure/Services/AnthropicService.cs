@@ -17,19 +17,16 @@ namespace CodeSmith.Infrastructure.Services;
 public class AnthropicLlmService : ITutoringLlmService, IPromptLabLlmService
 {
     private readonly AnthropicClient _client;
+    private readonly AnthropicOptions _options;
     private readonly ILogger<AnthropicLlmService> _logger;
-
-    private const string AccurateModel = "claude-sonnet-4-6";         // Used for generation, evaluation, test input creation
-    private const string FastModel     = "claude-haiku-4-5-20251001"; // Used for guidance and simulation — fast and cheap
-    private const int    ContextWindow = 200_000;                     // Token limit shared by all Claude models used here
-    private const int    MaxRetries    = 2;
 
     public AnthropicLlmService(
         IOptions<AnthropicOptions> options,
         ILogger<AnthropicLlmService> logger)
     {
-        _client = new AnthropicClient { ApiKey = options.Value.ApiKey };
-        _logger = logger;
+        _options = options.Value;
+        _client  = new AnthropicClient { ApiKey = _options.ApiKey };
+        _logger  = logger;
     }
 
     // == Problem Generation (Sonnet, with truncation retry) == //
@@ -40,7 +37,7 @@ public class AnthropicLlmService : ITutoringLlmService, IPromptLabLlmService
     private async Task<LlmResponse> GenerateWithRetryAsync(string systemPrompt, string userMessage, int maxTokens, int retryCount, CancellationToken ct)
     {
         if (retryCount > 0)
-            _logger.LogInformation("Retrying problem generation (attempt {Attempt}/{Max})", retryCount + 1, MaxRetries + 1);
+            _logger.LogInformation("Retrying problem generation (attempt {Attempt}/{Max})", retryCount + 1, _options.MaxRetries + 1);
 
         try
         {
@@ -50,7 +47,7 @@ public class AnthropicLlmService : ITutoringLlmService, IPromptLabLlmService
 
             var response = await _client.Messages.Create(new MessageCreateParams
             {
-                Model     = AccurateModel,
+                Model     = _options.AccurateModel,
                 MaxTokens = maxTokens,
                 System    = systemPrompt,
                 Messages  = [new() { Role = Role.User, Content = retryMessage }]
@@ -59,12 +56,12 @@ public class AnthropicLlmService : ITutoringLlmService, IPromptLabLlmService
             // Detect truncation — Anthropic signals this via StopReason == "max_tokens"
             if (response.StopReason == "max_tokens")
             {
-                _logger.LogWarning("Problem generation hit max_tokens on attempt {Attempt}/{Max}", retryCount + 1, MaxRetries + 1);
+                _logger.LogWarning("Problem generation hit max_tokens on attempt {Attempt}/{Max}", retryCount + 1, _options.MaxRetries + 1);
 
-                if (retryCount < MaxRetries)
+                if (retryCount < _options.MaxRetries)
                     return await GenerateWithRetryAsync(systemPrompt, userMessage, maxTokens, retryCount + 1, ct);
 
-                _logger.LogError("Problem generation failed after {Max} retry attempts due to token limit", MaxRetries);
+                _logger.LogError("Problem generation failed after {Max} retry attempts due to token limit", _options.MaxRetries);
                 throw new AiServiceException(
                     "Failed to generate a complete coding problem after multiple attempts. The problem was too large to generate. Please try again.");
             }
@@ -73,7 +70,7 @@ public class AnthropicLlmService : ITutoringLlmService, IPromptLabLlmService
             {
                 Content           = ExtractTextContent(response),
                 InputTokensUsed   = (int)response.Usage.InputTokens,
-                ContextWindowSize = ContextWindow
+                ContextWindowSize = _options.ContextWindow
             };
         }
         catch (Exception ex) when (ex is not AiServiceException)
@@ -97,7 +94,7 @@ public class AnthropicLlmService : ITutoringLlmService, IPromptLabLlmService
 
             var response = await _client.Messages.Create(new MessageCreateParams
             {
-                Model     = FastModel,
+                Model     = _options.FastModel,
                 MaxTokens = maxTokens,
                 System    = systemPrompt,
                 Messages  = messages
@@ -107,7 +104,7 @@ public class AnthropicLlmService : ITutoringLlmService, IPromptLabLlmService
             {
                 Content           = ExtractTextContent(response),
                 InputTokensUsed   = (int)response.Usage.InputTokens,
-                ContextWindowSize = ContextWindow
+                ContextWindowSize = _options.ContextWindow
             };
         }
         catch (Exception ex) when (ex is not AiServiceException)
@@ -120,17 +117,17 @@ public class AnthropicLlmService : ITutoringLlmService, IPromptLabLlmService
     // == Prompt Lab: Simulate (Haiku) == //
 
     public Task<LlmResponse> SimulatePromptAsync(string systemPrompt, string userMessage, int maxTokens, CancellationToken ct = default)
-        => CreateSingleTurnAsync(FastModel, systemPrompt, userMessage, maxTokens, "prompt simulation", ct);
+        => CreateSingleTurnAsync(_options.FastModel, systemPrompt, userMessage, maxTokens, "prompt simulation", ct);
 
     // == Prompt Lab: Evaluate (Sonnet) == //
 
     public Task<LlmResponse> EvaluateResponseAsync(string systemPrompt, string userMessage, int maxTokens, CancellationToken ct = default)
-        => CreateSingleTurnAsync(AccurateModel, systemPrompt, userMessage, maxTokens, "response evaluation", ct);
+        => CreateSingleTurnAsync(_options.AccurateModel, systemPrompt, userMessage, maxTokens, "response evaluation", ct);
 
     // == Prompt Lab: Generate Test Inputs (Sonnet) == //
 
     public Task<LlmResponse> GenerateTestInputsAsync(string systemPrompt, string userMessage, int maxTokens, CancellationToken ct = default)
-        => CreateSingleTurnAsync(AccurateModel, systemPrompt, userMessage, maxTokens, "test input generation", ct);
+        => CreateSingleTurnAsync(_options.AccurateModel, systemPrompt, userMessage, maxTokens, "test input generation", ct);
 
     // == Prompt Lab Single-Turn Helper == //
 
@@ -150,7 +147,7 @@ public class AnthropicLlmService : ITutoringLlmService, IPromptLabLlmService
             {
                 Content           = ExtractTextContent(response),
                 InputTokensUsed   = (int)response.Usage.InputTokens,
-                ContextWindowSize = ContextWindow
+                ContextWindowSize = _options.ContextWindow
             };
         }
         catch (Exception ex) when (ex is not AiServiceException)

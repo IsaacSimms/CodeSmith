@@ -37,7 +37,16 @@
       "mcp__playwright__browser_type",
       "mcp__playwright__browser_wait_for",
       "Skill(improve-codebase-architecture)",
-      "Skill(improve-codebase-architecture:*)"
+      "Skill(improve-codebase-architecture:*)",
+      "Bash(Get-ChildItem -Path \"c:\\\\CodeSmith\\\\CodeSmith\" -Directory -Recurse)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Sort-Object)",
+      "Bash(dotnet build *)",
+      "Bash(dotnet test *)",
+      "Bash(Get-ChildItem -Path \"c:\\\\CodeSmith\\\\CodeSmith\" -Recurse -Filter \"*.cs\")",
+      "Bash(Select-Object FullName)",
+      "Bash(Sort-Object FullName)",
+      "Bash(grep -v \"\\\\\\\\\\\\\\\\obj\\\\\\\\\\\\\\\\\")"
     ]
   }
 }

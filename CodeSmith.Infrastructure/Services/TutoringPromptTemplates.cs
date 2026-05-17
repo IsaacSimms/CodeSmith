@@ -135,22 +135,6 @@ public class TutoringPromptTemplates : ITutoringPromptTemplates
         return prompt;
     }
 
-    public (string Description, string StarterCode) ParseProblemResponse(string responseText)
-    {
-        var descIndex = responseText.IndexOf("DESCRIPTION:", StringComparison.OrdinalIgnoreCase);
-        var codeIndex = responseText.IndexOf("STARTER_CODE:", StringComparison.OrdinalIgnoreCase);
-
-        if (descIndex >= 0 && codeIndex >= 0)
-        {
-            var description = responseText[(descIndex + "DESCRIPTION:".Length)..codeIndex].Trim();
-            var starterCode = responseText[(codeIndex + "STARTER_CODE:".Length)..].Trim();
-            return (description, starterCode);
-        }
-
-        // Fallback: treat entire response as description when the expected markers are absent
-        return (responseText.Trim(), string.Empty);
-    }
-
     // == Helpers == //
 
     private static string GetLanguageLabel(Language language) => language switch  // Maps Language enum to the human-readable label used in prompts

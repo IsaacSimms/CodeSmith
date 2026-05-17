@@ -2,6 +2,7 @@
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using CodeSmith.Api.Middleware;
+using CodeSmith.Api.Middleware.ExceptionMappers;
 using CodeSmith.Infrastructure.DependencyInjection;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,6 +18,11 @@ builder.Services.AddControllers()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddProblemDetails();
+builder.Services.AddSingleton<IExceptionMapper, SessionNotFoundExceptionMapper>();
+builder.Services.AddSingleton<IExceptionMapper, ChallengeNotFoundExceptionMapper>();
+builder.Services.AddSingleton<IExceptionMapper, AiServiceExceptionMapper>();
+builder.Services.AddSingleton<IExceptionMapper, CodeExecutionExceptionMapper>();
+builder.Services.AddSingleton<IExceptionMapper, OperationCancelledExceptionMapper>();
 builder.Services.AddExceptionHandler<AppExceptionHandler>();
 
 // Register CodeSmith Infrastructure services (Anthropic client, session store)
