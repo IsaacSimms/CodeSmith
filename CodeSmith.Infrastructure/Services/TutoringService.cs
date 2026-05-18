@@ -70,7 +70,7 @@ public class TutoringService : ITutoringService
 
     // == Guidance == //
 
-    public async Task<ChatResponse> GetGuidanceAsync(Guid sessionId, string userMessage, string? editorContent = null, bool isCodeAnalysis = false, CancellationToken ct = default)
+    public async Task<ChatResponse> GetGuidanceAsync(Guid sessionId, string userMessage, string? editorContent = null, GuidanceMode guidanceMode = GuidanceMode.Guidance, CancellationToken ct = default)
     {
         var session = _sessionStore.Get(sessionId.ToString())
             ?? throw new SessionNotFoundException(sessionId);
@@ -85,7 +85,7 @@ public class TutoringService : ITutoringService
             Timestamp = DateTime.UtcNow
         });
 
-        var systemPrompt = _templates.GuidanceSystemPrompt(session.Language, session.ProblemDescription, session.StarterCode, editorContent, isCodeAnalysis);
+        var systemPrompt = _templates.GuidanceSystemPrompt(session.Language, session.ProblemDescription, session.StarterCode, editorContent, guidanceMode);
         var llmResponse  = await _factory.GetLlmService<ITutoringLlmService>(session.Provider).GetGuidanceAsync(systemPrompt, session.Messages, GuidanceMaxTokens, ct);
 
         // Add assistant response to history

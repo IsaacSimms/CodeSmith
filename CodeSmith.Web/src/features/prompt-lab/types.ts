@@ -79,8 +79,9 @@ export interface AttemptResult {
 export interface PromptLabSession {
   sessionId: string;
   challengeId: string;
-  provider: AiProvider;  // AI provider locked at session start
+  provider: AiProvider;            // AI provider locked at session start
   testInputs: TestInputSummary[];  // Dynamically generated at session start
+  dynamicInputsGenerated: boolean; // False when LLM generation failed and static fallback inputs were used
   attempts: AttemptResult[];
   createdAt: string;
 }

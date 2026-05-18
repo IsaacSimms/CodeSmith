@@ -106,8 +106,8 @@ public class TutoringPromptTemplatesTests
     [Fact]
     public void GuidanceSystemPrompt_WhenCodeAnalysis_DiffersFromGuidance()
     {
-        var guidance     = _templates.GuidanceSystemPrompt(Language.Python, "Problem", "code", isCodeAnalysis: false);
-        var codeAnalysis = _templates.GuidanceSystemPrompt(Language.Python, "Problem", "code", isCodeAnalysis: true);
+        var guidance     = _templates.GuidanceSystemPrompt(Language.Python, "Problem", "code", guidanceMode: GuidanceMode.Guidance);
+        var codeAnalysis = _templates.GuidanceSystemPrompt(Language.Python, "Problem", "code", guidanceMode: GuidanceMode.CodeAnalysis);
 
         Assert.NotEqual(guidance, codeAnalysis);
     }

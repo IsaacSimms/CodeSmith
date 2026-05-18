@@ -13,17 +13,19 @@ public class PromptLabSessionResponse
     public Guid SessionId { get; set; }
     public string ChallengeId { get; set; } = string.Empty;
     public AiProvider Provider { get; set; } = AiProvider.Anthropic;
-    public List<TestInputDto> TestInputs { get; set; } = [];  // Generated inputs for this session — labels only
-    public List<object> Attempts { get; set; } = [];          // Empty on creation
+    public List<TestInputDto> TestInputs { get; set; } = [];    // Generated inputs for this session — labels only
+    public bool DynamicInputsGenerated { get; set; }            // False when LLM generation failed and static fallback inputs were used
+    public List<object> Attempts { get; set; } = [];            // Empty on creation
     public DateTime CreatedAt { get; set; }
 
     public static PromptLabSessionResponse FromSession(PromptLabSession session) => new()
     {
-        SessionId   = session.SessionId,
-        ChallengeId = session.ChallengeId,
-        Provider    = session.Provider,
-        TestInputs  = session.TestInputs.Select(TestInputDto.From).ToList(),
-        Attempts    = [],
-        CreatedAt   = session.CreatedAt
+        SessionId              = session.SessionId,
+        ChallengeId            = session.ChallengeId,
+        Provider               = session.Provider,
+        TestInputs             = session.TestInputs.Select(TestInputDto.From).ToList(),
+        DynamicInputsGenerated = session.DynamicInputsGenerated,
+        Attempts               = [],
+        CreatedAt              = session.CreatedAt
     };
 }

@@ -45,7 +45,8 @@ public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService
             {
                 Content           = ExtractTextContent(response.Value),
                 InputTokensUsed   = response.Value.Usage.InputTokenCount,
-                ContextWindowSize = _options.ContextWindow
+                ContextWindowSize = _options.ContextWindow,
+                WasTruncated      = response.Value.FinishReason == ChatFinishReason.Length
             };
         }
         catch (Exception ex)

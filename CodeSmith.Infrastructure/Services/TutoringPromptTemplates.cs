@@ -123,10 +123,10 @@ public class TutoringPromptTemplates : ITutoringPromptTemplates
     }
 
     public string GuidanceSystemPrompt(Language language, string problemDescription, string starterCode,
-                                       string? editorContent = null, bool isCodeAnalysis = false)
+                                       string? editorContent = null, GuidanceMode guidanceMode = GuidanceMode.Guidance)
     {
         var languageLabel = GetLanguageLabel(language);
-        var template      = isCodeAnalysis ? CodeAnalysisSystemPromptTemplate : GuidanceSystemPromptTemplate;
+        var template      = guidanceMode == GuidanceMode.CodeAnalysis ? CodeAnalysisSystemPromptTemplate : GuidanceSystemPromptTemplate;
         var prompt        = string.Format(template, languageLabel, problemDescription, starterCode);
 
         if (!string.IsNullOrWhiteSpace(editorContent))

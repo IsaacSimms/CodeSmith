@@ -76,7 +76,7 @@ public class SessionController : ControllerBase
         [FromBody] ChatRequest request,
         CancellationToken ct)
     {
-        var response = await _tutoringService.GetGuidanceAsync(sessionId, request.Message, request.EditorContent, request.IsCodeAnalysis, ct);
+        var response = await _tutoringService.GetGuidanceAsync(sessionId, request.Message, request.EditorContent, request.GuidanceMode, ct);
 
         return Ok(response);
     }

@@ -39,7 +39,7 @@ public class TutoringServiceTests
         var service = BuildService(store: sessionStore);
 
         await Assert.ThrowsAsync<SessionNotFoundException>(
-            () => service.GetGuidanceAsync(Guid.NewGuid(), "help me", null, false, CancellationToken.None));
+            () => service.GetGuidanceAsync(Guid.NewGuid(), "help me", null, GuidanceMode.Guidance, CancellationToken.None));
     }
 
     [Fact]
@@ -51,7 +51,7 @@ public class TutoringServiceTests
         var service = BuildService(store: sessionStore);
 
         await Assert.ThrowsAsync<SessionNotFoundException>(
-            () => service.GetGuidanceAsync(Guid.NewGuid(), "help me", "int x = 42;", false, CancellationToken.None));
+            () => service.GetGuidanceAsync(Guid.NewGuid(), "help me", "int x = 42;", GuidanceMode.Guidance, CancellationToken.None));
     }
 
     // == Problem Generation Happy Path == //
@@ -114,12 +114,12 @@ public class TutoringServiceTests
         factory.GetLlmService<ITutoringLlmService>(AiProvider.Anthropic).Returns(llmService);
 
         var templates = Substitute.For<ITutoringPromptTemplates>();
-        templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<bool>())
+        templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<GuidanceMode>())
             .Returns("system prompt");
 
         var service = BuildService(factory: factory, store: store, templates: templates);
 
-        var response = await service.GetGuidanceAsync(session.SessionId, "I'm stuck", null, false, CancellationToken.None);
+        var response = await service.GetGuidanceAsync(session.SessionId, "I'm stuck", null, GuidanceMode.Guidance, CancellationToken.None);
 
         Assert.Equal("Think about goroutines.", response.Response);
         Assert.Equal(75,       response.ContextTokensUsed);
@@ -148,12 +148,12 @@ public class TutoringServiceTests
         factory.GetLlmService<ITutoringLlmService>(Arg.Any<AiProvider>()).Returns(llmService);
 
         var templates = Substitute.For<ITutoringPromptTemplates>();
-        templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<bool>())
+        templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<GuidanceMode>())
             .Returns("system prompt");
 
         var service = BuildService(factory: factory, store: store, templates: templates);
 
-        await service.GetGuidanceAsync(session.SessionId, "What algorithm should I use?", null, false, CancellationToken.None);
+        await service.GetGuidanceAsync(session.SessionId, "What algorithm should I use?", null, GuidanceMode.Guidance, CancellationToken.None);
 
         store.Received(1).Set(Arg.Is<ProblemSession>(s =>
             s.Messages.Count == 2 &&
@@ -194,12 +194,12 @@ public class TutoringServiceTests
         factory.GetLlmService<ITutoringLlmService>(Arg.Any<AiProvider>()).Returns(llmService);
 
         var templates = Substitute.For<ITutoringPromptTemplates>();
-        templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<bool>())
+        templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<GuidanceMode>())
             .Returns("system prompt");
 
         var service = BuildService(factory: factory, store: store, templates: templates);
 
-        await service.GetGuidanceAsync(session.SessionId, "second question", null, false, CancellationToken.None);
+        await service.GetGuidanceAsync(session.SessionId, "second question", null, GuidanceMode.Guidance, CancellationToken.None);
 
         // LLM receives 2 prior messages + the new user message = 3 total
         Assert.NotNull(capturedContents);
@@ -231,19 +231,19 @@ public class TutoringServiceTests
         factory.GetLlmService<ITutoringLlmService>(Arg.Any<AiProvider>()).Returns(llmService);
 
         var templates = Substitute.For<ITutoringPromptTemplates>();
-        templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<bool>())
+        templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<GuidanceMode>())
             .Returns("system prompt");
 
         var service = BuildService(factory: factory, store: store, templates: templates);
 
-        await service.GetGuidanceAsync(session.SessionId, "review my code", "const solve = () => 42;", false, CancellationToken.None);
+        await service.GetGuidanceAsync(session.SessionId, "review my code", "const solve = () => 42;", GuidanceMode.Guidance, CancellationToken.None);
 
         templates.Received(1).GuidanceSystemPrompt(
             Language.TypeScript,
             Arg.Any<string>(),
             Arg.Any<string>(),
             "const solve = () => 42;",
-            false);
+            GuidanceMode.Guidance);
     }
 
     [Fact]
@@ -268,19 +268,19 @@ public class TutoringServiceTests
         factory.GetLlmService<ITutoringLlmService>(Arg.Any<AiProvider>()).Returns(llmService);
 
         var templates = Substitute.For<ITutoringPromptTemplates>();
-        templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<bool>())
+        templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<GuidanceMode>())
             .Returns("code analysis system prompt");
 
         var service = BuildService(factory: factory, store: store, templates: templates);
 
-        await service.GetGuidanceAsync(session.SessionId, "I ran my code", null, isCodeAnalysis: true, CancellationToken.None);
+        await service.GetGuidanceAsync(session.SessionId, "I ran my code", null, guidanceMode: GuidanceMode.CodeAnalysis, CancellationToken.None);
 
         templates.Received(1).GuidanceSystemPrompt(
             Language.Java,
             Arg.Any<string>(),
             Arg.Any<string>(),
             null,
-            true);
+            GuidanceMode.CodeAnalysis);
     }
 
     // == Code Execution Happy Path == //

@@ -47,18 +47,21 @@ public class PromptLabService : IPromptLabService
     {
         var challenge = GetChallenge(challengeId); // Validates the ID — throws ChallengeNotFoundException if invalid
 
+        bool dynamicInputsGenerated;
         List<TestInput> testInputs;
         try
         {
-            testInputs = await _generator.GenerateAsync(challenge, provider, ct);
+            testInputs             = await _generator.GenerateAsync(challenge, provider, ct);
+            dynamicInputsGenerated = true;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Test input generation failed for {ChallengeId}; falling back to static inputs", challengeId);
-            testInputs = challenge.TestInputs;
+            testInputs             = challenge.TestInputs;
+            dynamicInputsGenerated = false;
         }
 
-        var session = new PromptLabSession { ChallengeId = challengeId, Provider = provider, TestInputs = testInputs };
+        var session = new PromptLabSession { ChallengeId = challengeId, Provider = provider, TestInputs = testInputs, DynamicInputsGenerated = dynamicInputsGenerated };
         _sessionStore.Set(session);
 
         _logger.LogInformation("Started session {SessionId} for {ChallengeId} with {Count} test inputs", session.SessionId, challengeId, testInputs.Count);

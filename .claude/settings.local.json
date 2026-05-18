@@ -46,7 +46,9 @@
       "Bash(Get-ChildItem -Path \"c:\\\\CodeSmith\\\\CodeSmith\" -Recurse -Filter \"*.cs\")",
       "Bash(Select-Object FullName)",
       "Bash(Sort-Object FullName)",
-      "Bash(grep -v \"\\\\\\\\\\\\\\\\obj\\\\\\\\\\\\\\\\\")"
+      "Bash(grep -v \"\\\\\\\\\\\\\\\\obj\\\\\\\\\\\\\\\\\")",
+      "Bash(Get-ChildItem -Path \"c:\\\\CodeSmith\\\\CodeSmith\" -Directory)",
+      "Bash(Select-Object Name)"
     ]
   }
 }

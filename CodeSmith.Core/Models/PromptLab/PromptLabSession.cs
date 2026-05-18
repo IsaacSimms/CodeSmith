@@ -12,6 +12,7 @@ public class PromptLabSession
     public string ChallengeId { get; set; } = string.Empty;             // The challenge this session is for
     public AiProvider Provider { get; set; } = AiProvider.Anthropic;    // AI provider locked at session start
     public List<TestInput> TestInputs { get; set; } = [];               // Dynamically generated inputs for this session
+    public bool DynamicInputsGenerated { get; set; }                 // True when LLM generated test inputs; false when static fallback was used
     public List<ChallengeAttempt> Attempts { get; set; } = [];      // History of prompt submissions for this session
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;     // UTC timestamp when the session was created
 }

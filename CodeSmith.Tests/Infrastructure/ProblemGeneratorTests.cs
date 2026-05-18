@@ -94,6 +94,54 @@ public class ProblemGeneratorTests
         factory.Received(1).GetLlmService<ITutoringLlmService>(AiProvider.OpenAi);
     }
 
+    // == Truncation-Retry Tests == //
+
+    [Fact]
+    public async Task GenerateAsync_WhenLlmReturnsTruncated_RetriesWithHintAndSucceeds()
+    {
+        var llmService = Substitute.For<ITutoringLlmService>();
+        var factory    = Substitute.For<ILlmServiceFactory>();
+        factory.GetLlmService<ITutoringLlmService>(Arg.Any<AiProvider>()).Returns(llmService);
+
+        // First call: truncated. Second call: valid response.
+        llmService.GenerateProblemAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(
+                new LlmResponse { Content = "",    WasTruncated = true,  InputTokensUsed = 5,  ContextWindowSize = 200_000 },
+                new LlmResponse { Content = "raw", WasTruncated = false, InputTokensUsed = 10, ContextWindowSize = 200_000 });
+
+        var parser = Substitute.For<IProblemResponseParser>();
+        parser.Parse("raw").Returns(("A complete description.", "def solve(): pass"));
+
+        var generator = BuildGenerator(templates: TemplatesReturning(), factory: factory, parser: parser);
+
+        var (description, starterCode) = await generator.GenerateAsync(Difficulty.Easy, Language.Python, AiProvider.Anthropic, CancellationToken.None);
+
+        Assert.Equal("A complete description.", description);
+        Assert.Equal("def solve(): pass",       starterCode);
+
+        // Second call must carry the truncation hint
+        await llmService.Received(1).GenerateProblemAsync(Arg.Any<string>(), Arg.Is<string>(m => m.Contains("cut off due to token limits")), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task GenerateAsync_WhenAllAttemptsAreTruncated_ThrowsAiServiceException()
+    {
+        var llmService = Substitute.For<ITutoringLlmService>();
+        var factory    = Substitute.For<ILlmServiceFactory>();
+        factory.GetLlmService<ITutoringLlmService>(Arg.Any<AiProvider>()).Returns(llmService);
+
+        llmService.GenerateProblemAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmResponse { Content = "", WasTruncated = true, InputTokensUsed = 5, ContextWindowSize = 200_000 });
+
+        var generator = BuildGenerator(templates: TemplatesReturning(), factory: factory);
+
+        await Assert.ThrowsAsync<AiServiceException>(
+            () => generator.GenerateAsync(Difficulty.Easy, Language.Python, AiProvider.Anthropic, CancellationToken.None));
+
+        // 3 attempts total (MaxRetries = 2)
+        await llmService.Received(3).GenerateProblemAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+    }
+
     // == Parse-Retry Tests == //
 
     [Fact]

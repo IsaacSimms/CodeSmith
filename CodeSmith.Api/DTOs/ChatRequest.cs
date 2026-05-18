@@ -1,5 +1,6 @@
 // == Chat Request DTO == //
 using System.ComponentModel.DataAnnotations;
+using CodeSmith.Core.Enums;
 
 namespace CodeSmith.Api.DTOs;
 
@@ -15,5 +16,5 @@ public class ChatRequest
     [StringLength(50000, ErrorMessage = "Editor content must not exceed 50000 characters.")]
     public string? EditorContent { get; set; }  // Current contents of the code editor
 
-    public bool IsCodeAnalysis { get; set; }  // True when the message is an auto-generated code execution analysis
+    public GuidanceMode GuidanceMode { get; set; }  // Guidance for standard tutoring; CodeAnalysis after code execution
 }

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useNavigationContext } from "../../../contexts/NavigationContext";
 import { useProviderPreference } from "../../../hooks/useProviderPreference";
-import type { ProblemSession, Difficulty, Language, ChatMessage, RunCodeResponse } from "../types";
+import type { ProblemSession, Difficulty, Language, ChatMessage, RunCodeResponse, GuidanceMode } from "../types";
 import { isDifficulty, isLanguage, languageLabels } from "../types";
 import { useCreateSession } from "../hooks/useCreateSession";
 import { useSendMessage } from "../hooks/useSendMessage";
@@ -75,7 +75,7 @@ export function ChatWindow() {
   }, []);
 
   // == Send Chat Message == //
-  function handleSendMessage(message: string, isCodeAnalysis = false) {
+  function handleSendMessage(message: string, guidanceMode: GuidanceMode = "Guidance") {
     if (!session) return;
 
     const userMessage: ChatMessage = {
@@ -86,7 +86,7 @@ export function ChatWindow() {
     setMessages((prev) => [...prev, userMessage]);
 
     sendMessage.mutate(
-      { sessionId: session.sessionId, message, editorContent: code, isCodeAnalysis },
+      { sessionId: session.sessionId, message, editorContent: code, guidanceMode },
       {
         onSuccess: (data) => {
           const assistantMessage: ChatMessage = {
@@ -120,7 +120,7 @@ export function ChatWindow() {
           parts.push(`\nStderr:\n${data.stderr || "(no output)"}`);
 
           const analysisMessage = parts.join("\n");
-          handleSendMessage(analysisMessage, true);
+          handleSendMessage(analysisMessage, "CodeAnalysis");
         },
       }
     );

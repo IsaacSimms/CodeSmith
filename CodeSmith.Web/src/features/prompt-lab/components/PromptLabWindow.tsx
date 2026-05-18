@@ -142,6 +142,12 @@ export function PromptLabWindow() {
           {challenge.category.replace(/([A-Z])/g, " $1").trim()}
         </span>
 
+        {!session.dynamicInputsGenerated && (
+          <span className="rounded border border-yellow-600 bg-yellow-900/30 px-3 py-1 text-xs text-yellow-400">
+            Static test inputs — dynamic generation failed
+          </span>
+        )}
+
         {/* == Prompt Size Bar (appears after first submission) == */}
         {lastResult !== null && (
           <div className="ml-auto w-72">

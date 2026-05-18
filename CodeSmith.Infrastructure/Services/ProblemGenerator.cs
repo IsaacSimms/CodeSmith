@@ -13,8 +13,8 @@ public class ProblemGenerator : IProblemGenerator
     private readonly IProblemResponseParser _parser;
     private readonly ILogger<ProblemGenerator> _logger;
 
-    private const int MaxTokens      = 2000; // Enough for a full problem description + starter code
-    private const int MaxParseRetries = 2;   // Distinct from provider-level truncation retry
+    private const int MaxTokens  = 2000; // Enough for a full problem description + starter code
+    private const int MaxRetries = 2;    // Shared budget across truncation and parse failures
 
     public ProblemGenerator(
         ITutoringPromptTemplates  templates,
@@ -38,10 +38,26 @@ public class ProblemGenerator : IProblemGenerator
             "Generating {Difficulty} {Language} problem via {Provider} — category '{Category}', angle '{Angle}'",
             difficulty, request.LanguageLabel, provider, request.Category, request.Angle);
 
-        for (var attempt = 0; attempt <= MaxParseRetries; attempt++)
+        var lastWasTruncated = false;
+
+        for (var attempt = 0; attempt <= MaxRetries; attempt++)
         {
+            var userMessage = lastWasTruncated
+                ? $"{request.UserMessage} Note: A previous attempt was cut off due to token limits. Please generate a complete problem."
+                : request.UserMessage;
+
             var llmResponse = await _factory.GetLlmService<ITutoringLlmService>(provider)
-                .GenerateProblemAsync(request.SystemPrompt, request.UserMessage, MaxTokens, ct);
+                .GenerateProblemAsync(request.SystemPrompt, userMessage, MaxTokens, ct);
+
+            lastWasTruncated = llmResponse.WasTruncated;
+
+            if (llmResponse.WasTruncated)
+            {
+                _logger.LogWarning(
+                    "Problem generation hit token limit on attempt {Attempt}/{Max}",
+                    attempt + 1, MaxRetries + 1);
+                continue;
+            }
 
             var (description, starterCode) = _parser.Parse(llmResponse.Content);
 
@@ -50,10 +66,10 @@ public class ProblemGenerator : IProblemGenerator
 
             _logger.LogWarning(
                 "Problem generation produced incomplete output on attempt {Attempt}/{Max} — description={Desc} chars, code={Code} chars",
-                attempt + 1, MaxParseRetries + 1, description.Length, starterCode.Length);
+                attempt + 1, MaxRetries + 1, description.Length, starterCode.Length);
         }
 
-        _logger.LogError("Problem generation produced malformed output after {Max} attempts", MaxParseRetries + 1);
+        _logger.LogError("Problem generation failed after {Max} attempts", MaxRetries + 1);
         throw new AiServiceException("Failed to generate a complete coding problem after multiple attempts. The response was malformed. Please try again.");
     }
 }

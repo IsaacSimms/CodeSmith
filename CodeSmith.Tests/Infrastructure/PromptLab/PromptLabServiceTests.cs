@@ -102,6 +102,33 @@ public class PromptLabServiceTests
         Assert.NotEmpty(session.TestInputs);
     }
 
+    [Fact]
+    public async Task StartChallengeAsync_WhenGeneratorSucceeds_SetsDynamicInputsGeneratedTrue()
+    {
+        var challengeId    = _service.GetChallenges()[0].ChallengeId;
+        var dynamicInputs  = new List<TestInput> { new() { InputId = "d1", Label = "Dynamic 1" } };
+
+        _generator.GenerateAsync(Arg.Any<Challenge>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
+            .Returns(dynamicInputs);
+
+        var session = await _service.StartChallengeAsync(challengeId);
+
+        Assert.True(session.DynamicInputsGenerated);
+    }
+
+    [Fact]
+    public async Task StartChallengeAsync_WhenGeneratorFails_SetsDynamicInputsGeneratedFalse()
+    {
+        var challengeId = _service.GetChallenges()[0].ChallengeId;
+
+        _generator.GenerateAsync(Arg.Any<Challenge>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
+            .Returns<List<TestInput>>(x => throw new InvalidOperationException("LLM unavailable"));
+
+        var session = await _service.StartChallengeAsync(challengeId);
+
+        Assert.False(session.DynamicInputsGenerated);
+    }
+
     // == SubmitAttemptAsync Tests == //
 
     [Fact]

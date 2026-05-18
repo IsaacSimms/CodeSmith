@@ -103,7 +103,7 @@ public class SessionControllerTests
     {
         var sessionId = Guid.NewGuid();
         _tutoringService
-            .GetGuidanceAsync(sessionId, "help", "int x = 1;", Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .GetGuidanceAsync(sessionId, "help", "int x = 1;", Arg.Any<GuidanceMode>(), Arg.Any<CancellationToken>())
             .Returns(new ChatResponse { Response = "Here's a hint...", ContextTokensUsed = 1234, ContextWindowSize = 200_000 });
 
         var result = await _controller.Chat(
@@ -123,7 +123,7 @@ public class SessionControllerTests
     {
         var sessionId = Guid.NewGuid();
         _tutoringService
-            .GetGuidanceAsync(sessionId, "help", null, Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .GetGuidanceAsync(sessionId, "help", null, Arg.Any<GuidanceMode>(), Arg.Any<CancellationToken>())
             .Returns(new ChatResponse { Response = "Here's a hint..." });
 
         var result = await _controller.Chat(
@@ -133,7 +133,7 @@ public class SessionControllerTests
 
         var okResult = Assert.IsType<OkObjectResult>(result);
         Assert.IsType<ChatResponse>(okResult.Value);
-        await _tutoringService.Received(1).GetGuidanceAsync(sessionId, "help", null, Arg.Any<bool>(), Arg.Any<CancellationToken>());
+        await _tutoringService.Received(1).GetGuidanceAsync(sessionId, "help", null, Arg.Any<GuidanceMode>(), Arg.Any<CancellationToken>());
     }
 
     // == RunCode Tests == //

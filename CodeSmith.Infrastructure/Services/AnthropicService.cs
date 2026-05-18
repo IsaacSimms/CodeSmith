@@ -29,48 +29,26 @@ public class AnthropicLlmService : ITutoringLlmService, IPromptLabLlmService
         _logger  = logger;
     }
 
-    // == Problem Generation (Sonnet, with truncation retry) == //
+    // == Problem Generation (Sonnet) == //
 
-    public Task<LlmResponse> GenerateProblemAsync(string systemPrompt, string userMessage, int maxTokens, CancellationToken ct = default)
-        => GenerateWithRetryAsync(systemPrompt, userMessage, maxTokens, retryCount: 0, ct);
-
-    private async Task<LlmResponse> GenerateWithRetryAsync(string systemPrompt, string userMessage, int maxTokens, int retryCount, CancellationToken ct)
+    public async Task<LlmResponse> GenerateProblemAsync(string systemPrompt, string userMessage, int maxTokens, CancellationToken ct = default)
     {
-        if (retryCount > 0)
-            _logger.LogInformation("Retrying problem generation (attempt {Attempt}/{Max})", retryCount + 1, _options.MaxRetries + 1);
-
         try
         {
-            var retryMessage = retryCount > 0
-                ? $"{userMessage} Note: A previous attempt was cut off due to token limits. Please generate a complete problem."
-                : userMessage;
-
             var response = await _client.Messages.Create(new MessageCreateParams
             {
                 Model     = _options.AccurateModel,
                 MaxTokens = maxTokens,
                 System    = systemPrompt,
-                Messages  = [new() { Role = Role.User, Content = retryMessage }]
+                Messages  = [new() { Role = Role.User, Content = userMessage }]
             }, ct);
-
-            // Detect truncation — Anthropic signals this via StopReason == "max_tokens"
-            if (response.StopReason == "max_tokens")
-            {
-                _logger.LogWarning("Problem generation hit max_tokens on attempt {Attempt}/{Max}", retryCount + 1, _options.MaxRetries + 1);
-
-                if (retryCount < _options.MaxRetries)
-                    return await GenerateWithRetryAsync(systemPrompt, userMessage, maxTokens, retryCount + 1, ct);
-
-                _logger.LogError("Problem generation failed after {Max} retry attempts due to token limit", _options.MaxRetries);
-                throw new AiServiceException(
-                    "Failed to generate a complete coding problem after multiple attempts. The problem was too large to generate. Please try again.");
-            }
 
             return new LlmResponse
             {
                 Content           = ExtractTextContent(response),
                 InputTokensUsed   = (int)response.Usage.InputTokens,
-                ContextWindowSize = _options.ContextWindow
+                ContextWindowSize = _options.ContextWindow,
+                WasTruncated      = response.StopReason == "max_tokens"
             };
         }
         catch (Exception ex) when (ex is not AiServiceException)

@@ -6,6 +6,8 @@ export type Language = "CSharp" | "Cpp" | "Go" | "Rust" | "Python" | "Java" | "T
 
 export type AiProvider = "Anthropic" | "OpenAi";
 
+export type GuidanceMode = "Guidance" | "CodeAnalysis";
+
 export type MessageRole = "User" | "Assistant";
 
 // == Language Display Labels == //
@@ -68,7 +70,7 @@ export interface ProvidersResponse {
 export interface ChatRequest {
   message: string;
   editorContent?: string;
-  isCodeAnalysis?: boolean;
+  guidanceMode?: GuidanceMode;
 }
 
 export interface ChatResponse {

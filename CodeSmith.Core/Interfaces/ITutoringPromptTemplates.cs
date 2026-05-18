@@ -14,7 +14,7 @@ public interface ITutoringPromptTemplates
 
     // Builds the system prompt for a guidance or code-analysis turn, optionally appending the editor snapshot
     string GuidanceSystemPrompt(Language language, string problemDescription, string starterCode,
-                                string? editorContent = null, bool isCodeAnalysis = false);
+                                string? editorContent = null, GuidanceMode guidanceMode = GuidanceMode.Guidance);
 
 }
 
