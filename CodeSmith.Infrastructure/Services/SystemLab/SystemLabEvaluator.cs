@@ -1,6 +1,7 @@
 // == System Lab Evaluation Phase == //
 using System.Text;
 using System.Text.Json;
+using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models.PromptLab;
 using CodeSmith.Core.Models.SystemLab;
@@ -10,30 +11,30 @@ namespace CodeSmith.Infrastructure.Services.SystemLab;
 
 public interface ISystemLabEvaluator
 {
-    Task<ScenarioAttempt> EvaluateAsync(Scenario scenario, string justification, CancellationToken ct);
+    Task<ScenarioAttempt> EvaluateAsync(Scenario scenario, string justification, AiProvider provider, CancellationToken ct);
 }
 
 public sealed class SystemLabEvaluator : ISystemLabEvaluator
 {
-    private readonly ISystemLabLlmService _llmService;
+    private readonly ILlmServiceFactory _factory;
     private readonly ILogger<SystemLabEvaluator> _logger;
 
     private const int EvaluationMaxTokens = 1500;
 
-    public SystemLabEvaluator(ISystemLabLlmService llmService, ILogger<SystemLabEvaluator> logger)
+    public SystemLabEvaluator(ILlmServiceFactory factory, ILogger<SystemLabEvaluator> logger)
     {
-        _llmService = llmService;
-        _logger     = logger;
+        _factory = factory;
+        _logger  = logger;
     }
 
     // == EvaluateAsync == //
 
-    public async Task<ScenarioAttempt> EvaluateAsync(Scenario scenario, string justification, CancellationToken ct)
+    public async Task<ScenarioAttempt> EvaluateAsync(Scenario scenario, string justification, AiProvider provider, CancellationToken ct)
     {
         var systemPrompt = BuildEvaluatorSystemPrompt(scenario);
         var userMessage  = BuildEvaluationPrompt(scenario, justification);
 
-        var response = await _llmService.EvaluateJustificationAsync(systemPrompt, userMessage, EvaluationMaxTokens, ct);
+        var response = await _factory.GetLlmService<ISystemLabLlmService>(provider).EvaluateJustificationAsync(systemPrompt, userMessage, EvaluationMaxTokens, ct);
 
         return ParseAttempt(scenario, justification, response.Content);
     }

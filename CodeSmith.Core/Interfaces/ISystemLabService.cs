@@ -1,4 +1,5 @@
 // == System Lab Service Interface == //
+using CodeSmith.Core.Enums;
 using CodeSmith.Core.Models.SystemLab;
 
 namespace CodeSmith.Core.Interfaces;
@@ -15,7 +16,7 @@ public interface ISystemLabService
     Scenario GetScenario(string scenarioId);
 
     // Creates a new System Lab session for the given scenario; throws ScenarioNotFoundException if invalid
-    Task<SystemLabSession> StartSessionAsync(string scenarioId, CancellationToken ct = default);
+    Task<SystemLabSession> StartSessionAsync(string scenarioId, AiProvider provider, CancellationToken ct = default);
 
     // Evaluates the user's justification against the scenario rubric and tradeoffs; throws SessionNotFoundException if invalid
     Task<ScenarioAttempt> SubmitAttemptAsync(Guid sessionId, string justificationContent, CancellationToken ct = default);

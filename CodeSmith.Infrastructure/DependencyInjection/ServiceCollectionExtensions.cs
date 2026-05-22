@@ -54,8 +54,13 @@ public static class ServiceCollectionExtensions
             AiProvider.OpenAi,
             (sp, _) => sp.GetRequiredService<OpenAiLlmService>());
 
-        // System Lab uses Anthropic only — injected directly, no provider selection needed
-        services.AddSingleton<ISystemLabLlmService>(sp => sp.GetRequiredService<AnthropicLlmService>());
+        // Register keyed system-lab services (both providers implement ISystemLabLlmService)
+        services.AddKeyedSingleton<ISystemLabLlmService>(
+            AiProvider.Anthropic,
+            (sp, _) => sp.GetRequiredService<AnthropicLlmService>());
+        services.AddKeyedSingleton<ISystemLabLlmService>(
+            AiProvider.OpenAi,
+            (sp, _) => sp.GetRequiredService<OpenAiLlmService>());
 
         services.AddScoped<ILlmServiceFactory, LlmServiceFactory>();
 

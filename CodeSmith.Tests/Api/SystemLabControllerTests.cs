@@ -76,7 +76,7 @@ public class SystemLabControllerTests
     public async Task StartSession_WithValidRequest_Returns201()
     {
         var session = new SystemLabSession { ScenarioId = "identity-rbac-easy-01" };
-        _service.StartSessionAsync("identity-rbac-easy-01", Arg.Any<CancellationToken>()).Returns(session);
+        _service.StartSessionAsync("identity-rbac-easy-01", Arg.Any<AiProvider>(), Arg.Any<CancellationToken>()).Returns(session);
 
         var result = await _controller.StartSession(new StartSystemLabSessionRequest { ScenarioId = "identity-rbac-easy-01" }, CancellationToken.None);
 
@@ -97,7 +97,7 @@ public class SystemLabControllerTests
     [Fact]
     public async Task StartSession_WithInvalidId_ThrowsScenarioNotFoundException()
     {
-        _service.StartSessionAsync("bad-id", Arg.Any<CancellationToken>())
+        _service.StartSessionAsync("bad-id", Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new ScenarioNotFoundException("bad-id"));
 
         await Assert.ThrowsAsync<ScenarioNotFoundException>(

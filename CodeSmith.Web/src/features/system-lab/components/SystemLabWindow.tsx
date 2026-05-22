@@ -1,6 +1,7 @@
 // == System Lab Window Component == //
 import { useEffect, useState } from "react";
 import { useNavigationContext } from "../../../contexts/NavigationContext";
+import { useProviderPreference } from "../../../hooks/useProviderPreference";
 import type { ScenarioResponse, AttemptResult, SystemLabSession, SystemLabChatMessage } from "../types";
 import { useGetScenarios } from "../hooks/useGetScenarios";
 import { useStartSession } from "../hooks/useStartSession";
@@ -20,6 +21,7 @@ export function SystemLabWindow() {
   const [lastResult, setLastResult]             = useState<AttemptResult | null>(null);
   const [chatMessages, setChatMessages]         = useState<SystemLabChatMessage[]>([]);
 
+  const { provider }  = useProviderPreference();
   const getScenarios  = useGetScenarios();
   const startSession  = useStartSession();
   const submitAttempt = useSubmitAttempt();
@@ -59,7 +61,7 @@ export function SystemLabWindow() {
     if (!found) return;
 
     startSession.mutate(
-      { scenarioId },
+      { scenarioId, provider },
       {
         onSuccess: (data) => {
           setSession(data);

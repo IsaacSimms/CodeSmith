@@ -1,4 +1,5 @@
 // == System Lab Service Tests == //
+using CodeSmith.Core.Enums;
 using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
@@ -14,13 +15,15 @@ public class SystemLabServiceTests
 {
     private readonly ISystemLabSessionStore        _sessionStore = Substitute.For<ISystemLabSessionStore>();
     private readonly ISystemLabEvaluator           _evaluator    = Substitute.For<ISystemLabEvaluator>();
+    private readonly ILlmServiceFactory            _factory      = Substitute.For<ILlmServiceFactory>();
     private readonly ISystemLabLlmService          _llmService   = Substitute.For<ISystemLabLlmService>();
     private readonly ILogger<SystemLabService>     _logger       = Substitute.For<ILogger<SystemLabService>>();
     private readonly SystemLabService              _service;
 
     public SystemLabServiceTests()
     {
-        _service = new SystemLabService(_evaluator, _llmService, _sessionStore, _logger);
+        _factory.GetLlmService<ISystemLabLlmService>(Arg.Any<AiProvider>()).Returns(_llmService);
+        _service = new SystemLabService(_evaluator, _factory, _sessionStore, _logger);
     }
 
     // == Catalog Tests == //
@@ -57,7 +60,7 @@ public class SystemLabServiceTests
     {
         var scenarioId = _service.GetScenarios()[0].ScenarioId;
 
-        var session = await _service.StartSessionAsync(scenarioId);
+        var session = await _service.StartSessionAsync(scenarioId, AiProvider.Anthropic);
 
         Assert.Equal(scenarioId, session.ScenarioId);
         Assert.NotEqual(Guid.Empty, session.SessionId);
@@ -68,7 +71,7 @@ public class SystemLabServiceTests
     public async Task StartSessionAsync_WithInvalidId_ThrowsScenarioNotFoundException()
     {
         await Assert.ThrowsAsync<ScenarioNotFoundException>(
-            () => _service.StartSessionAsync("does-not-exist"));
+            () => _service.StartSessionAsync("does-not-exist", AiProvider.Anthropic));
     }
 
     [Fact]
@@ -76,7 +79,7 @@ public class SystemLabServiceTests
     {
         var scenarioId = _service.GetScenarios()[0].ScenarioId;
 
-        var session = await _service.StartSessionAsync(scenarioId);
+        var session = await _service.StartSessionAsync(scenarioId, AiProvider.Anthropic);
 
         Assert.Empty(session.Attempts);
         Assert.Empty(session.ChatHistory);
@@ -108,7 +111,7 @@ public class SystemLabServiceTests
             OverallFeedback = "Good reasoning on the core tradeoffs."
         };
 
-        _evaluator.EvaluateAsync(Arg.Any<Scenario>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _evaluator.EvaluateAsync(Arg.Any<Scenario>(), Arg.Any<string>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
             .Returns(expectedAttempt);
 
         var attempt = await _service.SubmitAttemptAsync(session.SessionId, "my justification");
@@ -125,7 +128,7 @@ public class SystemLabServiceTests
 
         _sessionStore.Get(session.SessionId.ToString()).Returns(session);
 
-        _evaluator.EvaluateAsync(Arg.Any<Scenario>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _evaluator.EvaluateAsync(Arg.Any<Scenario>(), Arg.Any<string>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
             .Returns(new ScenarioAttempt { TotalScore = 5, MaxScore = 10 });
 
         await _service.SubmitAttemptAsync(session.SessionId, "first attempt");

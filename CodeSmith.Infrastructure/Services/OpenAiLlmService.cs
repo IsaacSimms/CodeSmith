@@ -14,7 +14,7 @@ namespace CodeSmith.Infrastructure.Services;
 /// Implementation of <see cref="ITutoringLlmService"/> and <see cref="IPromptLabLlmService"/> using the official OpenAI .NET SDK.
 /// Stateless: no session management. Maps named capability methods to GPT models internally.
 /// </summary>
-public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService
+public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService, ISystemLabLlmService
 {
     private readonly OpenAIClient _client;
     private readonly OpenAiOptions _options;
@@ -140,6 +140,32 @@ public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService
         {
             _logger.LogError(ex, "OpenAI EvaluateResponseAsync failed");
             throw new AiServiceException("OpenAI evaluation failed. Please try again.", ex);
+        }
+    }
+
+    // == System Lab: Evaluate Justification (accurate model, single turn) == //
+
+    public async Task<LlmResponse> EvaluateJustificationAsync(string systemPrompt, string userMessage, int maxTokens, CancellationToken ct = default)
+    {
+        try
+        {
+            var chatClient = _client.GetChatClient(_options.AccurateModel);
+            var response   = await chatClient.CompleteChatAsync(
+                [new SystemChatMessage(systemPrompt), new UserChatMessage(userMessage)],
+                new ChatCompletionOptions { MaxOutputTokenCount = maxTokens },
+                ct);
+
+            return new LlmResponse
+            {
+                Content           = ExtractTextContent(response.Value),
+                InputTokensUsed   = response.Value.Usage.InputTokenCount,
+                ContextWindowSize = _options.ContextWindow
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "OpenAI EvaluateJustificationAsync failed");
+            throw new AiServiceException("OpenAI justification evaluation failed. Please try again.", ex);
         }
     }
 

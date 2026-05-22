@@ -1,7 +1,7 @@
 // == System Lab Feature Types == //
-import type { Difficulty } from "../chat/types";
+import type { AiProvider, Difficulty } from "../chat/types";
 
-export type { Difficulty };
+export type { AiProvider, Difficulty };
 
 export type SystemLabCategory =
   | "IdentityAndGovernance"
@@ -76,6 +76,7 @@ export interface SystemLabSession {
 
 export interface StartSessionRequest {
   scenarioId: string;
+  provider?: AiProvider;
 }
 
 export interface SubmitJustificationRequest {

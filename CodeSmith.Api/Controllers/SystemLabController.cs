@@ -54,7 +54,7 @@ public class SystemLabController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.ScenarioId))
             return BadRequest(new { error = "ScenarioId is required." });
 
-        var session = await _service.StartSessionAsync(request.ScenarioId, ct); // Throws ScenarioNotFoundException → 404
+        var session = await _service.StartSessionAsync(request.ScenarioId, request.Provider, ct); // Throws ScenarioNotFoundException → 404
         return CreatedAtAction(nameof(StartSession), new { sessionId = session.SessionId }, SystemLabSessionResponse.FromSession(session));
     }
 

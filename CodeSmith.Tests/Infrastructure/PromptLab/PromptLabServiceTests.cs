@@ -15,12 +15,13 @@ public class PromptLabServiceTests
     private readonly IPromptSimulator           _simulator    = Substitute.For<IPromptSimulator>();
     private readonly IPromptEvaluator           _evaluator    = Substitute.For<IPromptEvaluator>();
     private readonly ITestInputGenerator        _generator    = Substitute.For<ITestInputGenerator>();
+    private readonly ILlmServiceFactory         _factory      = Substitute.For<ILlmServiceFactory>();
     private readonly ILogger<PromptLabService>  _logger       = Substitute.For<ILogger<PromptLabService>>();
     private readonly PromptLabService           _service;
 
     public PromptLabServiceTests()
     {
-        _service = new PromptLabService(_simulator, _evaluator, _generator, _sessionStore, _logger);
+        _service = new PromptLabService(_simulator, _evaluator, _generator, _sessionStore, _factory, _logger);
     }
 
     // == Catalog Tests == //

@@ -11,12 +11,12 @@ namespace CodeSmith.Infrastructure.Services.SystemLab;
 
 /// <summary>
 /// Orchestrates the System Lab workflow: catalog lookup, justification evaluation, and guidance chat.
-/// Delegates evaluation to ISystemLabEvaluator and LLM calls to ISystemLabLlmService.
+/// Delegates evaluation to ISystemLabEvaluator and LLM calls to ILlmServiceFactory routed by session provider.
 /// </summary>
 public class SystemLabService : ISystemLabService
 {
     private readonly ISystemLabEvaluator     _evaluator;
-    private readonly ISystemLabLlmService    _llmService;
+    private readonly ILlmServiceFactory      _factory;
     private readonly ISystemLabSessionStore  _sessionStore;
     private readonly ILogger<SystemLabService> _logger;
 
@@ -25,12 +25,12 @@ public class SystemLabService : ISystemLabService
 
     public SystemLabService(
         ISystemLabEvaluator evaluator,
-        ISystemLabLlmService llmService,
+        ILlmServiceFactory factory,
         ISystemLabSessionStore sessionStore,
         ILogger<SystemLabService> logger)
     {
         _evaluator    = evaluator;
-        _llmService   = llmService;
+        _factory      = factory;
         _sessionStore = sessionStore;
         _logger       = logger;
     }
@@ -47,11 +47,11 @@ public class SystemLabService : ISystemLabService
 
     // == StartSessionAsync == //
 
-    public Task<SystemLabSession> StartSessionAsync(string scenarioId, CancellationToken ct = default)
+    public Task<SystemLabSession> StartSessionAsync(string scenarioId, AiProvider provider, CancellationToken ct = default)
     {
         GetScenario(scenarioId); // Validates ID — throws ScenarioNotFoundException if invalid
 
-        var session = new SystemLabSession { ScenarioId = scenarioId };
+        var session = new SystemLabSession { ScenarioId = scenarioId, Provider = provider };
         _sessionStore.Set(session);
 
         _logger.LogInformation("Started System Lab session {SessionId} for scenario {ScenarioId}", session.SessionId, scenarioId);
@@ -69,7 +69,7 @@ public class SystemLabService : ISystemLabService
 
         try
         {
-            var attempt = await _evaluator.EvaluateAsync(scenario, justificationContent, ct);
+            var attempt = await _evaluator.EvaluateAsync(scenario, justificationContent, session.Provider, ct);
 
             session.Attempts.Add(attempt);
             _sessionStore.Set(session);
@@ -99,7 +99,7 @@ public class SystemLabService : ISystemLabService
 
         try
         {
-            var response = await _llmService.GetGuidanceAsync(systemPrompt, session.ChatHistory, ChatMaxTokens, ct);
+            var response = await _factory.GetLlmService<ISystemLabLlmService>(session.Provider).GetGuidanceAsync(systemPrompt, session.ChatHistory, ChatMaxTokens, ct);
 
             session.ChatHistory.Add(new ChatMessage { Role = MessageRole.Assistant, Content = response.Content });
             _sessionStore.Set(session);
