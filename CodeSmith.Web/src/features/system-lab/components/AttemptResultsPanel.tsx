@@ -20,7 +20,7 @@ export function AttemptResultsPanel({ result, isEvaluating, onClear }: AttemptRe
             <span className="rounded bg-blue-900 px-2 py-0.5 text-xs text-blue-300">Evaluating…</span>
           )}
           {!isEvaluating && result && (
-            <ScoreBadge total={result.totalScore} max={result.maxScore} deduction={result.securityDeduction} />
+            <ScoreBadge total={result.totalScore} max={result.maxScore} totalDeduction={result.dimensionDeductions.reduce((sum, d) => sum + d.deduction, 0)} />
           )}
         </div>
         {result && (
@@ -53,23 +53,27 @@ export function AttemptResultsPanel({ result, isEvaluating, onClear }: AttemptRe
               </div>
             </section>
 
-            {/* == Security Deduction (only if triggered) == */}
-            {result.securityDeduction > 0 && (
-              <section>
-                <p className="mb-1 text-xs font-semibold text-red-500">Security Deduction: -{result.securityDeduction} pts</p>
-                {result.securityFeedback && (
-                  <pre className="whitespace-pre-wrap break-words text-red-400">{result.securityFeedback}</pre>
+            {/* == Dimension Deductions (only rendered when a deduction was applied) == */}
+            {result.dimensionDeductions.filter((d) => d.deduction > 0).map((d) => (
+              <section key={d.dimensionName}>
+                <p className="mb-1 text-xs font-semibold text-red-500">{d.dimensionName} Deduction: -{d.deduction} pts</p>
+                {d.feedback && (
+                  <pre className="whitespace-pre-wrap break-words text-red-400">{d.feedback}</pre>
                 )}
               </section>
-            )}
+            ))}
 
             {/* == Score Summary == */}
             <section className="border-t border-gray-700 pt-3">
               <div className="flex items-baseline gap-2">
                 <span className="text-lg font-bold text-gray-100">{result.totalScore}/{result.maxScore}</span>
-                {result.securityDeduction > 0 && (
+                {result.dimensionDeductions.some((d) => d.deduction > 0) && (
                   <span className="text-xs text-gray-500">
-                    ({result.rubricScore} rubric − {result.securityDeduction} security)
+                    ({result.rubricScore} rubric
+                    {result.dimensionDeductions
+                      .filter((d) => d.deduction > 0)
+                      .map((d) => ` − ${d.deduction} ${d.dimensionName.toLowerCase()}`)
+                      .join("")})
                   </span>
                 )}
               </div>
@@ -103,14 +107,14 @@ export function AttemptResultsPanel({ result, isEvaluating, onClear }: AttemptRe
 
 // == Score Badge == //
 
-function ScoreBadge({ total, max, deduction }: { total: number; max: number; deduction: number }) {
+function ScoreBadge({ total, max, totalDeduction }: { total: number; max: number; totalDeduction: number }) {
   const pct        = max > 0 ? total / max : 0;
   const colorClass = pct >= 0.9 ? "bg-green-900 text-green-300"
                    : pct >= 0.6 ? "bg-yellow-900 text-yellow-300"
                    :              "bg-red-900 text-red-300";
   return (
     <span className={`rounded px-2 py-0.5 text-xs ${colorClass}`}>
-      {total}/{max} pts{deduction > 0 && ` (−${deduction} security)`}
+      {total}/{max} pts{totalDeduction > 0 && ` (−${totalDeduction})`}
     </span>
   );
 }

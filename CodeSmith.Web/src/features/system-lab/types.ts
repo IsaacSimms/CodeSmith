@@ -9,8 +9,7 @@ export type SystemLabCategory =
   | "Storage"
   | "NetworkingAndConnectivity"
   | "ResilienceAndContinuity"
-  | "MonitoringAndOperations"
-  | "CostAndCapacity"
+  | "MonitoringAndObservability"
   | "AutomationAndIaC";
 
 export type EvaluationMode = "SingleAnswer" | "TradeoffReasoning" | "OpenJudgment";
@@ -51,15 +50,20 @@ export interface TradeoffResult {
   feedback: string;
 }
 
+export interface DimensionDeduction {
+  dimensionName: string;
+  deduction: number;
+  feedback: string | null;
+}
+
 export interface AttemptResult {
   attemptId: string;
   rubricScore: number;
   maxRubricScore: number;
-  securityDeduction: number;
+  dimensionDeductions: DimensionDeduction[];
   totalScore: number;
   maxScore: number;
   overallFeedback: string;
-  securityFeedback: string | null;
   criterionScores: CriterionScore[];
   tradeoffResults: TradeoffResult[];
   submittedAt: string;
@@ -102,14 +106,13 @@ export interface SystemLabChatMessage {
 // == Display Helpers == //
 
 export const categoryLabels: Record<SystemLabCategory, string> = {
-  IdentityAndGovernance:    "Identity & Governance",
-  Compute:                  "Compute",
-  Storage:                  "Storage",
-  NetworkingAndConnectivity:"Networking & Connectivity",
-  ResilienceAndContinuity:  "Resilience & Continuity",
-  MonitoringAndOperations:  "Monitoring & Operations",
-  CostAndCapacity:          "Cost & Capacity",
-  AutomationAndIaC:         "Automation & IaC",
+  IdentityAndGovernance:     "Identity & Governance",
+  Compute:                   "Compute",
+  Storage:                   "Storage",
+  NetworkingAndConnectivity: "Networking & Connectivity",
+  ResilienceAndContinuity:   "Resilience & Continuity",
+  MonitoringAndObservability:"Monitoring & Observability",
+  AutomationAndIaC:          "Automation & IaC",
 };
 
 export const evaluationModeLabels: Record<EvaluationMode, string> = {

@@ -12,7 +12,6 @@ public enum SystemLabCategory
     Storage,                    // Tier selection, redundancy models, consistency, data persistence
     NetworkingAndConnectivity,  // VNet/subnet design, firewall rules, public vs private endpoints, DNS, hybrid
     ResilienceAndContinuity,    // HA vs DR, backup, RTO/RPO, region/zone redundancy, failover
-    MonitoringAndOperations,    // Instrumentation, alerting, log aggregation, the diagnostic path
-    CostAndCapacity,            // Right-sizing, reserved vs on-demand, over-provisioning, scaling economics
+    MonitoringAndObservability, // Instrumentation, alerting, log aggregation, the diagnostic path
     AutomationAndIaC            // Declarative vs imperative, idempotency, drift, what to codify vs click
 }

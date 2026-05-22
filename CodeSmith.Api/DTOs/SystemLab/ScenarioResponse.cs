@@ -6,7 +6,7 @@ namespace CodeSmith.Api.DTOs.SystemLab;
 
 /// <summary>
 /// Client-safe representation of a Scenario.
-/// SecurityPitfalls are intentionally excluded to prevent gaming the evaluator.
+/// Dimensions (cross-cutting pitfall lists) are intentionally excluded to prevent gaming the evaluator.
 /// </summary>
 public class ScenarioResponse
 {

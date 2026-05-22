@@ -37,15 +37,16 @@ public class SystemLabControllerTests
     }
 
     [Fact]
-    public void GetScenarios_ResponseDoesNotContainSecurityPitfalls()
+    public void GetScenarios_ResponseDoesNotContainDimensions()
     {
-        _service.GetScenarios().Returns([BuildScenario("identity-rbac-easy-01")]);
+        _service.GetScenarios().Returns([BuildScenario("identity-storage-access-easy-01")]);
 
         var result = _controller.GetScenarios();
 
         var ok  = Assert.IsType<OkObjectResult>(result);
         var dto = Assert.IsAssignableFrom<IEnumerable<ScenarioResponse>>(ok.Value).First();
-        Assert.Null(dto.GetType().GetProperty("SecurityPitfalls"));
+        // Dimensions (and their pitfall lists) must never be exposed to the client
+        Assert.Null(dto.GetType().GetProperty("Dimensions"));
     }
 
     // == GetScenario Tests == //
@@ -116,7 +117,10 @@ public class SystemLabControllerTests
             MaxScore        = 10,
             RubricScore     = 9,
             MaxRubricScore  = 10,
-            SecurityDeduction = 1,
+            DimensionDeductions =
+            [
+                new DimensionDeduction { DimensionName = "Security", Deduction = 1, Feedback = "Insecure pattern detected." }
+            ],
             OverallFeedback = "Strong tradeoff reasoning."
         };
 
@@ -132,7 +136,9 @@ public class SystemLabControllerTests
         var dto = Assert.IsType<SystemLabAttemptResultResponse>(ok.Value);
         Assert.Equal(8,  dto.TotalScore);
         Assert.Equal(10, dto.MaxScore);
-        Assert.Equal(1,  dto.SecurityDeduction);
+        Assert.Single(dto.DimensionDeductions);
+        Assert.Equal(1,          dto.DimensionDeductions[0].Deduction);
+        Assert.Equal("Security", dto.DimensionDeductions[0].DimensionName);
         Assert.Equal("Strong tradeoff reasoning.", dto.OverallFeedback);
     }
 
@@ -225,7 +231,14 @@ public class SystemLabControllerTests
         [
             "Why is a custom role preferred over a built-in Owner role for this workload?"
         ],
-        SecurityPitfalls  = ["Granting subscription-level Owner to the application identity"],
-        MaxSecurityDeduction = 3
+        Dimensions =
+        [
+            new CrossCuttingDimension
+            {
+                Name         = "Security",
+                Pitfalls     = ["Granting subscription-level Owner to the application identity"],
+                MaxDeduction = 3
+            }
+        ]
     };
 }

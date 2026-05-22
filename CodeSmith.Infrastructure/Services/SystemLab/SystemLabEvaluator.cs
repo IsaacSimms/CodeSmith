@@ -54,12 +54,19 @@ public sealed class SystemLabEvaluator : ISystemLabEvaluator
             _ => ""
         };
 
-        const string jsonSchema = """
+        // Build the dimensionDeductions schema dynamically from the scenario's dimensions
+        var dimensionsSchema = scenario.Dimensions.Count > 0
+            ? string.Join(",\n    ", scenario.Dimensions.Select(d =>
+                $"{{ \"dimensionName\": \"{d.Name}\", \"deduction\": 0, \"feedback\": null }}"))
+            : "";
+
+        var jsonSchema = $$"""
             {
               "criterionScores": [{ "criterionId": "string", "points": 0 }],
               "tradeoffResults": [{ "tradeoffQuestion": "string", "engaged": true, "feedback": "string" }],
-              "securityDeduction": 0,
-              "securityFeedback": null,
+              "dimensionDeductions": [
+                {{dimensionsSchema}}
+              ],
               "overallFeedback": "string"
             }
             """;
@@ -73,9 +80,9 @@ public sealed class SystemLabEvaluator : ISystemLabEvaluator
             they explained WHY a tradeoff exists given the scenario constraints, not merely mentioned the relevant terms.
             A response that restates the tradeoff question or lists keywords without causal reasoning scores as NOT engaged.
 
-            For security deduction: apply a deduction ONLY if the student's proposed design actively introduces or
-            explicitly endorses one of the listed security pitfalls. Do not deduct for omission of security discussion
-            unless the omission itself constitutes endorsing an insecure design.
+            For each cross-cutting dimension deduction: apply a deduction ONLY if the student's proposed design
+            actively introduces or explicitly endorses one of the listed pitfalls for that dimension. Do not deduct
+            for omission of discussion unless the omission itself constitutes endorsing a bad design.
 
             You MUST respond with ONLY valid JSON matching this exact schema — no preamble, no explanation:
             {jsonSchema}
@@ -106,11 +113,17 @@ public sealed class SystemLabEvaluator : ISystemLabEvaluator
             sb.AppendLine($"  {i + 1}. {scenario.RequiredTradeoffs[i]}");
         sb.AppendLine();
 
-        sb.AppendLine("Security Pitfalls to check (NOT shown to student — apply deduction only if the student's design endorses one):");
-        foreach (var pitfall in scenario.SecurityPitfalls)
-            sb.AppendLine($"  - {pitfall}");
-        sb.AppendLine($"Maximum security deduction available: {scenario.MaxSecurityDeduction} points");
-        sb.AppendLine();
+        if (scenario.Dimensions.Count > 0)
+        {
+            sb.AppendLine("Cross-Cutting Dimensions to evaluate (NOT shown to student — apply deduction only if the student's design endorses a pitfall):");
+            foreach (var dim in scenario.Dimensions)
+            {
+                sb.AppendLine($"  [{dim.Name}] (max deduction: {dim.MaxDeduction} pts)");
+                foreach (var pitfall in dim.Pitfalls)
+                    sb.AppendLine($"    - {pitfall}");
+            }
+            sb.AppendLine();
+        }
 
         sb.AppendLine("Student's Justification:");
         sb.AppendLine(justification);
@@ -129,30 +142,24 @@ public sealed class SystemLabEvaluator : ISystemLabEvaluator
             using var doc = JsonDocument.Parse(jsonText);
             var root = doc.RootElement;
 
-            var criterionScores  = ParseCriterionScores(scenario, root);
-            var tradeoffResults  = ParseTradeoffResults(scenario, root);
-            var securityDeduction = root.TryGetProperty("securityDeduction", out var sd) ? sd.GetInt32() : 0;
-            var securityFeedback  = root.TryGetProperty("securityFeedback",  out var sf) && sf.ValueKind != JsonValueKind.Null
-                ? sf.GetString()
-                : null;
-            var overallFeedback   = root.TryGetProperty("overallFeedback", out var of) ? of.GetString() ?? "" : "";
-
-            // Clamp deduction to MaxSecurityDeduction to prevent evaluator over-penalizing
-            securityDeduction = Math.Clamp(securityDeduction, 0, scenario.MaxSecurityDeduction);
+            var criterionScores    = ParseCriterionScores(scenario, root);
+            var tradeoffResults    = ParseTradeoffResults(scenario, root);
+            var dimensionDeductions = ParseDimensionDeductions(scenario, root);
+            var overallFeedback    = root.TryGetProperty("overallFeedback", out var of) ? of.GetString() ?? "" : "";
 
             var rubricScore    = criterionScores.Sum(s => s.Points);
             var maxRubricScore = scenario.Rubric.Sum(r => r.MaxPoints);
-            var totalScore     = Math.Max(0, rubricScore - securityDeduction);
+            var totalDeductions = dimensionDeductions.Sum(d => d.Deduction);
+            var totalScore     = Math.Max(0, rubricScore - totalDeductions);
 
             return new ScenarioAttempt
             {
                 JustificationContent = justification,
                 CriterionScores      = criterionScores,
                 TradeoffResults      = tradeoffResults,
+                DimensionDeductions  = dimensionDeductions,
                 RubricScore          = rubricScore,
                 MaxRubricScore       = maxRubricScore,
-                SecurityDeduction    = securityDeduction,
-                SecurityFeedback     = securityDeduction > 0 ? securityFeedback : null,
                 TotalScore           = totalScore,
                 MaxScore             = maxRubricScore,
                 OverallFeedback      = overallFeedback
@@ -211,6 +218,34 @@ public sealed class SystemLabEvaluator : ISystemLabEvaluator
 
             results.Add(new TradeoffResult { TradeoffQuestion = question, Engaged = engaged, Feedback = feedback });
             index++;
+        }
+        return results;
+    }
+
+    private static List<DimensionDeduction> ParseDimensionDeductions(Scenario scenario, JsonElement root)
+    {
+        var results = new List<DimensionDeduction>();
+        if (!root.TryGetProperty("dimensionDeductions", out var deductionsEl)) return results;
+
+        foreach (var el in deductionsEl.EnumerateArray())
+        {
+            var name      = el.TryGetProperty("dimensionName", out var n) ? n.GetString() ?? "" : "";
+            var deduction = el.TryGetProperty("deduction",     out var d) ? d.GetInt32() : 0;
+            var feedback  = el.TryGetProperty("feedback",      out var f) && f.ValueKind != JsonValueKind.Null
+                ? f.GetString()
+                : null;
+
+            // Clamp to the dimension's MaxDeduction to prevent evaluator over-penalizing
+            var dim    = scenario.Dimensions.FirstOrDefault(x => x.Name == name);
+            var maxDed = dim?.MaxDeduction ?? deduction;
+            deduction  = Math.Clamp(deduction, 0, maxDed);
+
+            results.Add(new DimensionDeduction
+            {
+                DimensionName = name,
+                Deduction     = deduction,
+                Feedback      = deduction > 0 ? feedback : null
+            });
         }
         return results;
     }
