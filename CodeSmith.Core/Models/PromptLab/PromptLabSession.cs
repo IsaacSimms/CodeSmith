@@ -1,5 +1,6 @@
 // == Prompt Lab Session Model == //
 using CodeSmith.Core.Enums;
+using CodeSmith.Core.Models;
 
 namespace CodeSmith.Core.Models.PromptLab;
 
@@ -14,5 +15,6 @@ public class PromptLabSession
     public List<TestInput> TestInputs { get; set; } = [];               // Dynamically generated inputs for this session
     public bool DynamicInputsGenerated { get; set; }                 // True when LLM generated test inputs; false when static fallback was used
     public List<ChallengeAttempt> Attempts { get; set; } = [];      // History of prompt submissions for this session
+    public List<ChatMessage> ChatHistory { get; set; } = [];        // Session-scoped guidance chat; capped at 20 turns before trimming
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;     // UTC timestamp when the session was created
 }

@@ -24,4 +24,7 @@ public interface IPromptLabService
         string systemPromptContent,
         string userMessageContent,
         CancellationToken ct = default);
+
+    // Sends a chat message to the guidance AI with optional editor context; throws SessionNotFoundException if invalid
+    Task<string> ChatAsync(Guid sessionId, string message, string? editorContent, CancellationToken ct = default);
 }

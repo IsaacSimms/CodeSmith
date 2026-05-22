@@ -79,4 +79,22 @@ public class PromptLabController : ControllerBase
 
         return Ok(AttemptResultResponse.FromAttempt(attempt));
     }
+
+    // == Guidance Chat Endpoint == //
+
+    [HttpPost("sessions/{sessionId:guid}/chat")]
+    [ProducesResponseType(typeof(PromptLabChatResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Chat(
+        Guid sessionId,
+        [FromBody] PromptLabChatRequest request,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.Message))
+            return BadRequest(new { error = "Message is required." });
+
+        var response = await _service.ChatAsync(sessionId, request.Message, request.EditorContent, ct);
+        return Ok(new PromptLabChatResponse { Response = response });
+    }
 }

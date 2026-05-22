@@ -2,14 +2,15 @@
 import { useEffect, useState } from "react";
 import { useNavigationContext } from "../../../contexts/NavigationContext";
 import { useProviderPreference } from "../../../hooks/useProviderPreference";
-import type { ChallengeResponse, AttemptResult, PromptLabSession } from "../types";
+import type { ChallengeResponse, AttemptResult, PromptLabSession, PromptLabChatMessage } from "../types";
 import { useGetChallenges } from "../hooks/useGetChallenges";
 import { useStartChallenge } from "../hooks/useStartChallenge";
 import { useSubmitAttempt } from "../hooks/useSubmitAttempt";
+import { usePromptLabChat } from "../hooks/usePromptLabChat";
 import { useResizableSplit } from "../../chat/hooks/useResizableSplit";
 import { useResizableVerticalSplit } from "../../chat/hooks/useResizableVerticalSplit";
 import { ChallengeSelector } from "./ChallengeSelector";
-import { ChallengePanel } from "./ChallengePanel";
+import { PromptLabRightPanel } from "./PromptLabRightPanel";
 import { PromptEditors } from "./PromptEditors";
 import { ResultsPanel } from "./ResultsPanel";
 import { TokenUsageBar } from "../../../components/TokenUsageBar";
@@ -20,10 +21,12 @@ export function PromptLabWindow() {
   const [systemPromptContent, setSystemContent] = useState("");
   const [userMessageContent, setUserContent]    = useState("");
   const [lastResult, setLastResult]             = useState<AttemptResult | null>(null);
+  const [chatMessages, setChatMessages]         = useState<PromptLabChatMessage[]>([]);
 
-  const getChallenges = useGetChallenges();
+  const getChallenges  = useGetChallenges();
   const startChallenge = useStartChallenge();
   const submitAttempt  = useSubmitAttempt();
+  const sendChat       = usePromptLabChat();
   const { provider } = useProviderPreference();
   const { registerReset, unregisterReset } = useNavigationContext();
 
@@ -40,6 +43,7 @@ export function PromptLabWindow() {
       setSession(null);
       setChallenge(null);
       setLastResult(null);
+      setChatMessages([]);
     });
     return () => unregisterReset("prompt-lab");
   }, [registerReset, unregisterReset]);
@@ -87,6 +91,7 @@ export function PromptLabWindow() {
         onSuccess: (data) => {
           setSession(data);
           setChallenge(found);
+          setChatMessages([]);
         },
       }
     );
@@ -108,6 +113,34 @@ export function PromptLabWindow() {
           setSession((prev) =>
             prev ? { ...prev, attempts: [...prev.attempts, result] } : prev
           );
+        },
+      }
+    );
+  }
+
+  function handleSendChat(message: string) {
+    if (!session) return;
+
+    // Build structured editor content from both prompt editors
+    const editorContent = [
+      systemPromptContent ? `[SYSTEM PROMPT]\n${systemPromptContent}` : null,
+      userMessageContent  ? `[USER MESSAGE]\n${userMessageContent}`   : null,
+    ]
+      .filter(Boolean)
+      .join("\n\n") || undefined;
+
+    // Optimistically append user message
+    setChatMessages((prev) => [...prev, { role: "user", content: message }]);
+
+    sendChat.mutate(
+      { sessionId: session.sessionId, message, editorContent },
+      {
+        onSuccess: (data) => {
+          setChatMessages((prev) => [...prev, { role: "assistant", content: data.response }]);
+        },
+        onError: () => {
+          // Remove the optimistically added user message on failure
+          setChatMessages((prev) => prev.slice(0, -1));
         },
       }
     );
@@ -207,15 +240,18 @@ export function PromptLabWindow() {
           className="w-1.5 shrink-0 cursor-col-resize bg-gray-700 transition-colors hover:bg-monokai-pink active:bg-monokai-pink"
         />
 
-        {/* == Right Panel: Challenge == */}
+        {/* == Right Panel: Challenge + Guidance Chat == */}
         <div className="min-w-0" style={{ width: `${100 - leftPercent}%` }}>
-          <ChallengePanel
+          <PromptLabRightPanel
             challenge={challenge}
             testInputs={session.testInputs}
             isSubmitting={submitAttempt.isPending}
             lastAttempt={lastResult}
             attemptCount={session.attempts.length}
             onSubmit={handleSubmit}
+            chatMessages={chatMessages}
+            onSendMessage={handleSendChat}
+            isSendingChat={sendChat.isPending}
           />
         </div>
       </div>

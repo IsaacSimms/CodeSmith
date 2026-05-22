@@ -98,6 +98,22 @@ export interface SubmitAttemptRequest {
   userMessageContent: string;
 }
 
+export interface PromptLabChatRequest {
+  message: string;
+  editorContent?: string;  // "[SYSTEM PROMPT]\n...\n\n[USER MESSAGE]\n..."
+}
+
+export interface PromptLabChatResponse {
+  response: string;
+}
+
+// == Local Chat Display Type == //
+
+export interface PromptLabChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 // == Display Helpers == //
 
 export const categoryLabels: Record<ChallengeCategory, string> = {

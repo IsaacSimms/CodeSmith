@@ -15,6 +15,8 @@ import type {
   SubmitAttemptRequest,
   PromptLabSession,
   AttemptResult,
+  PromptLabChatRequest,
+  PromptLabChatResponse,
 } from "../features/prompt-lab/types";
 import type {
   ScenarioResponse,
@@ -95,6 +97,13 @@ export function startPromptLabChallenge(body: StartChallengeRequest): Promise<Pr
 
 export function submitPromptLabAttempt(sessionId: string, body: SubmitAttemptRequest): Promise<AttemptResult> {
   return request<AttemptResult>(`/api/prompt-lab/sessions/${sessionId}/submit`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function sendPromptLabChat(sessionId: string, body: PromptLabChatRequest): Promise<PromptLabChatResponse> {
+  return request<PromptLabChatResponse>(`/api/prompt-lab/sessions/${sessionId}/chat`, {
     method: "POST",
     body: JSON.stringify(body),
   });

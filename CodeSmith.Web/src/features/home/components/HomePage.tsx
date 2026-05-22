@@ -20,7 +20,7 @@ export function HomePage() {
       <section className="max-w-2xl text-center">
         <h1 className="mb-4 text-5xl font-bold text-white">Practice. Learn. Level up.</h1>
         <p className="mb-10 text-lg text-gray-300">
-          Two ways to sharpen your skills with AI.
+          Three ways to sharpen your skills with AI.
         </p>
 
         <div className="flex flex-col gap-4 sm:flex-row sm:justify-center">
@@ -48,6 +48,19 @@ export function HomePage() {
               AI models behave exactly as intended — across adversarial test suites.
             </span>
             <span className="mt-4 text-sm font-medium text-monokai-pink">Start prompting →</span>
+          </Link>
+
+          {/* == System Lab CTA == */}
+          <Link
+            to="/system-lab"
+            className="flex flex-col rounded-xl border border-gray-700 bg-gray-900 px-8 py-6 text-left transition-colors hover:border-monokai-pink hover:bg-gray-800"
+          >
+            <span className="mb-2 text-lg font-semibold text-white">System Lab</span>
+            <span className="text-sm text-gray-400">
+              Build infrastructure intuition. Justify design decisions across cloud, networking,
+              and resilience scenarios — and get scored on your reasoning.
+            </span>
+            <span className="mt-4 text-sm font-medium text-monokai-pink">Start designing →</span>
           </Link>
         </div>
 

@@ -43,4 +43,10 @@ describe("HomePage", () => {
     const link = screen.getByRole("link", { name: /prompt lab/i });
     expect(link).toHaveAttribute("href", "/prompt-lab");
   });
+
+  it("renders a CTA link pointing to /system-lab", () => {
+    renderHomePage();
+    const link = screen.getByRole("link", { name: /system lab/i });
+    expect(link).toHaveAttribute("href", "/system-lab");
+  });
 });
