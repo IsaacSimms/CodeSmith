@@ -30,7 +30,7 @@ public static class ServiceCollectionExtensions
 
         // Register session stores as singletons (thread-safe ConcurrentDictionary generic)
         services.AddSingleton<ISessionStore<CodeSmith.Core.Models.ProblemSession>, InMemorySessionStore<CodeSmith.Core.Models.ProblemSession>>();
-        services.AddSingleton<ISessionStore<CodeSmith.Core.Models.PromptLab.PromptLabSession>, InMemorySessionStore<CodeSmith.Core.Models.PromptLab.PromptLabSession>>();
+        services.AddSingleton<IPromptLabSessionStore, InMemoryPromptLabSessionStore>();
 
         // == LLM Provider Registration == //
         // Both implementations are registered as singletons so they can be reused.

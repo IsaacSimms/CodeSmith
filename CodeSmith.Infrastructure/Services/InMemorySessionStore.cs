@@ -26,5 +26,8 @@ public class InMemorySessionStore<TSession> : ISessionStore<TSession> where TSes
     }
 }
 
+// Concrete wrapper so IPromptLabSessionStore resolves from DI as a named singleton
+internal sealed class InMemoryPromptLabSessionStore : InMemorySessionStore<PromptLabSession>, IPromptLabSessionStore { }
+
 // Concrete wrapper so ISystemLabSessionStore resolves from DI as a named singleton
 internal sealed class InMemorySystemLabSessionStore : InMemorySessionStore<SystemLabSession>, ISystemLabSessionStore { }
