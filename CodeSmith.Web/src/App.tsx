@@ -6,6 +6,7 @@ import { Layout } from "./components/Layout";
 import { HomePage } from "./features/home/components/HomePage";
 import { ChatWindow } from "./features/chat/components/ChatWindow";
 import { PromptLabWindow } from "./features/prompt-lab/components/PromptLabWindow";
+import { SystemLabWindow } from "./features/system-lab/components/SystemLabWindow";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -24,6 +25,7 @@ export default function App() {
               <Route path="/home" element={<HomePage />} />
               <Route path="/pairedprogrammer" element={<ChatWindow />} />
               <Route path="/prompt-lab" element={<PromptLabWindow />} />
+              <Route path="/system-lab" element={<SystemLabWindow />} />
             </Route>
           </Routes>
         </NavigationProvider>

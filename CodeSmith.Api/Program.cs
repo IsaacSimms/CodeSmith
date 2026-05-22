@@ -20,6 +20,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton<IExceptionMapper, SessionNotFoundExceptionMapper>();
 builder.Services.AddSingleton<IExceptionMapper, ChallengeNotFoundExceptionMapper>();
+builder.Services.AddSingleton<IExceptionMapper, ScenarioNotFoundExceptionMapper>();
 builder.Services.AddSingleton<IExceptionMapper, AiServiceExceptionMapper>();
 builder.Services.AddSingleton<IExceptionMapper, CodeExecutionExceptionMapper>();
 builder.Services.AddSingleton<IExceptionMapper, OperationCancelledExceptionMapper>();

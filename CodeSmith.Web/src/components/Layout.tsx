@@ -30,6 +30,13 @@ export function Layout() {
         >
           Prompt Lab
         </Link>
+        <Link
+          to="/system-lab"
+          onClick={resetAll}
+          className="text-sm text-gray-400 transition-colors hover:text-white"
+        >
+          System Lab
+        </Link>
       </nav>
 
       {/* == Route Content == */}

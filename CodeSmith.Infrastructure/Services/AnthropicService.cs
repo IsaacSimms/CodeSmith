@@ -14,7 +14,7 @@ namespace CodeSmith.Infrastructure.Services;
 /// Implementation of <see cref="ITutoringLlmService"/> and <see cref="IPromptLabLlmService"/> using the official Anthropic C# SDK.
 /// Stateless: no session management. Maps named capability methods to Claude models internally.
 /// </summary>
-public class AnthropicLlmService : ITutoringLlmService, IPromptLabLlmService
+public class AnthropicLlmService : ITutoringLlmService, IPromptLabLlmService, ISystemLabLlmService
 {
     private readonly AnthropicClient _client;
     private readonly AnthropicOptions _options;
@@ -106,6 +106,11 @@ public class AnthropicLlmService : ITutoringLlmService, IPromptLabLlmService
 
     public Task<LlmResponse> GenerateTestInputsAsync(string systemPrompt, string userMessage, int maxTokens, CancellationToken ct = default)
         => CreateSingleTurnAsync(_options.AccurateModel, systemPrompt, userMessage, maxTokens, "test input generation", ct);
+
+    // == System Lab: Evaluate Justification (Sonnet) == //
+
+    public Task<LlmResponse> EvaluateJustificationAsync(string systemPrompt, string userMessage, int maxTokens, CancellationToken ct = default)
+        => CreateSingleTurnAsync(_options.AccurateModel, systemPrompt, userMessage, maxTokens, "justification evaluation", ct);
 
     // == Prompt Lab Single-Turn Helper == //
 

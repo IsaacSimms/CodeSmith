@@ -5,6 +5,7 @@ using CodeSmith.Infrastructure.Configuration;
 using CodeSmith.Infrastructure.Services;
 using CodeSmith.Infrastructure.Services.Piston;
 using CodeSmith.Infrastructure.Services.PromptLab;
+using CodeSmith.Infrastructure.Services.SystemLab;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -53,6 +54,9 @@ public static class ServiceCollectionExtensions
             AiProvider.OpenAi,
             (sp, _) => sp.GetRequiredService<OpenAiLlmService>());
 
+        // System Lab uses Anthropic only — injected directly, no provider selection needed
+        services.AddSingleton<ISystemLabLlmService>(sp => sp.GetRequiredService<AnthropicLlmService>());
+
         services.AddScoped<ILlmServiceFactory, LlmServiceFactory>();
 
         // Stateless singletons — safe and avoid repeated allocations
@@ -70,6 +74,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPromptEvaluator, PromptEvaluator>();
         services.AddScoped<ITestInputGenerator, TestInputGenerator>();
         services.AddScoped<IPromptLabService, PromptLabService>();
+
+        // Register System Lab services
+        services.AddSingleton<ISystemLabSessionStore, InMemorySystemLabSessionStore>();
+        services.AddScoped<ISystemLabEvaluator, SystemLabEvaluator>();
+        services.AddScoped<ISystemLabService, SystemLabService>();
 
         // == Code Execution Backend Selection == //
         // Reads CodeExecution:Backend from config and wires the matching implementation.

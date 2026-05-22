@@ -16,6 +16,15 @@ import type {
   PromptLabSession,
   AttemptResult,
 } from "../features/prompt-lab/types";
+import type {
+  ScenarioResponse,
+  StartSessionRequest,
+  SubmitJustificationRequest,
+  SystemLabChatRequest,
+  SystemLabChatResponse,
+  SystemLabSession,
+  AttemptResult as SystemLabAttemptResult,
+} from "../features/system-lab/types";
 
 class ApiClientError extends Error {
   statusCode: number;
@@ -86,6 +95,33 @@ export function startPromptLabChallenge(body: StartChallengeRequest): Promise<Pr
 
 export function submitPromptLabAttempt(sessionId: string, body: SubmitAttemptRequest): Promise<AttemptResult> {
   return request<AttemptResult>(`/api/prompt-lab/sessions/${sessionId}/submit`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+// == System Lab API Functions == //
+
+export function getScenarios(): Promise<ScenarioResponse[]> {
+  return request<ScenarioResponse[]>("/api/system-lab/scenarios", { method: "GET" });
+}
+
+export function startSystemLabSession(body: StartSessionRequest): Promise<SystemLabSession> {
+  return request<SystemLabSession>("/api/system-lab/sessions", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function submitSystemLabAttempt(sessionId: string, body: SubmitJustificationRequest): Promise<SystemLabAttemptResult> {
+  return request<SystemLabAttemptResult>(`/api/system-lab/sessions/${sessionId}/submit`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function sendSystemLabChat(sessionId: string, body: SystemLabChatRequest): Promise<SystemLabChatResponse> {
+  return request<SystemLabChatResponse>(`/api/system-lab/sessions/${sessionId}/chat`, {
     method: "POST",
     body: JSON.stringify(body),
   });
