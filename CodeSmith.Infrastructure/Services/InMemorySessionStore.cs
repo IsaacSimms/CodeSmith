@@ -30,4 +30,10 @@ public class InMemorySessionStore<TSession> : ISessionStore<TSession> where TSes
 internal sealed class InMemoryPromptLabSessionStore : InMemorySessionStore<PromptLabSession>, IPromptLabSessionStore { }
 
 // Concrete wrapper so ISystemLabSessionStore resolves from DI as a named singleton
-internal sealed class InMemorySystemLabSessionStore : InMemorySessionStore<SystemLabSession>, ISystemLabSessionStore { }
+internal sealed class InMemorySystemLabSessionStore : InMemorySessionStore<SystemLabSession>, ISystemLabSessionStore
+{
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
+
+    public SemaphoreSlim GetLock(string sessionId)
+        => _locks.GetOrAdd(sessionId, _ => new SemaphoreSlim(1, 1));
+}

@@ -23,6 +23,7 @@ public class SystemLabServiceTests
     public SystemLabServiceTests()
     {
         _factory.GetLlmService<ISystemLabLlmService>(Arg.Any<AiProvider>()).Returns(_llmService);
+        _sessionStore.GetLock(Arg.Any<string>()).Returns(new SemaphoreSlim(1, 1)); // Required for all submit/chat paths
         _service = new SystemLabService(_evaluator, _factory, _sessionStore, _logger);
     }
 
@@ -135,6 +136,22 @@ public class SystemLabServiceTests
         await _service.SubmitAttemptAsync(session.SessionId, "second attempt");
 
         Assert.Equal(2, session.Attempts.Count);
+    }
+
+    [Fact]
+    public async Task SubmitAttemptAsync_WhenEvaluatorThrowsParseException_SessionAttemptsNotMutated()
+    {
+        var scenarioId = _service.GetScenarios()[0].ScenarioId;
+        var session    = new SystemLabSession { ScenarioId = scenarioId };
+
+        _sessionStore.Get(session.SessionId.ToString()).Returns(session);
+        _evaluator.EvaluateAsync(Arg.Any<Scenario>(), Arg.Any<string>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<ScenarioAttempt>(new EvaluationParseException("Malformed evaluator response")));
+
+        await Assert.ThrowsAsync<AiServiceException>(
+            () => _service.SubmitAttemptAsync(session.SessionId, "my justification"));
+
+        Assert.Empty(session.Attempts);
     }
 
     // == ChatAsync Tests == //

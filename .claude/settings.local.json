@@ -48,7 +48,8 @@
       "Bash(Sort-Object FullName)",
       "Bash(grep -v \"\\\\\\\\\\\\\\\\obj\\\\\\\\\\\\\\\\\")",
       "Bash(Get-ChildItem -Path \"c:\\\\CodeSmith\\\\CodeSmith\" -Directory)",
-      "Bash(Select-Object Name)"
+      "Bash(Select-Object Name)",
+      "Bash(Get-ChildItem -Path \"c:\\\\CodeSmith\\\\CodeSmith\" -Recurse -Name)"
     ]
   }
 }

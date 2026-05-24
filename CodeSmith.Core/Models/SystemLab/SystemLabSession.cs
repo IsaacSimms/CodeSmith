@@ -10,6 +10,6 @@ public class SystemLabSession
     public string ScenarioId { get; set; } = string.Empty;
     public AiProvider Provider { get; set; } = AiProvider.Anthropic;
     public List<ScenarioAttempt> Attempts { get; set; } = [];
-    public List<ChatMessage> ChatHistory { get; set; } = [];    // Session-scoped guidance chat; capped at 20 turns before trimming
+    public List<ChatMessage> ChatHistory { get; set; } = [];
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

@@ -1,277 +1,285 @@
 # CodeSmith
 
-An AI-powered coding practice tool with two distinct modes: a coding interview simulator and a prompt engineering lab. Both are powered by the Anthropic Claude API.
+An AI-powered learning platform for software engineers. Three distinct practice modes let you sharpen coding skills, prompt engineering fundamentals, and infrastructure architecture reasoning — all guided by an AI pair programmer powered by Anthropic Claude.
+
+---
+
+## Why It Exists
+
+Practicing for technical interviews and building deeper software intuition requires realistic feedback loops — not multiple-choice quizzes or static tutorials. CodeSmith creates a closed feedback loop for three skill domains:
+
+- **Coding** — Work a real problem in a real editor; the AI sees your code and guides you without giving away the answer.
+- **Prompt Engineering** — Write system prompt additions to defeat a hidden adversarial instruction; get scored on rubric criteria.
+- **Infrastructure Architecture** — Read a cloud scenario, write a justified design recommendation; get evaluated on architectural tradeoffs and rubric dimensions.
+
+---
 
 ## Features
 
 ### Coding Interview Practice
 
-Users pick a programming language and difficulty, receive a tailored coding problem with starter code in a split-screen editor, and get guided assistance from an AI pair programmer. The AI always has access to the current contents of the code editor so it can reference and reason about the user's actual code. A "Test Code" button runs the submission against Piston (see below) and the AI can interpret the run output in context.
+Pick a language and difficulty, receive a generated coding problem with starter code in a split-screen Monaco editor, and chat with an AI pair programmer. The AI always has the current editor contents in context. A **Test Code** button submits the code to a sandboxed Piston executor and the AI can interpret the run output.
+
+Supported languages: `CSharp`, `Cpp`, `Go`, `Rust`, `Python`, `Java`, `TypeScript`  
+Difficulty levels: `Easy`, `Medium`, `Hard`
 
 ### Prompt Lab
 
-A practice mode focused on prompt engineering. Each challenge presents a locked base system prompt and a hidden adversarial instruction that biases the model toward bad behavior — the user's goal is to write prompt additions robust enough to override that bias across a battery of test inputs.
+A prompt engineering practice mode. Each challenge presents a locked base system prompt and a hidden adversarial instruction that biases the model toward bad outputs. The goal is to write prompt additions robust enough to override the bias across a battery of test inputs.
 
-The workflow: browse challenges by category and difficulty → write additions in the Monaco prompt editors → submit → review pass/fail results per test input with per-criterion rubric scores and AI evaluator feedback → iterate.
+Workflow: browse challenges by category → write additions in the Monaco prompt editors → submit → review per-test pass/fail results with per-criterion rubric scores and AI evaluator feedback → iterate.
 
-Challenge categories cover: Output Format Control, Specificity of Scope, Negative Instructions, Conditional Behavior, Quantity/Enumeration, and Tone & Register. Difficulties map to `Easy`, `Medium`, and `Hard`.
+Challenge categories: Output Format Control, Specificity of Scope, Negative Instructions, Conditional Behavior, Quantity/Enumeration, Tone & Register.
 
-**How scoring works:** Each submission triggers two parallel AI phases. Phase 1 runs the assembled prompt (locked base + user additions + hidden adversarial suffix) against every test input using Claude Haiku. Phase 2 sends each output to Claude Sonnet acting as an expert evaluator, which scores it against the rubric criteria and returns structured feedback.
+**Scoring:** Each submission triggers two parallel AI phases. Phase 1 runs the assembled prompt (`locked base + hidden adversarial suffix + user additions`) against every test input using Claude Haiku. Phase 2 sends each output to Claude Sonnet acting as an expert evaluator, which scores against the rubric and returns structured feedback.
 
-## Prerequisites
+### System Lab
+
+An infrastructure architecture practice mode. Each scenario describes a real-world cloud problem — constraints, requirements, and a set of required tradeoffs to reason through. The user writes a free-prose justification defending their design choices, then submits for AI evaluation.
+
+Workflow: browse scenarios by category → start a session → write a justification document → submit → receive a rubric score, per-criterion breakdown, cross-cutting dimension deductions, and tradeoff analysis → iterate with guidance chat.
+
+Scenario categories: Identity & Governance, Compute, Storage, Networking & Connectivity, Resilience & Continuity, Monitoring & Observability, Automation & IaC.
+
+**Scoring:** Claude Sonnet evaluates the justification against the rubric criteria and a set of cross-cutting architectural dimensions (never exposed to the user). The total score is `rubric score − dimension deductions`. A guidance chat endpoint lets the user ask questions without getting the answer handed to them.
+
+---
+
+## Architecture
+
+### Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Backend | .NET 8, ASP.NET Core Web API |
+| AI | Anthropic Claude API |
+| Frontend | React 19, TypeScript, Vite 6 |
+| Styling | Tailwind CSS v4 |
+| Data Fetching | TanStack Query v5 |
+| Routing | React Router v6 |
+| Code Sandbox | Piston (Docker), LocalProcess (dev fallback) |
+| E2E Tests | Playwright |
+| Backend Tests | xUnit, NSubstitute |
+| Frontend Tests | Vitest, React Testing Library |
+
+### Solution Structure
+
+| Project | Role |
+|---------|------|
+| `CodeSmith.Core` | Domain models, enums, interfaces, exceptions — zero external dependencies |
+| `CodeSmith.Infrastructure` | Service implementations, Anthropic integration, Piston executor, in-memory stores, DI config |
+| `CodeSmith.Api` | ASP.NET Core Web API — controllers, DTOs, middleware, rate limiting, CORS |
+| `CodeSmith.CLI` | Interactive console client for local testing |
+| `CodeSmith.Web` | React 19 frontend — feature-based folder structure, Monaco editors, TanStack Query mutations |
+| `CodeSmith.Tests` | xUnit + NSubstitute test suite mirroring the source project structure |
+
+### Key Seams
+
+| Seam | Interface | Adapters |
+|------|-----------|---------|
+| LLM provider | `ILlmService` | `AnthropicLlmService`, `OpenAiLlmService` |
+| LLM selection | `ILlmServiceFactory` | Resolves at call time by session's `AiProvider` |
+| Tutoring logic | `ITutoringService` | `TutoringService` |
+| Session persistence | `ISessionStore<T>` | `InMemorySessionStore`, `InMemoryPromptLabSessionStore`, `InMemorySystemLabSessionStore` |
+| Code execution | `ICodeExecutionService` | `PistonCodeExecutionService`, `LocalProcessCodeExecutionService` |
+
+Code execution backend is config-driven — set `CodeExecution:Backend` in `appsettings.json` to `Piston` or `LocalProcess`.
+
+### LLM Model Selection
+
+| Operation | Model | Why |
+|-----------|-------|-----|
+| Problem generation | Sonnet | Once per session; quality matters |
+| Chat guidance | Haiku | Per-message; latency and cost |
+| Prompt Lab simulation | Haiku | Parallel per test input; fast |
+| Prompt Lab evaluation | Sonnet | Rubric scoring; accuracy matters |
+| System Lab evaluation | Sonnet | Architectural judgment; accuracy matters |
+| System Lab guidance chat | Haiku | Conversational; latency matters |
+
+### API Endpoints
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/api/providers` | Active and available AI providers |
+| `POST` | `/api/session` | Create a coding interview session |
+| `POST` | `/api/session/{id}/chat` | Chat within a coding session |
+| `POST` | `/api/session/{id}/run` | Execute code in the Piston sandbox |
+| `GET` | `/api/prompt-lab/challenges` | List all Prompt Lab challenges |
+| `GET` | `/api/prompt-lab/challenges/{id}` | Get a single challenge |
+| `POST` | `/api/prompt-lab/sessions` | Start a Prompt Lab challenge session |
+| `POST` | `/api/prompt-lab/sessions/{id}/submit` | Submit a prompt attempt for scoring |
+| `GET` | `/api/system-lab/scenarios` | List all System Lab scenarios |
+| `GET` | `/api/system-lab/scenarios/{id}` | Get a single scenario |
+| `POST` | `/api/system-lab/sessions` | Start a System Lab scenario session |
+| `POST` | `/api/system-lab/sessions/{id}/submit` | Submit a justification for scoring |
+| `POST` | `/api/system-lab/sessions/{id}/chat` | Guidance chat within a System Lab session |
+
+### Middleware Pipeline
+
+Requests pass through in this order: `ExceptionHandlingMiddleware` → `RequestLoggingMiddleware` → HTTPS Redirection → Rate Limiting → CORS → Controllers.
+
+Rate limiting: fixed-window, 60 req/min per IP, no queue — excess requests receive `429` immediately.
+
+### Security
+
+- API keys are never committed. `appsettings.Development.json` is gitignored.
+- Error responses never include stack traces.
+- Request logging never captures request or response bodies.
+- User code runs inside Piston — isolated Linux container, no network access, chroot filesystem, cgroup CPU/memory/time limits. The API host process is never exposed to submitted code.
+- `CodeExecution:Backend=LocalProcess` must never be used in any deployed environment.
+
+---
+
+## Development How-To
+
+### Prerequisites
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- [Node.js 20+](https://nodejs.org/) (for the React frontend)
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (for the Piston code execution sandbox; WSL2 is auto-configured on Windows)
+- [Node.js 20+](https://nodejs.org/)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (WSL2 is auto-configured on Windows)
 - An [Anthropic API key](https://console.anthropic.com/)
 
-## Solution Structure
+---
 
-| Project | Description |
-|---------|-------------|
-| `CodeSmith.Core` | Shared models, enums, interfaces, and custom exceptions |
-| `CodeSmith.Infrastructure` | Anthropic SDK integration, in-memory session storage, and Prompt Lab service |
-| `CodeSmith.Api` | ASP.NET Core Web API with rate limiting, CORS, and middleware |
-| `CodeSmith.CLI` | Interactive console client for the API |
-| `CodeSmith.Web` | React 19 frontend (Vite, TypeScript, Tailwind CSS v4, TanStack Query v5) |
-| `CodeSmith.Tests` | xUnit + NSubstitute backend test suite |
+### One-Time Setup
 
-The "Test Code" feature does not run user code on the host. Submissions are forwarded to [Piston](https://github.com/engineer-man/piston), a self-hosted sandbox that executes each run inside an isolated Linux container with no network access, a chroot filesystem, and cgroup CPU/memory/time limits. Piston itself runs as a Docker container on `localhost:2000`, defined in [`docker-compose.yml`](./docker-compose.yml) so every dev machine uses the same configuration and the same manifest carries into production.
+**1. Build the solution**
 
-## Setup (one-time)
-
-Do these steps once after cloning. Once complete, everything persists — `Running Locally` below is what you touch day-to-day.
-
-### 1. Clone and build
-
-```bash
-git clone <repo-url>
-cd CodeSmith
+```powershell
 dotnet build CodeSmith.slnx
 ```
 
-### 2. Configure the Anthropic API key
+**2. Configure the Anthropic API key**
 
 Create `CodeSmith.Api/appsettings.Development.json` (gitignored):
 
 ```json
 {
-  "Logging": {
-    "LogLevel": {
-      "Default": "Information",
-      "Microsoft.AspNetCore": "Warning"
-    }
-  },
-  "Anthropic": {
-    "ApiKey": "sk-ant-your-key-here"
-  }
+  "Logging": { "LogLevel": { "Default": "Information", "Microsoft.AspNetCore": "Warning" } },
+  "Anthropic": { "ApiKey": "sk-ant-your-key-here" }
 }
 ```
 
-Alternatively, export it as an environment variable:
+Or set it as an environment variable:
 
-```bash
-export Anthropic__ApiKey="sk-ant-your-key-here"
+```powershell
+$env:Anthropic__ApiKey = "sk-ant-your-key-here"
 ```
 
-### 3. Start the Piston sandbox and install language packages
+**3. Start Piston and install language runtimes**
 
-Start the container (reads `docker-compose.yml` automatically):
+Start the container:
 
-```bash
+```powershell
 docker compose up -d piston
 ```
 
-Install the 7 language packages CodeSmith supports via Piston's HTTP API. This is a one-time step — the packages persist in the `piston-data` named volume across container restarts. Expect this to take a few minutes total (Rust and Java are the slowest).
-
-**PowerShell (Windows):**
+Install the 7 language packages (one-time — persisted in the `piston-data` Docker volume). Rust and Java are the slowest; expect a few minutes total:
 
 ```powershell
 $available = Invoke-RestMethod http://localhost:2000/api/v2/packages
-$wanted = 'python','typescript','go','rust','java','c++','mono'
-
-foreach ($lang in $wanted) {
-  $pkg = $available | Where-Object { $_.language -eq $lang } | Select-Object -First 1
-  if ($null -eq $pkg) { Write-Warning "No package for $lang"; continue }
-  Write-Host "Installing $($pkg.language) $($pkg.language_version)..."
-  Invoke-RestMethod -Method Post -Uri http://localhost:2000/api/v2/packages `
-    -ContentType 'application/json' `
-    -Body (@{ language = $pkg.language; version = $pkg.language_version } | ConvertTo-Json)
+foreach ($lang in @('python','typescript','go','rust','java','c++','mono')) {
+    $pkg = $available | Where-Object { $_.language -eq $lang } | Select-Object -First 1
+    if (-not $pkg) { Write-Warning "No package for $lang"; continue }
+    Write-Host "Installing $($pkg.language) $($pkg.language_version)..."
+    Invoke-RestMethod -Method Post -Uri http://localhost:2000/api/v2/packages `
+        -ContentType 'application/json' `
+        -Body (@{ language = $pkg.language; version = $pkg.language_version } | ConvertTo-Json)
 }
 ```
 
-**bash / macOS / Linux:**
+Verify all 7 runtimes are present:
 
-```bash
-for lang in python typescript go rust java c++ mono; do
-  version=$(curl -s http://localhost:2000/api/v2/packages | jq -r ".[] | select(.language==\"$lang\") | .language_version" | head -n1)
-  [ -z "$version" ] && { echo "No package for $lang"; continue; }
-  echo "Installing $lang $version..."
-  curl -s -X POST http://localhost:2000/api/v2/packages \
-    -H "Content-Type: application/json" \
-    -d "{\"language\":\"$lang\",\"version\":\"$version\"}"
-  echo
-done
+```powershell
+Invoke-RestMethod http://localhost:2000/api/v2/runtimes | Select-Object language, version
 ```
 
-Verify all 7 runtimes show up:
+> Piston's `ppman` CLI only exists when running from a cloned repo — not in the `ghcr.io/engineer-man/piston` image. Use the HTTP API above to manage packages.
 
-```bash
-curl http://localhost:2000/api/v2/runtimes
-```
+---
 
-> **Note:** Piston's `ppman` CLI (`/piston/cli/index.js` inside the container) is **not** shipped in the `ghcr.io/engineer-man/piston` image — it only exists when running Piston from a cloned repo. The HTTP API above is the supported way to manage packages against the image.
+### Day-to-Day: Running Locally
 
-## Running Locally (day-to-day)
+Three things need to be up: **Piston**, **the API**, and **the Web frontend**.
 
-Running or testing the app locally means having three things up at once: **Piston**, **the API**, and **the Web frontend**. Piston stays up across reboots on its own; the API and frontend are what you start each session.
+**Piston** (`restart: unless-stopped` in compose + Docker Desktop on login = usually already running):
 
-### 1. Confirm Piston is running
-
-With `restart: unless-stopped` in the compose file and Docker Desktop set to start on login, Piston is usually already up. If not:
-
-```bash
+```powershell
 docker compose up -d piston
 ```
 
-This is a no-op if it's already running.
+**API — Terminal 1:**
 
-### 2. Start the API (Terminal 1)
-
-The CLI and frontend both expect the API on HTTPS at `https://localhost:7111`. Launch with the `https` profile:
-
-```bash
+```powershell
 dotnet run --project CodeSmith.Api --launch-profile https
 ```
 
-The API serves:
-- HTTPS: `https://localhost:7111`
-- HTTP: `http://localhost:5175`
-- Swagger UI (Development only): `https://localhost:7111/swagger`
+Serves at `https://localhost:7111` (HTTPS) and `http://localhost:5175` (HTTP).  
+Swagger UI available at `https://localhost:7111/swagger` in Development.
 
-### 3. Start the Web frontend (Terminal 2)
+**Web frontend — Terminal 2:**
 
-```bash
-cd CodeSmith.Web
-npm install
-npm run dev
+```powershell
+cd CodeSmith.Web ; npm run dev
 ```
 
-The frontend runs at `https://localhost:5173` and proxies `/api/*` to the backend. Accept the self-signed cert warning on first visit.
+Frontend runs at `https://localhost:5173`. Proxies `/api/*` to the backend. Accept the self-signed cert warning on first visit.
 
-Open `https://localhost:5173`, pick a language and difficulty, and you're in.
+**CLI (optional):**
 
-### Optional: Run the CLI
-
-In a separate terminal, while the API is running:
-
-```bash
+```powershell
 dotnet run --project CodeSmith.CLI
 ```
 
-Follow the prompts; `exit` or `Ctrl+C` to quit.
+---
 
-### Running tests
+### Tests
 
 | Scope | Command |
 |-------|---------|
 | All backend tests | `dotnet test CodeSmith.slnx` |
 | Backend verbose | `dotnet test CodeSmith.slnx --verbosity normal` |
-| Frontend unit tests | `cd CodeSmith.Web && npm test` |
-| Frontend watch mode | `cd CodeSmith.Web && npm run test:watch` |
-| Playwright E2E | `cd CodeSmith.Web && npx playwright test` |
+| Frontend unit tests | `cd CodeSmith.Web ; npm test` |
+| Frontend watch mode | `cd CodeSmith.Web ; npm run test:watch` |
+| Playwright E2E | `cd CodeSmith.Web ; npx playwright test` |
 
-Playwright E2E tests require both the API and frontend to be running.
+Playwright requires both the API and frontend running.
 
-### Piston management commands
+---
+
+### Piston Management
 
 | Command | Purpose |
 |---------|---------|
-| `docker compose up -d piston` | Start Piston (no-op if already running) |
-| `docker compose stop piston` | Stop Piston (persisted state kept) |
-| `docker compose down` | Stop and remove the container (volume is preserved) |
-| `docker compose down -v` | Full reset — also deletes installed language packages |
-| `docker compose logs -f piston` | Tail Piston logs |
-| `curl http://localhost:2000/api/v2/runtimes` | List installed languages |
+| `docker compose up -d piston` | Start (no-op if already running) |
+| `docker compose stop piston` | Stop, preserve state |
+| `docker compose down` | Stop and remove container (volume kept) |
+| `docker compose down -v` | Full reset — deletes installed language packages |
+| `docker compose logs -f piston` | Tail logs |
+| `Invoke-RestMethod http://localhost:2000/api/v2/runtimes` | List installed runtimes |
 
-### Fallback: in-process execution (dev only, unsafe)
+---
 
-To bypass Piston during development (e.g. before Docker is set up), set:
+### Dev Fallback: Skip Piston
+
+To run without Docker (e.g. before initial setup), add to `CodeSmith.Api/appsettings.Development.json`:
 
 ```json
-"CodeExecution": {
-  "Backend": "LocalProcess"
-}
+"CodeExecution": { "Backend": "LocalProcess" }
 ```
 
-in `CodeSmith.Api/appsettings.Development.json`. This runs submitted code as subprocesses on the host with the API's permissions. It requires the host to have `python`, `npx`/`tsx`, `g++`, `rustc`, `javac`/`java`, `go`, and `dotnet-script` available on PATH, and should never be used in any deployed environment.
+This executes submitted code as host subprocesses. Requires `python`, `npx`/`tsx`, `g++`, `rustc`, `javac`/`java`, `go`, and `dotnet-script` on PATH. **Never use in a deployed environment.**
 
-## Before Production Deployment
+---
 
-Today the compose file only defines Piston — the API still runs via `dotnet run` on the host. Before deploying publicly, the API itself needs to be containerized so the whole stack ships as one unit. At that time you'll need to:
+### Before Production Deployment
 
-1. **Write `CodeSmith.Api/Dockerfile`** — a standard multi-stage .NET 8 build (SDK image for `dotnet publish`, runtime image for the final layer).
-2. **Add an `api` service to `docker-compose.yml`** that builds from the Dockerfile, depends on the `piston` service, and talks to it over the internal Docker network (set `CodeExecution:Piston:BaseUrl=http://piston:2000` — Docker DNS resolves the service name).
-3. **Add a `docker-compose.prod.yml` overlay** with production-only concerns: the Anthropic API key sourced from a secret manager (not `appsettings.Development.json`), no source bind-mounts, tighter restart policies, and log drivers. Deploy with `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`.
-4. **Stop exposing Piston's port publicly** — remove the `ports: ["2000:2000"]` mapping for Piston in the prod overlay so only the API (on the internal network) can reach it. The public-facing surface is the API alone.
-5. **Add per-user rate limiting.** The current global 60 req/min limit helps but isn't enough to stop a single abusive user from burning compute on Test Code runs.
-6. **Pick a host** (Fly.io, Railway, a VPS running Docker, AWS ECS, etc.) and point it at the compose file. Most managed platforms consume `docker-compose.yml` directly or want a trivially equivalent manifest.
+The compose file currently only defines Piston. Before deploying publicly:
 
-None of the above requires code changes — it's packaging and configuration work. The `ICodeExecutionService` seam, the Piston language map, and the API itself are already shaped correctly for it.
+1. Write `CodeSmith.Api/Dockerfile` — multi-stage .NET 8 build (SDK image → runtime image).
+2. Add an `api` service to `docker-compose.yml` that depends on `piston` and communicates over the internal Docker network (`CodeExecution:Piston:BaseUrl=http://piston:2000`).
+3. Add a `docker-compose.prod.yml` overlay — API key from a secret manager, no source bind-mounts, tighter restart policies. Deploy with `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`.
+4. Remove `ports: ["2000:2000"]` from Piston in the prod overlay — only the API should reach it; Piston is not a public surface.
+5. Add per-user rate limiting. The current 60 req/min global limit is not sufficient to prevent a single user from burning compute on Test Code runs.
 
-## API Endpoints
-
-| Method | Route | Description |
-|--------|-------|-------------|
-| `POST` | `/api/session` | Create a new problem session |
-| `POST` | `/api/session/{sessionId}/chat` | Send a chat message in a session |
-| `POST` | `/api/session/{sessionId}/run` | Execute the session's code in the Piston sandbox |
-
-### Create a session
-
-```bash
-curl -X POST https://localhost:7111/api/session \
-  -H "Content-Type: application/json" \
-  -d '{"difficulty": "Easy", "language": "CSharp"}'
-```
-
-Difficulty values: `Easy`, `Medium`, `Hard`.
-
-Language values: `CSharp`, `Cpp`, `Go`, `Rust`, `Python`, `Java`, `TypeScript`.
-
-### Chat within a session
-
-```bash
-curl -X POST https://localhost:7111/api/session/{sessionId}/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Can you give me a hint?", "editorContent": "public int Add(int a, int b) { return 0; }"}'
-```
-
-`editorContent` is optional. When provided, the AI uses it as context to reference the student's current code in the editor. When omitted, the AI only sees the original starter code.
-
-## Key Commands Reference
-
-| Command | Purpose |
-|---------|---------|
-| `dotnet build CodeSmith.slnx` | Build the entire solution |
-| `dotnet run --project CodeSmith.Api --launch-profile https` | Start the API server (HTTPS) |
-| `dotnet run --project CodeSmith.CLI` | Start the CLI client |
-| `cd CodeSmith.Web && npm run dev` | Start the Vite frontend dev server |
-| `dotnet test CodeSmith.slnx` | Run all backend tests |
-| `dotnet test --filter "FullyQualifiedName~Core"` | Run only Core tests |
-| `cd CodeSmith.Web && npm test` | Run frontend unit tests (Vitest) |
-| `dotnet clean CodeSmith.slnx` | Clean all build outputs |
-| `dotnet restore CodeSmith.slnx` | Restore NuGet packages |
-| `docker compose up -d piston` | Start the Piston sandbox container |
-| `curl http://localhost:2000/api/v2/runtimes` | Verify Piston is running and list installed languages |
-
-## Rate Limiting
-
-The API enforces a fixed window rate limit of **60 requests per minute per IP**. Exceeding this returns HTTP `429 Too Many Requests`.
-
-## Security Notes
-
-- Never commit API keys. `appsettings.Development.json` and `appsettings.*.json` are gitignored.
-- The API does not expose stack traces in error responses.
-- Request logging does not capture request or response bodies.
-- User-submitted code runs inside a Piston container with no network access, a chroot filesystem, and cgroup CPU/memory/time limits. The API host process is not exposed to submitted code. Do not deploy with `CodeExecution:Backend=LocalProcess`.
+No code changes required — the `ICodeExecutionService` seam and API are already shaped correctly for containerization.

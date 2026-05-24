@@ -2,6 +2,7 @@
 using System.Text;
 using System.Text.Json;
 using CodeSmith.Core.Enums;
+using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models.PromptLab;
 using CodeSmith.Core.Models.SystemLab;
@@ -168,11 +169,7 @@ public sealed class SystemLabEvaluator : ISystemLabEvaluator
         catch (JsonException ex)
         {
             _logger.LogError(ex, "Failed to parse evaluator response JSON");
-            return new ScenarioAttempt
-            {
-                JustificationContent = justification,
-                OverallFeedback      = "Could not parse evaluation response. Please try again."
-            };
+            throw new EvaluationParseException("Evaluator returned malformed JSON", ex);
         }
     }
 
@@ -183,16 +180,21 @@ public sealed class SystemLabEvaluator : ISystemLabEvaluator
 
         foreach (var el in scoresEl.EnumerateArray())
         {
-            var criterionId = el.GetProperty("criterionId").GetString() ?? "";
-            var points      = el.GetProperty("points").GetInt32();
+            if (!el.TryGetProperty("criterionId", out var cidEl)) continue;
+            var criterionId = cidEl.GetString() ?? "";
             var criterion   = scenario.Rubric.FirstOrDefault(r => r.CriterionId == criterionId);
+            if (criterion is null) continue; // Skip hallucinated criterion IDs — prevents phantom points inflating rubric above max
+
+            var points = el.TryGetProperty("points", out var ptsEl)
+                ? (int)Math.Round(ptsEl.GetDouble())
+                : 0;
 
             scores.Add(new CriterionScore
             {
                 CriterionId   = criterionId,
-                CriterionName = criterion?.Name ?? criterionId,
-                Points        = Math.Clamp(points, 0, criterion?.MaxPoints ?? points),
-                MaxPoints     = criterion?.MaxPoints ?? 0
+                CriterionName = criterion.Name,
+                Points        = Math.Clamp(points, 0, criterion.MaxPoints),
+                MaxPoints     = criterion.MaxPoints
             });
         }
         return scores;
@@ -230,7 +232,9 @@ public sealed class SystemLabEvaluator : ISystemLabEvaluator
         foreach (var el in deductionsEl.EnumerateArray())
         {
             var name      = el.TryGetProperty("dimensionName", out var n) ? n.GetString() ?? "" : "";
-            var deduction = el.TryGetProperty("deduction",     out var d) ? d.GetInt32() : 0;
+            var deduction = el.TryGetProperty("deduction", out var d)
+                ? (int)Math.Round(d.GetDouble())
+                : 0;
             var feedback  = el.TryGetProperty("feedback",      out var f) && f.ValueKind != JsonValueKind.Null
                 ? f.GetString()
                 : null;

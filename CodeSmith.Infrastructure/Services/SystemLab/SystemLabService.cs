@@ -20,8 +20,7 @@ public class SystemLabService : ISystemLabService
     private readonly ISystemLabSessionStore  _sessionStore;
     private readonly ILogger<SystemLabService> _logger;
 
-    private const int ChatMaxTokens     = 800;
-    private const int ChatHistoryWindow = 20; // Max turns retained in session history before trimming oldest
+    private const int ChatMaxTokens = 800;
 
     public SystemLabService(
         ISystemLabEvaluator evaluator,
@@ -67,6 +66,8 @@ public class SystemLabService : ISystemLabService
 
         _logger.LogInformation("Evaluating attempt for session {SessionId}, scenario {ScenarioId}", sessionId, scenario.ScenarioId);
 
+        var semaphore = _sessionStore.GetLock(sessionId.ToString());
+        await semaphore.WaitAsync(ct);
         try
         {
             var attempt = await _evaluator.EvaluateAsync(scenario, justificationContent, session.Provider, ct);
@@ -82,6 +83,10 @@ public class SystemLabService : ISystemLabService
             _logger.LogError(ex, "Failed to evaluate attempt for session {SessionId}", sessionId);
             throw new AiServiceException("Failed to evaluate justification. Please try again.", ex);
         }
+        finally
+        {
+            semaphore.Release();
+        }
     }
 
     // == ChatAsync == //
@@ -91,15 +96,15 @@ public class SystemLabService : ISystemLabService
         var session  = _sessionStore.Get(sessionId.ToString()) ?? throw new SessionNotFoundException(sessionId);
         var scenario = GetScenario(session.ScenarioId);
 
-        // Append user turn before calling LLM so history is current
-        session.ChatHistory.Add(new ChatMessage { Role = MessageRole.User, Content = message });
-        TrimHistoryIfNeeded(session);
-
-        var systemPrompt = BuildChatSystemPrompt(scenario, currentJustification);
-
+        var semaphore = _sessionStore.GetLock(sessionId.ToString());
+        await semaphore.WaitAsync(ct);
         try
         {
-            var response = await _factory.GetLlmService<ISystemLabLlmService>(session.Provider).GetGuidanceAsync(systemPrompt, session.ChatHistory, ChatMaxTokens, ct);
+            // Append user turn before calling LLM so history is current
+            session.ChatHistory.Add(new ChatMessage { Role = MessageRole.User, Content = message });
+
+            var systemPrompt = BuildChatSystemPrompt(scenario, currentJustification);
+            var response     = await _factory.GetLlmService<ISystemLabLlmService>(session.Provider).GetGuidanceAsync(systemPrompt, session.ChatHistory, ChatMaxTokens, ct);
 
             session.ChatHistory.Add(new ChatMessage { Role = MessageRole.Assistant, Content = response.Content });
             _sessionStore.Set(session);
@@ -109,9 +114,15 @@ public class SystemLabService : ISystemLabService
         catch (Exception ex) when (ex is not AiServiceException and not SessionNotFoundException and not ScenarioNotFoundException)
         {
             // Remove the user turn we added so history stays consistent on failure
-            session.ChatHistory.RemoveAt(session.ChatHistory.Count - 1);
+            if (session.ChatHistory.Count > 0 && session.ChatHistory[^1].Role == MessageRole.User)
+                session.ChatHistory.RemoveAt(session.ChatHistory.Count - 1);
+
             _logger.LogError(ex, "Failed to get guidance for session {SessionId}", sessionId);
             throw new AiServiceException("Failed to get guidance. Please try again.", ex);
+        }
+        finally
+        {
+            semaphore.Release();
         }
     }
 
@@ -154,12 +165,4 @@ public class SystemLabService : ISystemLabService
         return sb.ToString();
     }
 
-    // == Helpers == //
-
-    // Trims oldest pairs from chat history when it exceeds the window to prevent unbounded context growth
-    private static void TrimHistoryIfNeeded(SystemLabSession session)
-    {
-        while (session.ChatHistory.Count > ChatHistoryWindow)
-            session.ChatHistory.RemoveAt(0);
-    }
 }
