@@ -58,7 +58,7 @@ export function PromptLabRightPanel({
         {/* == Drag Divider == */}
         <div
           {...dividerProps}
-          className="h-1.5 shrink-0 cursor-row-resize bg-gray-700 transition-colors hover:bg-monokai-pink active:bg-monokai-pink"
+          className="h-1.5 shrink-0 cursor-row-resize bg-gray-700 transition-colors hover:bg-accent active:bg-accent"
         />
 
         {/* == Guidance Chat (bottom) == */}

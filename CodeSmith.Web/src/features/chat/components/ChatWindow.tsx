@@ -178,7 +178,7 @@ export function ChatWindow() {
           {...dividerProps}
           role="separator"
           aria-orientation="vertical"
-          className="w-1.5 shrink-0 cursor-col-resize bg-gray-700 transition-colors hover:bg-monokai-pink active:bg-monokai-pink"
+          className="w-1.5 shrink-0 cursor-col-resize bg-gray-700 transition-colors hover:bg-accent active:bg-accent"
         />
 
         {/* == Right Panel: Chat == */}

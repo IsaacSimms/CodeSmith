@@ -46,7 +46,7 @@ export function ScenarioSelector({ scenarios, isLoading, isStarting, onSelect }:
                   key={scenario.scenarioId}
                   onClick={() => onSelect(scenario.scenarioId)}
                   disabled={isStarting}
-                  className="w-full rounded border border-gray-700 bg-gray-900 px-4 py-3 text-left transition-colors hover:border-monokai-pink hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="w-full rounded border border-gray-700 bg-gray-900 px-4 py-3 text-left transition-colors hover:border-accent hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">

@@ -94,6 +94,21 @@ public class ProblemGeneratorTests
         factory.Received(1).GetLlmService<ITutoringLlmService>(AiProvider.OpenAi);
     }
 
+    [Fact]
+    public async Task GenerateAsync_RoutesLlmCallThroughCorrectProvider_Xai()
+    {
+        var (_, factory) = LlmReturning("raw");
+
+        var parser = Substitute.For<IProblemResponseParser>();
+        parser.Parse(Arg.Any<string>()).Returns(("Description.", "fn main() {}"));
+
+        var generator = BuildGenerator(templates: TemplatesReturning(languageLabel: "Rust"), factory: factory, parser: parser);
+
+        await generator.GenerateAsync(Difficulty.Medium, Language.Rust, AiProvider.Xai, CancellationToken.None);
+
+        factory.Received(1).GetLlmService<ITutoringLlmService>(AiProvider.Xai);
+    }
+
     // == Truncation-Retry Tests == //
 
     [Fact]

@@ -1,7 +1,7 @@
 // == Prompt Editors Component == //
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type { ChallengeResponse } from "../types";
-import { defineMonokaiTheme } from "../../shared/monacoTheme";
+import { defineVsCodeDarkTheme } from "../../shared/monacoTheme";
 
 const MAX_PROMPT_CHARS = 30_000;
 
@@ -24,7 +24,7 @@ export function PromptEditors({
 }: PromptEditorsProps) {
   // Enter submits; Shift+Enter inserts a newline (standard chat-editor pattern)
   const bindSubmitKey: OnMount = (editor, monaco) => {
-    monaco.editor.setTheme("monokai");
+    monaco.editor.setTheme("dark-modern");
     editor.addCommand(monaco.KeyCode.Enter, () => onSubmit());
     editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => {
       editor.trigger("keyboard", "type", { text: "\n" });
@@ -54,7 +54,7 @@ export function PromptEditors({
               theme="vs-dark"
               value={systemPromptContent}
               onChange={(v) => onSystemPromptChange(v ?? "")}
-              beforeMount={defineMonokaiTheme}
+              beforeMount={defineVsCodeDarkTheme}
               onMount={bindSubmitKey}
               options={{
                 fontSize:             14,
@@ -84,10 +84,10 @@ export function PromptEditors({
             <Editor
               height="100%"
               language="plaintext"
-              theme="monokai"
+              theme="dark-modern"
               value={userMessageContent}
               onChange={(v) => onUserMessageChange(v ?? "")}
-              beforeMount={defineMonokaiTheme}
+              beforeMount={defineVsCodeDarkTheme}
               onMount={bindSubmitKey}
               options={{
                 fontSize:             14,

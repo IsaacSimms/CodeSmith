@@ -25,6 +25,7 @@ public static class ServiceCollectionExtensions
         // Bind configuration
         services.Configure<AnthropicOptions>(configuration.GetSection(AnthropicOptions.SectionName));
         services.Configure<OpenAiOptions>(configuration.GetSection(OpenAiOptions.SectionName));
+        services.Configure<XaiOptions>(configuration.GetSection(XaiOptions.SectionName));
         services.Configure<AiOptions>(configuration.GetSection(AiOptions.SectionName));
         services.Configure<CodeExecutionOptions>(configuration.GetSection(CodeExecutionOptions.SectionName));
 
@@ -33,10 +34,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IPromptLabSessionStore, InMemoryPromptLabSessionStore>();
 
         // == LLM Provider Registration == //
-        // Both implementations are registered as singletons so they can be reused.
+        // All implementations are registered as singletons so they can be reused.
         // Keyed services enable the factory to route by AiProvider enum at call time.
         services.AddSingleton<AnthropicLlmService>();
         services.AddSingleton<OpenAiLlmService>();
+        services.AddSingleton<XaiLlmService>();
 
         // Register keyed tutoring services (both providers implement ITutoringLlmService)
         services.AddKeyedSingleton<ITutoringLlmService>(
@@ -61,6 +63,17 @@ public static class ServiceCollectionExtensions
         services.AddKeyedSingleton<ISystemLabLlmService>(
             AiProvider.OpenAi,
             (sp, _) => sp.GetRequiredService<OpenAiLlmService>());
+
+        // Xai provider
+        services.AddKeyedSingleton<ITutoringLlmService>(
+            AiProvider.Xai,
+            (sp, _) => sp.GetRequiredService<XaiLlmService>());
+        services.AddKeyedSingleton<IPromptLabLlmService>(
+            AiProvider.Xai,
+            (sp, _) => sp.GetRequiredService<XaiLlmService>());
+        services.AddKeyedSingleton<ISystemLabLlmService>(
+            AiProvider.Xai,
+            (sp, _) => sp.GetRequiredService<XaiLlmService>());
 
         services.AddScoped<ILlmServiceFactory, LlmServiceFactory>();
 

@@ -36,7 +36,7 @@ export function ResultsPanel({ result, isEvaluating, onClear }: ResultsPanelProp
       </div>
 
       {/* == Output Area == */}
-      <div className="flex-1 overflow-y-auto bg-[#272822] p-3 font-mono text-sm">
+      <div className="flex-1 overflow-y-auto bg-gray-900 p-3 font-mono text-sm">
         {isEvaluating && !result && (
           <span className="text-gray-500">Running your prompt against test inputs…</span>
         )}

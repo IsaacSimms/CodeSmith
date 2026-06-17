@@ -5,6 +5,7 @@ import type { Language, RunCodeResponse } from "../types";
 import { monacoLanguageIds } from "../types";
 import { useResizableVerticalSplit } from "../hooks/useResizableVerticalSplit";
 import { TerminalPanel } from "./TerminalPanel";
+import { defineVsCodeDarkTheme } from "../../shared/monacoTheme";
 
 interface CodePanelProps {
   code: string;
@@ -67,41 +68,12 @@ export function CodePanel({
           <Editor
             height="100%"
             language={monacoLanguageIds[language]}
-            theme="vs-dark"
+            theme="dark-modern"
             value={code}
             onChange={(value) => onCodeChange(value ?? "")}
-            beforeMount={(monaco) => {
-              monaco.editor.defineTheme("monokai", {
-                base: "vs-dark",
-                inherit: true,
-                rules: [
-                  { token: "comment",    foreground: "75715E", fontStyle: "italic" },
-                  { token: "keyword",    foreground: "F92672" },
-                  { token: "string",     foreground: "E6DB74" },
-                  { token: "number",     foreground: "AE81FF" },
-                  { token: "type",       foreground: "66D9EF", fontStyle: "italic" },
-                  { token: "class",      foreground: "A6E22E" },
-                  { token: "function",   foreground: "A6E22E" },
-                  { token: "variable",   foreground: "F8F8F2" },
-                  { token: "operator",   foreground: "F92672" },
-                  { token: "delimiter",  foreground: "F8F8F2" },
-                  { token: "identifier", foreground: "F8F8F2" },
-                ],
-                colors: {
-                  "editor.background":                "#272822",
-                  "editor.foreground":                "#F8F8F2",
-                  "editor.lineHighlightBackground":   "#3E3D32",
-                  "editor.selectionBackground":       "#49483E",
-                  "editorCursor.foreground":           "#F8F8F0",
-                  "editorWhitespace.foreground":       "#464741",
-                  "editorLineNumber.foreground":       "#90908A",
-                  "editorLineNumber.activeForeground": "#C2C2BF",
-                },
-              });
-              monaco.editor.setTheme("monokai");
-            }}
+            beforeMount={defineVsCodeDarkTheme}
             onMount={(_editor, monaco) => {
-              monaco.editor.setTheme("monokai");
+              monaco.editor.setTheme("dark-modern");
             }}
             options={{
               fontSize: 14,
@@ -119,7 +91,7 @@ export function CodePanel({
             {...dividerProps}
             role="separator"
             aria-orientation="horizontal"
-            className="h-1.5 shrink-0 cursor-row-resize bg-gray-700 transition-colors hover:bg-monokai-pink active:bg-monokai-pink"
+            className="h-1.5 shrink-0 cursor-row-resize bg-gray-700 transition-colors hover:bg-accent active:bg-accent"
           />
         )}
 

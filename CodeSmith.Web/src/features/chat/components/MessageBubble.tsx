@@ -30,7 +30,7 @@ const markdownComponents: Components = {
     // Inline code
     return (
       <code
-        className="rounded bg-gray-800 px-1 py-0.5 font-mono text-sm text-monokai-yellow"
+        className="rounded bg-gray-800 px-1 py-0.5 font-mono text-sm text-[#CE9178]"
         {...props}
       >
         {children}
@@ -50,7 +50,7 @@ export function MessageBubble({ role, content }: MessageBubbleProps) {
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
         className={`max-w-[85%] rounded-lg px-4 py-2 ${
-          isUser ? "bg-monokai-pink text-white" : "bg-gray-700 text-gray-100"
+          isUser ? "bg-accent text-white" : "bg-gray-700 text-gray-100"
         }`}
       >
         {isUser ? (

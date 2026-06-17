@@ -1,23 +1,22 @@
 @import "tailwindcss";
 
-/* == Monokai Theme Tokens == */
+/* == VS Code Dark Modern Theme Tokens == */
 @theme {
-  --color-monokai-pink: #F92672;
-  --color-monokai-pink-dark: #d11e5c;
-  --color-monokai-pink-light: #ff4d8e;
-  --color-monokai-cyan: #66D9EF;
+  /* Surfaces (from Dark Modern) */
+  --color-gray-950: #181818;  /* main panels, nav, sidebars */
+  --color-gray-900: #1F1F1F;  /* editor bg, cards, active tabs */
+  --color-gray-850: #202020;
+  --color-gray-800: #252526;
+  --color-gray-700: #2B2B2B;  /* borders, dividers */
+  --color-gray-600: #313131;  /* inputs, dropdowns */
+  --color-gray-500: #3C3C3C;
+  --color-gray-400: #6E7681;  /* line numbers, secondary text */
+  --color-gray-300: #8B949E;
+  --color-gray-200: #C9D1D9;
+  --color-gray-100: #CCCCCC;  /* primary text */
+  --color-gray-50: #F0F0F0;
 
-  /* == Monokai Gray Scale (warm greenish tint, replaces Tailwind's cool blue grays) == */
-  --color-gray-950: #141411;
-  --color-gray-900: #1e1f1a;
-  --color-gray-850: #1a1815;
-  --color-gray-800: #272822;
-  --color-gray-700: #3E3D32;
-  --color-gray-600: #49483E;
-  --color-gray-500: #75715E;
-  --color-gray-400: #908c75;
-  --color-gray-300: #c4c0a9;
-  --color-gray-200: #d8d5c4;
-  --color-gray-100: #F8F8F2;
-  --color-gray-50: #fdfdf5;
+  /* Accent: VS Code focus blue */
+  --color-accent: #0078D4;
+  --color-accent-hover: #026EC1;
 }

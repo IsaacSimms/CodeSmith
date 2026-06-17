@@ -4,5 +4,6 @@ namespace CodeSmith.Core.Enums;
 public enum AiProvider
 {
     Anthropic,
-    OpenAi
+    OpenAi,
+    Xai
 }

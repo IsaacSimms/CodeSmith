@@ -7,6 +7,7 @@ import type { AiProvider } from "../../chat/types";
 const providerLabels: Record<AiProvider, string> = {
   Anthropic: "Anthropic",
   OpenAi:    "OpenAI",
+  Xai:       "xAI",
 };
 
 export function HomePage() {
@@ -27,40 +28,40 @@ export function HomePage() {
           {/* == Paired Programmer CTA == */}
           <Link
             to="/pairedprogrammer"
-            className="flex flex-col rounded-xl border border-gray-700 bg-gray-900 px-8 py-6 text-left transition-colors hover:border-monokai-pink hover:bg-gray-800"
+            className="flex flex-col rounded-xl border border-gray-700 bg-gray-900 px-8 py-6 text-left transition-colors hover:border-accent hover:bg-gray-800"
           >
             <span className="mb-2 text-lg font-semibold text-white">Paired Programmer</span>
             <span className="text-sm text-gray-400">
               Tackle coding challenges with an AI tutor. Pick a language and difficulty,
               write code, and get real-time guidance.
             </span>
-            <span className="mt-4 text-sm font-medium text-monokai-pink">Start coding →</span>
+            <span className="mt-4 text-sm font-medium text-accent">Start coding →</span>
           </Link>
 
           {/* == Prompt Lab CTA == */}
           <Link
             to="/prompt-lab"
-            className="flex flex-col rounded-xl border border-gray-700 bg-gray-900 px-8 py-6 text-left transition-colors hover:border-monokai-pink hover:bg-gray-800"
+            className="flex flex-col rounded-xl border border-gray-700 bg-gray-900 px-8 py-6 text-left transition-colors hover:border-accent hover:bg-gray-800"
           >
             <span className="mb-2 text-lg font-semibold text-white">Prompt Lab</span>
             <span className="text-sm text-gray-400">
               Master prompt engineering. Craft system prompts and user messages that make
               AI models behave exactly as intended — across adversarial test suites.
             </span>
-            <span className="mt-4 text-sm font-medium text-monokai-pink">Start prompting →</span>
+            <span className="mt-4 text-sm font-medium text-accent">Start prompting →</span>
           </Link>
 
           {/* == System Lab CTA == */}
           <Link
             to="/system-lab"
-            className="flex flex-col rounded-xl border border-gray-700 bg-gray-900 px-8 py-6 text-left transition-colors hover:border-monokai-pink hover:bg-gray-800"
+            className="flex flex-col rounded-xl border border-gray-700 bg-gray-900 px-8 py-6 text-left transition-colors hover:border-accent hover:bg-gray-800"
           >
             <span className="mb-2 text-lg font-semibold text-white">System Lab</span>
             <span className="text-sm text-gray-400">
               Build infrastructure intuition. Justify design decisions across cloud, networking,
               and resilience scenarios — and get scored on your reasoning.
             </span>
-            <span className="mt-4 text-sm font-medium text-monokai-pink">Start designing →</span>
+            <span className="mt-4 text-sm font-medium text-accent">Start designing →</span>
           </Link>
         </div>
 
@@ -77,7 +78,7 @@ export function HomePage() {
                     onClick={() => setProvider(p)}
                     className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${
                       isSelected
-                        ? "border-monokai-pink bg-monokai-pink/20 text-white"
+                        ? "border-accent bg-accent/20 text-white"
                         : "border-gray-600 bg-gray-900 text-gray-300 hover:border-gray-500 hover:bg-gray-800"
                     }`}
                   >

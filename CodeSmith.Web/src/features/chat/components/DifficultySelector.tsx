@@ -42,7 +42,7 @@ export function DifficultySelector({ onSelect, isLoading, initialLanguage }: Dif
               disabled={isLoading}
               className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 ${
                 isSelected
-                  ? "border-monokai-pink bg-monokai-pink text-white"
+                  ? "border-accent bg-accent text-white"
                   : "border-gray-600 bg-gray-900 text-gray-300 hover:border-gray-500 hover:bg-gray-800"
               }`}
             >

@@ -113,14 +113,19 @@ export function SystemLabWindow() {
   // == No session: show scenario selector == //
   if (!session || !scenario) {
     return (
-      <div className="flex h-full justify-center overflow-hidden px-4 py-6">
-        <div className="w-full max-w-2xl overflow-hidden">
+      <div className="flex h-full justify-center overflow-y-auto px-4 py-6">
+        <div className="w-full max-w-2xl">
           <ScenarioSelector
             scenarios={getScenarios.data ?? []}
             isLoading={getScenarios.isLoading}
             isStarting={startSession.isPending}
             onSelect={handleSelectScenario}
           />
+          {getScenarios.isError && (
+            <p className="mt-4 text-center text-sm text-red-400">
+              Failed to load scenarios: {getScenarios.error.message}
+            </p>
+          )}
           {startSession.isError && (
             <p className="mt-4 text-center text-sm text-red-400">{startSession.error.message}</p>
           )}
@@ -152,7 +157,7 @@ export function SystemLabWindow() {
           <button
             onClick={handleSubmit}
             disabled={submitAttempt.isPending || !justification.trim()}
-            className="rounded bg-monokai-pink px-4 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-monokai-pink-dark disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded bg-accent px-4 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
             {submitAttempt.isPending ? "Evaluating…" : "Submit"}
           </button>
@@ -179,7 +184,7 @@ export function SystemLabWindow() {
               {...vertDividerProps}
               role="separator"
               aria-orientation="horizontal"
-              className="h-1.5 shrink-0 cursor-row-resize bg-gray-700 transition-colors hover:bg-monokai-pink active:bg-monokai-pink"
+              className="h-1.5 shrink-0 cursor-row-resize bg-gray-700 transition-colors hover:bg-accent active:bg-accent"
             />
           )}
 
@@ -200,7 +205,7 @@ export function SystemLabWindow() {
           {...dividerProps}
           role="separator"
           aria-orientation="vertical"
-          className="w-1.5 shrink-0 cursor-col-resize bg-gray-700 transition-colors hover:bg-monokai-pink active:bg-monokai-pink"
+          className="w-1.5 shrink-0 cursor-col-resize bg-gray-700 transition-colors hover:bg-accent active:bg-accent"
         />
 
         {/* == Right Panel: Scenario Info + Guidance Chat == */}

@@ -157,6 +157,11 @@ export function PromptLabWindow() {
             isStarting={startChallenge.isPending}
             onSelect={handleSelectChallenge}
           />
+          {getChallenges.isError && (
+            <p className="mt-4 text-center text-sm text-red-400">
+              Failed to load challenges: {getChallenges.error.message}
+            </p>
+          )}
           {startChallenge.isError && (
             <p className="mt-4 text-center text-sm text-red-400">{startChallenge.error.message}</p>
           )}
@@ -216,7 +221,7 @@ export function PromptLabWindow() {
               {...vertDividerProps}
               role="separator"
               aria-orientation="horizontal"
-              className="h-1.5 shrink-0 cursor-row-resize bg-gray-700 transition-colors hover:bg-monokai-pink active:bg-monokai-pink"
+              className="h-1.5 shrink-0 cursor-row-resize bg-gray-700 transition-colors hover:bg-accent active:bg-accent"
             />
           )}
 
@@ -237,7 +242,7 @@ export function PromptLabWindow() {
           {...dividerProps}
           role="separator"
           aria-orientation="vertical"
-          className="w-1.5 shrink-0 cursor-col-resize bg-gray-700 transition-colors hover:bg-monokai-pink active:bg-monokai-pink"
+          className="w-1.5 shrink-0 cursor-col-resize bg-gray-700 transition-colors hover:bg-accent active:bg-accent"
         />
 
         {/* == Right Panel: Challenge + Guidance Chat == */}

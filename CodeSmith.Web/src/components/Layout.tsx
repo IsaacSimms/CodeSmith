@@ -12,7 +12,7 @@ export function Layout() {
         <Link
           to="/home"
           onClick={resetAll}
-          className="text-lg font-bold text-white transition-colors hover:text-monokai-pink"
+          className="text-lg font-bold text-white transition-colors hover:text-accent"
         >
           CodeSmith
         </Link>

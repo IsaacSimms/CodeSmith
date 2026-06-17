@@ -46,12 +46,12 @@ export function ChatInput({ onSend, isLoading }: ChatInputProps) {
         placeholder="Ask for guidance..."
         maxLength={2000}
         disabled={isLoading}
-        className="flex-1 resize-none overflow-hidden rounded-lg bg-gray-850 px-4 py-2 text-white placeholder-gray-500 outline-none focus:ring-2 focus:ring-monokai-cyan"
+        className="flex-1 resize-none overflow-hidden rounded-lg bg-gray-850 px-4 py-2 text-white placeholder-gray-500 outline-none focus:ring-2 focus:ring-accent"
       />
       <button
         type="submit"
         disabled={isLoading}
-        className="rounded-lg bg-monokai-pink px-4 py-2 font-semibold text-white transition-colors hover:bg-monokai-pink-dark disabled:opacity-50"
+        className="rounded-lg bg-accent px-4 py-2 font-semibold text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
       >
         {isLoading ? "Building..." : "Send"}
       </button>

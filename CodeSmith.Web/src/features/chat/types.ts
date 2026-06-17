@@ -4,7 +4,7 @@ export type Difficulty = "Easy" | "Medium" | "Hard";
 
 export type Language = "CSharp" | "Cpp" | "Go" | "Rust" | "Python" | "Java" | "TypeScript";
 
-export type AiProvider = "Anthropic" | "OpenAi";
+export type AiProvider = "Anthropic" | "OpenAi" | "Xai";
 
 export type GuidanceMode = "Guidance" | "CodeAnalysis";
 

@@ -13,7 +13,7 @@ vi.mock("react-syntax-highlighter", () => ({
 }));
 
 vi.mock("react-syntax-highlighter/dist/esm/styles/hljs", () => ({
-  monokai: {},
+  vs2015: {},
 }));
 
 const CODE = 'function hello() {\n  return "world";\n}';

@@ -11,7 +11,7 @@ export function useProviderPreference() {
   // Load from localStorage on mount
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "Anthropic" || stored === "OpenAi") {
+    if (stored === "Anthropic" || stored === "OpenAi" || stored === "Xai") {
       setProviderState(stored);
     }
     setIsLoaded(true);

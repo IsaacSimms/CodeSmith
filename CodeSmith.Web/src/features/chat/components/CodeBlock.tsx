@@ -1,7 +1,7 @@
 // == Code Block Component == //
 import { useState } from "react";
 import SyntaxHighlighter from "react-syntax-highlighter";
-import { monokai } from "react-syntax-highlighter/dist/esm/styles/hljs";
+import { vs2015 } from "react-syntax-highlighter/dist/esm/styles/hljs";
 
 interface CodeBlockProps {
   language: string;
@@ -38,7 +38,7 @@ export function CodeBlock({ language, children }: CodeBlockProps) {
       {/* Code body */}
       <SyntaxHighlighter
         language={displayLanguage}
-        style={monokai}
+        style={vs2015}
         customStyle={{ margin: 0, borderRadius: 0, fontSize: "0.8125rem" }}
         wrapLongLines
       >

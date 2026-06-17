@@ -22,7 +22,7 @@ export function JustificationEditor({ value, onChange, onSubmit, isSubmitting }:
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[#272822]">
+    <div className="flex h-full flex-col overflow-hidden bg-gray-900">
       {/* == Editor Header == */}
       <div className="flex items-center justify-between border-b border-gray-700 px-4 py-1.5">
         <h3 className="text-xs font-semibold text-gray-400">Your Justification</h3>
@@ -39,7 +39,7 @@ export function JustificationEditor({ value, onChange, onSubmit, isSubmitting }:
         maxLength={MAX_CHARS}
         disabled={isSubmitting}
         placeholder="Write your infrastructure design justification here. Engage with each required tradeoff by explaining the causal reasoning behind your decisions…"
-        className="flex-1 resize-none bg-[#272822] p-4 font-mono text-sm text-gray-200 placeholder-gray-600 outline-none disabled:opacity-60"
+        className="flex-1 resize-none bg-gray-900 p-4 font-mono text-sm text-gray-200 placeholder-gray-600 outline-none disabled:opacity-60"
         spellCheck={false}
       />
 

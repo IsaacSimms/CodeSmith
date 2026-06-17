@@ -37,7 +37,7 @@ describe("MessageBubble", () => {
     render(<MessageBubble role="User" content="user msg" />);
 
     const bubble = screen.getByText("user msg").closest("div");
-    expect(bubble?.className).toContain("bg-monokai-pink");
+    expect(bubble?.className).toContain("bg-accent");
   });
 
   it("applies assistant styling for Assistant role", () => {

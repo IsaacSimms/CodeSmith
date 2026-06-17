@@ -90,7 +90,7 @@ export function ChallengePanel({
         <button
           onClick={onSubmit}
           disabled={isSubmitting}
-          className="w-full rounded bg-monokai-pink px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-monokai-pink-dark disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full rounded bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isSubmitting ? "Evaluating…" : "Submit Prompt"}
         </button>
