@@ -2,10 +2,15 @@
 using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Infrastructure.Configuration;
+using CodeSmith.Infrastructure.Persistence;
+using CodeSmith.Infrastructure.Persistence.Repositories;
 using CodeSmith.Infrastructure.Services;
 using CodeSmith.Infrastructure.Services.Piston;
 using CodeSmith.Infrastructure.Services.PromptLab;
 using CodeSmith.Infrastructure.Services.SystemLab;
+using CodeSmith.Infrastructure.Services.Usage;
+using CodeSmith.Infrastructure.Services.Usage.Decorators;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -29,6 +34,20 @@ public static class ServiceCollectionExtensions
         services.Configure<AiOptions>(configuration.GetSection(AiOptions.SectionName));
         services.Configure<CodeExecutionOptions>(configuration.GetSection(CodeExecutionOptions.SectionName));
 
+        // == Usage / Data Layer (SaaS cost protection) ==
+        services.Configure<UsageOptions>(configuration.GetSection(UsageOptions.SectionName ?? "Usage"));
+        services.AddDbContext<CodeSmithDbContext>(opts =>
+        {
+            var conn = configuration.GetConnectionString("CodeSmithDb");
+            if (!string.IsNullOrWhiteSpace(conn))
+                opts.UseSqlServer(conn);
+        });
+
+        services.AddScoped<CodeSmith.Core.Interfaces.ICreditBalanceRepository, CodeSmith.Infrastructure.Persistence.Repositories.EfCreditBalanceRepository>();
+        services.AddScoped<CodeSmith.Core.Interfaces.IUsageLedgerRepository, CodeSmith.Infrastructure.Persistence.Repositories.EfUsageLedgerRepository>();
+        services.AddSingleton<CodeSmith.Core.Interfaces.ILlmPricing, CodeSmith.Infrastructure.Services.Usage.LlmPricing>();
+        services.AddScoped<CodeSmith.Core.Interfaces.IUsageEnforcer, CodeSmith.Infrastructure.Services.Usage.UsageEnforcer>();
+
         // Register session stores as singletons (thread-safe ConcurrentDictionary generic)
         services.AddSingleton<ISessionStore<CodeSmith.Core.Models.ProblemSession>, InMemorySessionStore<CodeSmith.Core.Models.ProblemSession>>();
         services.AddSingleton<IPromptLabSessionStore, InMemoryPromptLabSessionStore>();
@@ -40,40 +59,89 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<OpenAiLlmService>();
         services.AddSingleton<XaiLlmService>();
 
-        // Register keyed tutoring services (both providers implement ITutoringLlmService)
+        // Register keyed LLM services through usage-enforcing decorators (seam in front of raw adapters)
+        // The decorator receives the provider at resolution time and wraps check/record around every call.
         services.AddKeyedSingleton<ITutoringLlmService>(
             AiProvider.Anthropic,
-            (sp, _) => sp.GetRequiredService<AnthropicLlmService>());
+            (sp, _) => new UsageEnforcingTutoringLlmService(
+                sp.GetRequiredService<AnthropicLlmService>(),
+                sp.GetRequiredService<ICurrentUser>(),
+                sp.GetRequiredService<IUsageEnforcer>(),
+                sp.GetRequiredService<ILlmPricing>(),
+                AiProvider.Anthropic));
+
         services.AddKeyedSingleton<ITutoringLlmService>(
             AiProvider.OpenAi,
-            (sp, _) => sp.GetRequiredService<OpenAiLlmService>());
+            (sp, _) => new UsageEnforcingTutoringLlmService(
+                sp.GetRequiredService<OpenAiLlmService>(),
+                sp.GetRequiredService<ICurrentUser>(),
+                sp.GetRequiredService<IUsageEnforcer>(),
+                sp.GetRequiredService<ILlmPricing>(),
+                AiProvider.OpenAi));
 
-        // Register keyed prompt-lab services (both providers implement IPromptLabLlmService)
         services.AddKeyedSingleton<IPromptLabLlmService>(
             AiProvider.Anthropic,
-            (sp, _) => sp.GetRequiredService<AnthropicLlmService>());
+            (sp, _) => new UsageEnforcingPromptLabLlmService(
+                sp.GetRequiredService<AnthropicLlmService>(),
+                sp.GetRequiredService<ICurrentUser>(),
+                sp.GetRequiredService<IUsageEnforcer>(),
+                sp.GetRequiredService<ILlmPricing>(),
+                AiProvider.Anthropic));
+
         services.AddKeyedSingleton<IPromptLabLlmService>(
             AiProvider.OpenAi,
-            (sp, _) => sp.GetRequiredService<OpenAiLlmService>());
+            (sp, _) => new UsageEnforcingPromptLabLlmService(
+                sp.GetRequiredService<OpenAiLlmService>(),
+                sp.GetRequiredService<ICurrentUser>(),
+                sp.GetRequiredService<IUsageEnforcer>(),
+                sp.GetRequiredService<ILlmPricing>(),
+                AiProvider.OpenAi));
 
-        // Register keyed system-lab services (both providers implement ISystemLabLlmService)
         services.AddKeyedSingleton<ISystemLabLlmService>(
             AiProvider.Anthropic,
-            (sp, _) => sp.GetRequiredService<AnthropicLlmService>());
+            (sp, _) => new UsageEnforcingSystemLabLlmService(
+                sp.GetRequiredService<AnthropicLlmService>(),
+                sp.GetRequiredService<ICurrentUser>(),
+                sp.GetRequiredService<IUsageEnforcer>(),
+                sp.GetRequiredService<ILlmPricing>(),
+                AiProvider.Anthropic));
+
         services.AddKeyedSingleton<ISystemLabLlmService>(
             AiProvider.OpenAi,
-            (sp, _) => sp.GetRequiredService<OpenAiLlmService>());
+            (sp, _) => new UsageEnforcingSystemLabLlmService(
+                sp.GetRequiredService<OpenAiLlmService>(),
+                sp.GetRequiredService<ICurrentUser>(),
+                sp.GetRequiredService<IUsageEnforcer>(),
+                sp.GetRequiredService<ILlmPricing>(),
+                AiProvider.OpenAi));
 
-        // Xai provider
+        // Xai
         services.AddKeyedSingleton<ITutoringLlmService>(
             AiProvider.Xai,
-            (sp, _) => sp.GetRequiredService<XaiLlmService>());
+            (sp, _) => new UsageEnforcingTutoringLlmService(
+                sp.GetRequiredService<XaiLlmService>(),
+                sp.GetRequiredService<ICurrentUser>(),
+                sp.GetRequiredService<IUsageEnforcer>(),
+                sp.GetRequiredService<ILlmPricing>(),
+                AiProvider.Xai));
+
         services.AddKeyedSingleton<IPromptLabLlmService>(
             AiProvider.Xai,
-            (sp, _) => sp.GetRequiredService<XaiLlmService>());
+            (sp, _) => new UsageEnforcingPromptLabLlmService(
+                sp.GetRequiredService<XaiLlmService>(),
+                sp.GetRequiredService<ICurrentUser>(),
+                sp.GetRequiredService<IUsageEnforcer>(),
+                sp.GetRequiredService<ILlmPricing>(),
+                AiProvider.Xai));
+
         services.AddKeyedSingleton<ISystemLabLlmService>(
             AiProvider.Xai,
-            (sp, _) => sp.GetRequiredService<XaiLlmService>());
+            (sp, _) => new UsageEnforcingSystemLabLlmService(
+                sp.GetRequiredService<XaiLlmService>(),
+                sp.GetRequiredService<ICurrentUser>(),
+                sp.GetRequiredService<IUsageEnforcer>(),
+                sp.GetRequiredService<ILlmPricing>(),
+                AiProvider.Xai));
 
         services.AddScoped<ILlmServiceFactory, LlmServiceFactory>();
 
@@ -131,6 +199,13 @@ public static class ServiceCollectionExtensions
         // Register a named HttpClient with resilience for any direct HTTP needs
         services.AddHttpClient("Anthropic")
             .AddStandardResilienceHandler();
+
+        // Provide a default ICurrentUser so decorator registration succeeds.
+        // The real implementation (HttpCurrentUser with header bypass + Entra) is registered in Api layer and will override.
+        if (!services.Any(sd => sd.ServiceType == typeof(ICurrentUser)))
+        {
+            services.AddScoped<ICurrentUser, NoopCurrentUser>();
+        }
 
         return services;
     }

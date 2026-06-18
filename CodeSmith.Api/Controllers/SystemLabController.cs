@@ -1,6 +1,7 @@
 // == System Lab Controller == //
 using CodeSmith.Api.DTOs.SystemLab;
 using CodeSmith.Core.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CodeSmith.Api.Controllers;
@@ -61,6 +62,7 @@ public class SystemLabController : ControllerBase
     // == Submit Attempt Endpoint == //
 
     [HttpPost("sessions/{sessionId:guid}/submit")]
+    [Authorize]
     [ProducesResponseType(typeof(SystemLabAttemptResultResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -79,6 +81,7 @@ public class SystemLabController : ControllerBase
     // == Guidance Chat Endpoint == //
 
     [HttpPost("sessions/{sessionId:guid}/chat")]
+    [Authorize]
     [ProducesResponseType(typeof(SystemLabChatResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

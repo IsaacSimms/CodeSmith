@@ -47,6 +47,8 @@ public class AnthropicLlmService : ITutoringLlmService, IPromptLabLlmService, IS
             {
                 Content           = ExtractTextContent(response),
                 InputTokensUsed   = (int)response.Usage.InputTokens,
+                OutputTokensUsed  = (int)response.Usage.OutputTokens,
+                Model             = _options.AccurateModel,
                 ContextWindowSize = _options.ContextWindow,
                 WasTruncated      = response.StopReason == "max_tokens"
             };
@@ -82,6 +84,8 @@ public class AnthropicLlmService : ITutoringLlmService, IPromptLabLlmService, IS
             {
                 Content           = ExtractTextContent(response),
                 InputTokensUsed   = (int)response.Usage.InputTokens,
+                OutputTokensUsed  = (int)response.Usage.OutputTokens,
+                Model             = _options.FastModel,
                 ContextWindowSize = _options.ContextWindow
             };
         }
@@ -130,6 +134,8 @@ public class AnthropicLlmService : ITutoringLlmService, IPromptLabLlmService, IS
             {
                 Content           = ExtractTextContent(response),
                 InputTokensUsed   = (int)response.Usage.InputTokens,
+                OutputTokensUsed  = (int)response.Usage.OutputTokens,
+                Model             = model,
                 ContextWindowSize = _options.ContextWindow
             };
         }

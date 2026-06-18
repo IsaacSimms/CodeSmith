@@ -3,6 +3,8 @@ using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using CodeSmith.Api.Middleware;
 using CodeSmith.Api.Middleware.ExceptionMappers;
+using CodeSmith.Api.Services;
+using CodeSmith.Core.Interfaces;
 using CodeSmith.Infrastructure.DependencyInjection;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -24,7 +26,16 @@ builder.Services.AddSingleton<IExceptionMapper, ScenarioNotFoundExceptionMapper>
 builder.Services.AddSingleton<IExceptionMapper, AiServiceExceptionMapper>();
 builder.Services.AddSingleton<IExceptionMapper, CodeExecutionExceptionMapper>();
 builder.Services.AddSingleton<IExceptionMapper, OperationCancelledExceptionMapper>();
+builder.Services.AddSingleton<IExceptionMapper, InsufficientQuotaExceptionMapper>();
 builder.Services.AddExceptionHandler<AppExceptionHandler>();
+
+// HttpContext + current user (for usage enforcement seam + dev bypass)
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
+
+// Minimal auth skeleton so [Authorize] on LLM actions works. Full Entra wiring (AddMicrosoftIdentityWebApi etc.) comes in next seam work.
+builder.Services.AddAuthentication();
+builder.Services.AddAuthorization();
 
 // Register CodeSmith Infrastructure services (Anthropic client, session store)
 builder.Services.AddCodeSmithInfrastructure(builder.Configuration);
@@ -74,6 +85,9 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseRateLimiter();
 app.UseCors();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapControllers();
 

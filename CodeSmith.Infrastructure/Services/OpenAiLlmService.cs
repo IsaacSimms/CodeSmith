@@ -45,6 +45,8 @@ public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService, ISyst
             {
                 Content           = ExtractTextContent(response.Value),
                 InputTokensUsed   = response.Value.Usage.InputTokenCount,
+                OutputTokensUsed  = response.Value.Usage.OutputTokenCount,
+                Model             = _options.AccurateModel,
                 ContextWindowSize = _options.ContextWindow,
                 WasTruncated      = response.Value.FinishReason == ChatFinishReason.Length
             };
@@ -81,6 +83,8 @@ public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService, ISyst
             {
                 Content           = ExtractTextContent(response.Value),
                 InputTokensUsed   = response.Value.Usage.InputTokenCount,
+                OutputTokensUsed  = response.Value.Usage.OutputTokenCount,
+                Model             = _options.FastModel,
                 ContextWindowSize = _options.ContextWindow
             };
         }
@@ -107,6 +111,8 @@ public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService, ISyst
             {
                 Content           = ExtractTextContent(response.Value),
                 InputTokensUsed   = response.Value.Usage.InputTokenCount,
+                OutputTokensUsed  = response.Value.Usage.OutputTokenCount,
+                Model             = _options.FastModel,
                 ContextWindowSize = _options.ContextWindow
             };
         }
@@ -133,6 +139,8 @@ public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService, ISyst
             {
                 Content           = ExtractTextContent(response.Value),
                 InputTokensUsed   = response.Value.Usage.InputTokenCount,
+                OutputTokensUsed  = response.Value.Usage.OutputTokenCount,
+                Model             = _options.AccurateModel,
                 ContextWindowSize = _options.ContextWindow
             };
         }
@@ -159,6 +167,8 @@ public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService, ISyst
             {
                 Content           = ExtractTextContent(response.Value),
                 InputTokensUsed   = response.Value.Usage.InputTokenCount,
+                OutputTokensUsed  = response.Value.Usage.OutputTokenCount,
+                Model             = _options.AccurateModel,
                 ContextWindowSize = _options.ContextWindow
             };
         }
@@ -185,6 +195,8 @@ public class OpenAiLlmService : ITutoringLlmService, IPromptLabLlmService, ISyst
             {
                 Content           = ExtractTextContent(response.Value),
                 InputTokensUsed   = response.Value.Usage.InputTokenCount,
+                OutputTokensUsed  = response.Value.Usage.OutputTokenCount,
+                Model             = _options.AccurateModel,
                 ContextWindowSize = _options.ContextWindow
             };
         }
