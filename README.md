@@ -1,6 +1,6 @@
 # CodeSmith
 
-An AI-powered learning platform for software engineers. Three distinct practice modes let you sharpen coding skills, prompt engineering fundamentals, and infrastructure architecture reasoning — all guided by an AI pair programmer powered by Anthropic Claude.
+An AI-powered learning platform for technologists. Three distinct practice modes let you sharpen coding skills, prompt engineering fundamentals, and infrastructure architecture reasoning — all guided by an AI pair programmer powered by your choice of xAI, Anthropic, or OpenAI models.
 
 ---
 
