@@ -1,0 +1,47 @@
+# == Docker Build Context Exclusions == #
+# Standard .NET + Node + repo-specific to keep context small and respect slnx for restore layer.
+# Negations re-include only the tiny project definition files so `dotnet restore CodeSmith.slnx` succeeds
+# even though we exclude the heavy source dirs for Web/CLI/Tests.
+
+.git/
+.gitignore
+.vs/
+.vscode/
+*.user
+*.suo
+*.lscache
+
+# Build outputs (all projects)
+bin/
+obj/
+**/bin/
+**/obj/
+out/
+logs/
+
+# Test / coverage
+test-results/
+TestResults/
+*.trx
+*.coverage
+coverage.*
+
+# Node (Web frontend — huge)
+node_modules/
+**/node_modules/
+package-lock.json
+
+# Docs, Docker meta (not needed in image context)
+*.md
+Dockerfile*
+.dockerignore
+
+# Explicit project exclusions (heavy content)
+CodeSmith.Web/
+CodeSmith.CLI/
+CodeSmith.Tests/
+
+# Re-include the minimal manifests so slnx parses during the restore layer (see Dockerfile)
+!CodeSmith.Web/CodeSmith.Web.esproj
+!CodeSmith.CLI/CodeSmith.CLI.csproj
+!CodeSmith.Tests/CodeSmith.Tests.csproj

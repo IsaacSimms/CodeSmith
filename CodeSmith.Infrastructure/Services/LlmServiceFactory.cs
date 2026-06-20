@@ -6,11 +6,11 @@ using Microsoft.Extensions.DependencyInjection;
 namespace CodeSmith.Infrastructure.Services;
 
 /// <summary>
-/// Resolves a keyed LLM service implementation for the given provider at call time.
-/// Uses keyed DI to route by AiProvider enum.
+/// Resolves the usage-enforced <see cref="ILlmService"/> keyed by <see cref="AiProvider"/> at call time.
+/// Registered scoped, so the resolved (scoped) decorator gets a request-scoped usage enforcer + DbContext.
 /// </summary>
 public class LlmServiceFactory(IServiceProvider sp) : ILlmServiceFactory
 {
-    public T GetLlmService<T>(AiProvider provider) where T : class
-        => sp.GetRequiredKeyedService<T>(provider);
+    public ILlmService Get(AiProvider provider)
+        => sp.GetRequiredKeyedService<ILlmService>(provider);
 }

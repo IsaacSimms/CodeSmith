@@ -2,6 +2,7 @@
 using System.Text;
 using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
+using CodeSmith.Core.Models;
 using CodeSmith.Core.Models.PromptLab;
 using Microsoft.Extensions.Logging;
 
@@ -77,8 +78,8 @@ public sealed class PromptSimulator : IPromptSimulator
         AiProvider provider,
         CancellationToken ct)
     {
-        var response = await _factory.GetLlmService<IPromptLabLlmService>(provider)
-            .SimulatePromptAsync(systemPrompt, userMessage, SimulationMaxTokens, ct);
+        var response = await _factory.Get(provider).CompleteAsync(
+            CompletionRequest.SingleTurn(systemPrompt, userMessage, ModelTier.Fast, SimulationMaxTokens, "PromptLab:Simulate"), ct);
 
         _logger.LogDebug("Simulation output for input {InputId}: {Output}", input.InputId, response.Content);
         return (input, response.Content, response.InputTokensUsed, response.ContextWindowSize);

@@ -357,6 +357,9 @@ healthchecksdb
 # Backup folder for Package Reference Convert tool in Visual Studio 2017
 MigrationBackup/
 
+# Grok Build TUI / MCP server integration (local AI assistant tool schemas, not project source)
+mcps/
+
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
 

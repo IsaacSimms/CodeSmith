@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
+using CodeSmith.Core.Models;
 using CodeSmith.Core.Models.PromptLab;
 using Microsoft.Extensions.Logging;
 
@@ -63,8 +64,8 @@ public sealed class TestInputGenerator : ITestInputGenerator
             """;
 
         const string systemPrompt = "You generate test inputs for prompt engineering challenges. Return only a valid JSON array as specified — no preamble.";
-        var response = await _factory.GetLlmService<IPromptLabLlmService>(provider)
-            .GenerateTestInputsAsync(systemPrompt, prompt, GenerationMaxTokens, ct);
+        var response = await _factory.Get(provider).CompleteAsync(
+            CompletionRequest.SingleTurn(systemPrompt, prompt, ModelTier.Accurate, GenerationMaxTokens, "PromptLab:TestInputGeneration"), ct);
 
         var json  = ExtractJson(response.Content);
         var items = JsonSerializer.Deserialize<List<GeneratedTestInputDto>>(json)

@@ -77,7 +77,7 @@ Scenario categories: Identity & Governance, Compute, Storage, Networking & Conne
 
 | Seam | Interface | Adapters |
 |------|-----------|---------|
-| LLM provider | `ILlmService` | `AnthropicLlmService`, `OpenAiLlmService` |
+| LLM provider | `ILlmService` | `AnthropicLlmService`, `OpenAiCompatibleLlmService` (OpenAI + xAI) |
 | LLM selection | `ILlmServiceFactory` | Resolves at call time by session's `AiProvider` |
 | Tutoring logic | `ITutoringService` | `TutoringService` |
 | Session persistence | `ISessionStore<T>` | `InMemorySessionStore`, `InMemoryPromptLabSessionStore`, `InMemorySystemLabSessionStore` |

@@ -128,8 +128,14 @@ public class PromptLabService : IPromptLabService
 
         try
         {
-            var llmService = _factory.GetLlmService<IPromptLabLlmService>(session.Provider);
-            var response   = await llmService.GetGuidanceAsync(systemPrompt, session.ChatHistory, ChatMaxTokens, ct);
+            var response = await _factory.Get(session.Provider).CompleteAsync(new CompletionRequest
+            {
+                SystemPrompt = systemPrompt,
+                Messages     = session.ChatHistory,
+                Tier         = ModelTier.Fast,
+                MaxTokens    = ChatMaxTokens,
+                Feature      = "PromptLab:Chat"
+            }, ct);
 
             session.ChatHistory.Add(new ChatMessage { Role = MessageRole.Assistant, Content = response.Content });
             _sessionStore.Set(session);

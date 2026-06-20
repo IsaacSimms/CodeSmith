@@ -13,6 +13,7 @@ using CodeSmith.Infrastructure.Services.Usage.Decorators;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace CodeSmith.Infrastructure.DependencyInjection;
@@ -47,101 +48,53 @@ public static class ServiceCollectionExtensions
         services.AddScoped<CodeSmith.Core.Interfaces.IUsageLedgerRepository, CodeSmith.Infrastructure.Persistence.Repositories.EfUsageLedgerRepository>();
         services.AddSingleton<CodeSmith.Core.Interfaces.ILlmPricing, CodeSmith.Infrastructure.Services.Usage.LlmPricing>();
         services.AddScoped<CodeSmith.Core.Interfaces.IUsageEnforcer, CodeSmith.Infrastructure.Services.Usage.UsageEnforcer>();
+        // Per-user lock registry — singleton so check/record serialize across requests and concurrent completions
+        services.AddSingleton<CodeSmith.Core.Interfaces.IUserUsageLock, CodeSmith.Infrastructure.Services.Usage.UserUsageLock>();
 
         // Register session stores as singletons (thread-safe ConcurrentDictionary generic)
         services.AddSingleton<ISessionStore<CodeSmith.Core.Models.ProblemSession>, InMemorySessionStore<CodeSmith.Core.Models.ProblemSession>>();
         services.AddSingleton<IPromptLabSessionStore, InMemoryPromptLabSessionStore>();
 
         // == LLM Provider Registration == //
-        // All implementations are registered as singletons so they can be reused.
-        // Keyed services enable the factory to route by AiProvider enum at call time.
-        services.AddSingleton<AnthropicLlmService>();
-        services.AddSingleton<OpenAiLlmService>();
-        services.AddSingleton<XaiLlmService>();
+        // Two layers behind the AiProvider key:
+        //   1. Raw provider adapters — stateless singletons, registered under a "raw:{provider}" key.
+        //   2. The usage-enforcing decorator — scoped, keyed by the AiProvider enum, wrapping the raw
+        //      adapter. Scoped is required so the decorator's IUsageEnforcer (and its DbContext) are
+        //      request-scoped rather than captured for the app lifetime. The factory resolves layer 2.
+        const string xaiEndpoint = "https://api.x.ai/v1"; // xAI's OpenAI-compatible base URL
 
-        // Register keyed LLM services through usage-enforcing decorators (seam in front of raw adapters)
-        // The decorator receives the provider at resolution time and wraps check/record around every call.
-        services.AddKeyedSingleton<ITutoringLlmService>(
-            AiProvider.Anthropic,
-            (sp, _) => new UsageEnforcingTutoringLlmService(
-                sp.GetRequiredService<AnthropicLlmService>(),
-                sp.GetRequiredService<ICurrentUser>(),
-                sp.GetRequiredService<IUsageEnforcer>(),
-                sp.GetRequiredService<ILlmPricing>(),
-                AiProvider.Anthropic));
+        services.AddKeyedSingleton<ILlmService>(RawKey(AiProvider.Anthropic), (sp, _) =>
+            new AnthropicLlmService(
+                sp.GetRequiredService<IOptions<AnthropicOptions>>(),
+                sp.GetRequiredService<ILogger<AnthropicLlmService>>()));
 
-        services.AddKeyedSingleton<ITutoringLlmService>(
-            AiProvider.OpenAi,
-            (sp, _) => new UsageEnforcingTutoringLlmService(
-                sp.GetRequiredService<OpenAiLlmService>(),
-                sp.GetRequiredService<ICurrentUser>(),
-                sp.GetRequiredService<IUsageEnforcer>(),
-                sp.GetRequiredService<ILlmPricing>(),
-                AiProvider.OpenAi));
+        services.AddKeyedSingleton<ILlmService>(RawKey(AiProvider.OpenAi), (sp, _) =>
+        {
+            var o = sp.GetRequiredService<IOptions<OpenAiOptions>>().Value;
+            return new OpenAiCompatibleLlmService(
+                AiProvider.OpenAi, o.ApiKey, o.AccurateModel, o.FastModel, o.ContextWindow,
+                endpoint: null, sp.GetRequiredService<ILogger<OpenAiCompatibleLlmService>>());
+        });
 
-        services.AddKeyedSingleton<IPromptLabLlmService>(
-            AiProvider.Anthropic,
-            (sp, _) => new UsageEnforcingPromptLabLlmService(
-                sp.GetRequiredService<AnthropicLlmService>(),
-                sp.GetRequiredService<ICurrentUser>(),
-                sp.GetRequiredService<IUsageEnforcer>(),
-                sp.GetRequiredService<ILlmPricing>(),
-                AiProvider.Anthropic));
+        services.AddKeyedSingleton<ILlmService>(RawKey(AiProvider.Xai), (sp, _) =>
+        {
+            var o = sp.GetRequiredService<IOptions<XaiOptions>>().Value;
+            return new OpenAiCompatibleLlmService(
+                AiProvider.Xai, o.ApiKey, o.AccurateModel, o.FastModel, o.ContextWindow,
+                endpoint: xaiEndpoint, sp.GetRequiredService<ILogger<OpenAiCompatibleLlmService>>());
+        });
 
-        services.AddKeyedSingleton<IPromptLabLlmService>(
-            AiProvider.OpenAi,
-            (sp, _) => new UsageEnforcingPromptLabLlmService(
-                sp.GetRequiredService<OpenAiLlmService>(),
-                sp.GetRequiredService<ICurrentUser>(),
-                sp.GetRequiredService<IUsageEnforcer>(),
-                sp.GetRequiredService<ILlmPricing>(),
-                AiProvider.OpenAi));
-
-        services.AddKeyedSingleton<ISystemLabLlmService>(
-            AiProvider.Anthropic,
-            (sp, _) => new UsageEnforcingSystemLabLlmService(
-                sp.GetRequiredService<AnthropicLlmService>(),
-                sp.GetRequiredService<ICurrentUser>(),
-                sp.GetRequiredService<IUsageEnforcer>(),
-                sp.GetRequiredService<ILlmPricing>(),
-                AiProvider.Anthropic));
-
-        services.AddKeyedSingleton<ISystemLabLlmService>(
-            AiProvider.OpenAi,
-            (sp, _) => new UsageEnforcingSystemLabLlmService(
-                sp.GetRequiredService<OpenAiLlmService>(),
-                sp.GetRequiredService<ICurrentUser>(),
-                sp.GetRequiredService<IUsageEnforcer>(),
-                sp.GetRequiredService<ILlmPricing>(),
-                AiProvider.OpenAi));
-
-        // Xai
-        services.AddKeyedSingleton<ITutoringLlmService>(
-            AiProvider.Xai,
-            (sp, _) => new UsageEnforcingTutoringLlmService(
-                sp.GetRequiredService<XaiLlmService>(),
-                sp.GetRequiredService<ICurrentUser>(),
-                sp.GetRequiredService<IUsageEnforcer>(),
-                sp.GetRequiredService<ILlmPricing>(),
-                AiProvider.Xai));
-
-        services.AddKeyedSingleton<IPromptLabLlmService>(
-            AiProvider.Xai,
-            (sp, _) => new UsageEnforcingPromptLabLlmService(
-                sp.GetRequiredService<XaiLlmService>(),
-                sp.GetRequiredService<ICurrentUser>(),
-                sp.GetRequiredService<IUsageEnforcer>(),
-                sp.GetRequiredService<ILlmPricing>(),
-                AiProvider.Xai));
-
-        services.AddKeyedSingleton<ISystemLabLlmService>(
-            AiProvider.Xai,
-            (sp, _) => new UsageEnforcingSystemLabLlmService(
-                sp.GetRequiredService<XaiLlmService>(),
-                sp.GetRequiredService<ICurrentUser>(),
-                sp.GetRequiredService<IUsageEnforcer>(),
-                sp.GetRequiredService<ILlmPricing>(),
-                AiProvider.Xai));
+        foreach (var provider in Enum.GetValues<AiProvider>())
+        {
+            var captured = provider; // avoid closure-over-loop-variable capture
+            services.AddKeyedScoped<ILlmService>(captured, (sp, _) =>
+                new UsageEnforcingLlmService(
+                    sp.GetRequiredKeyedService<ILlmService>(RawKey(captured)),
+                    sp.GetRequiredService<ICurrentUser>(),
+                    sp.GetRequiredService<IUsageEnforcer>(),
+                    sp.GetRequiredService<ILlmPricing>(),
+                    captured));
+        }
 
         services.AddScoped<ILlmServiceFactory, LlmServiceFactory>();
 
@@ -209,4 +162,7 @@ public static class ServiceCollectionExtensions
 
         return services;
     }
+
+    // DI key for a provider's raw (un-decorated) LLM adapter
+    private static string RawKey(AiProvider provider) => $"raw:{provider}";
 }
