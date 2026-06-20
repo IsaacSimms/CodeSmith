@@ -16,13 +16,13 @@ public class SystemLabServiceTests
     private readonly ISystemLabSessionStore        _sessionStore = Substitute.For<ISystemLabSessionStore>();
     private readonly ISystemLabEvaluator           _evaluator    = Substitute.For<ISystemLabEvaluator>();
     private readonly ILlmServiceFactory            _factory      = Substitute.For<ILlmServiceFactory>();
-    private readonly ISystemLabLlmService          _llmService   = Substitute.For<ISystemLabLlmService>();
+    private readonly ILlmService                   _llmService   = Substitute.For<ILlmService>();
     private readonly ILogger<SystemLabService>     _logger       = Substitute.For<ILogger<SystemLabService>>();
     private readonly SystemLabService              _service;
 
     public SystemLabServiceTests()
     {
-        _factory.GetLlmService<ISystemLabLlmService>(Arg.Any<AiProvider>()).Returns(_llmService);
+        _factory.Get(Arg.Any<AiProvider>()).Returns(_llmService);
         _sessionStore.GetLock(Arg.Any<string>()).Returns(new SemaphoreSlim(1, 1)); // Required for all submit/chat paths
         _service = new SystemLabService(_evaluator, _factory, _sessionStore, _logger);
     }
@@ -173,7 +173,7 @@ public class SystemLabServiceTests
 
         _sessionStore.Get(session.SessionId.ToString()).Returns(session);
 
-        _llmService.GetGuidanceAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<ChatMessage>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "Think about why private endpoints matter here." });
 
         await _service.ChatAsync(session.SessionId, "what should I consider?", "my draft justification");
@@ -191,7 +191,7 @@ public class SystemLabServiceTests
 
         _sessionStore.Get(session.SessionId.ToString()).Returns(session);
 
-        _llmService.GetGuidanceAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<ChatMessage>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "Consider the RTO implications." });
 
         var response = await _service.ChatAsync(session.SessionId, "what about failover?", null);

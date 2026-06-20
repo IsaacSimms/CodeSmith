@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
+using CodeSmith.Core.Models;
 using CodeSmith.Core.Models.PromptLab;
 using Microsoft.Extensions.Logging;
 
@@ -88,8 +89,8 @@ public sealed class PromptEvaluator : IPromptEvaluator
             """;
         var prompt = BuildEvaluationPrompt(challenge, input, simulationOutput);
 
-        var response = await _factory.GetLlmService<IPromptLabLlmService>(provider)
-            .EvaluateResponseAsync(systemPrompt, prompt, EvaluationMaxTokens, ct);
+        var response = await _factory.Get(provider).CompleteAsync(
+            CompletionRequest.SingleTurn(systemPrompt, prompt, ModelTier.Accurate, EvaluationMaxTokens, "PromptLab:Evaluate"), ct);
 
         return ParseResult(challenge, input, simulationOutput, computedUserMessage, response.Content);
     }

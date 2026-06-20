@@ -104,7 +104,14 @@ public class SystemLabService : ISystemLabService
             session.ChatHistory.Add(new ChatMessage { Role = MessageRole.User, Content = message });
 
             var systemPrompt = BuildChatSystemPrompt(scenario, currentJustification);
-            var response     = await _factory.GetLlmService<ISystemLabLlmService>(session.Provider).GetGuidanceAsync(systemPrompt, session.ChatHistory, ChatMaxTokens, ct);
+            var response     = await _factory.Get(session.Provider).CompleteAsync(new CompletionRequest
+            {
+                SystemPrompt = systemPrompt,
+                Messages     = session.ChatHistory,
+                Tier         = ModelTier.Fast,
+                MaxTokens    = ChatMaxTokens,
+                Feature      = "SystemLab:Chat"
+            }, ct);
 
             session.ChatHistory.Add(new ChatMessage { Role = MessageRole.Assistant, Content = response.Content });
             _sessionStore.Set(session);

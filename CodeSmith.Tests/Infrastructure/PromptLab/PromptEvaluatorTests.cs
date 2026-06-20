@@ -12,13 +12,13 @@ namespace CodeSmith.Tests.Infrastructure.PromptLab;
 public class PromptEvaluatorTests
 {
     private readonly ILlmServiceFactory       _factory    = Substitute.For<ILlmServiceFactory>();
-    private readonly IPromptLabLlmService     _llmService = Substitute.For<IPromptLabLlmService>();
+    private readonly ILlmService             _llmService = Substitute.For<ILlmService>();
     private readonly ILogger<PromptEvaluator> _logger     = Substitute.For<ILogger<PromptEvaluator>>();
     private readonly PromptEvaluator          _evaluator;
 
     public PromptEvaluatorTests()
     {
-        _factory.GetLlmService<IPromptLabLlmService>(Arg.Any<AiProvider>()).Returns(_llmService);
+        _factory.Get(Arg.Any<AiProvider>()).Returns(_llmService);
         _evaluator = new PromptEvaluator(_factory, _logger);
     }
 
@@ -30,7 +30,7 @@ public class PromptEvaluatorTests
         var challenge  = MakeChallenge(criterionId: "clarity", maxPoints: 3);
         var simulation = MakeSimulation(challenge);
 
-        _llmService.EvaluateResponseAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = """{"passed":true,"criterionScores":[{"criterionId":"clarity","points":3}],"feedback":"Well done."}""" });
 
         var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
@@ -47,7 +47,7 @@ public class PromptEvaluatorTests
         var challenge  = MakeChallenge();
         var simulation = MakeSimulation(challenge);
 
-        _llmService.EvaluateResponseAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "not valid json at all" });
 
         var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
@@ -64,7 +64,7 @@ public class PromptEvaluatorTests
         var simulation = MakeSimulation(challenge);
         var fencedJson = "```json\n{\"passed\":false,\"criterionScores\":[],\"feedback\":\"Needs work.\"}\n```";
 
-        _llmService.EvaluateResponseAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = fencedJson });
 
         var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
@@ -82,7 +82,7 @@ public class PromptEvaluatorTests
         var simulation = new SimulationResult(
             inputs.Select(i => (i, "output")).ToList(), 0, 200_000);
 
-        _llmService.EvaluateResponseAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = """{"passed":true,"criterionScores":[{"criterionId":"c1","points":2}],"feedback":"Great."}""" });
 
         var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
@@ -100,7 +100,7 @@ public class PromptEvaluatorTests
             inputs.Select(i => (i, "output")).ToList(), 0, 200_000);
 
         // First input passes, second fails
-        _llmService.EvaluateResponseAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(
                 new LlmResponse { Content = """{"passed":true,"criterionScores":[{"criterionId":"c1","points":2}],"feedback":""}""" },
                 new LlmResponse { Content = """{"passed":false,"criterionScores":[{"criterionId":"c1","points":0}],"feedback":""}""" });
@@ -118,7 +118,7 @@ public class PromptEvaluatorTests
         var challenge  = MakeChallenge();
         var simulation = MakeSimulation(challenge);
 
-        _llmService.EvaluateResponseAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = """{"passed":true,"criterionScores":[],"feedback":""}""" });
 
         var attempt = await _evaluator.EvaluateAsync(challenge, "my system prompt", "my user msg", simulation, AiProvider.Anthropic, CancellationToken.None);
@@ -133,7 +133,7 @@ public class PromptEvaluatorTests
         var challenge  = MakeChallenge(adversarialPrompt: "Secret bias.");
         var simulation = MakeSimulation(challenge);
 
-        _llmService.EvaluateResponseAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = """{"passed":true,"criterionScores":[],"feedback":""}""" });
 
         var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);

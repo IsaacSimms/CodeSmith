@@ -86,7 +86,14 @@ public class TutoringService : ITutoringService
         });
 
         var systemPrompt = _templates.GuidanceSystemPrompt(session.Language, session.ProblemDescription, session.StarterCode, editorContent, guidanceMode);
-        var llmResponse  = await _factory.GetLlmService<ITutoringLlmService>(session.Provider).GetGuidanceAsync(systemPrompt, session.Messages, GuidanceMaxTokens, ct);
+        var llmResponse  = await _factory.Get(session.Provider).CompleteAsync(new CompletionRequest
+        {
+            SystemPrompt = systemPrompt,
+            Messages     = session.Messages,
+            Tier         = ModelTier.Fast,
+            MaxTokens    = GuidanceMaxTokens,
+            Feature      = "Tutoring:Guidance"
+        }, ct);
 
         // Add assistant response to history
         session.Messages.Add(new ChatMessage

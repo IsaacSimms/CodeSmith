@@ -2,6 +2,7 @@
 using CodeSmith.Core.Enums;
 using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
+using CodeSmith.Core.Models;
 using Microsoft.Extensions.Logging;
 
 namespace CodeSmith.Infrastructure.Services;
@@ -46,8 +47,8 @@ public class ProblemGenerator : IProblemGenerator
                 ? $"{request.UserMessage} Note: A previous attempt was cut off due to token limits. Please generate a complete problem."
                 : request.UserMessage;
 
-            var llmResponse = await _factory.GetLlmService<ITutoringLlmService>(provider)
-                .GenerateProblemAsync(request.SystemPrompt, userMessage, MaxTokens, ct);
+            var llmResponse = await _factory.Get(provider).CompleteAsync(
+                CompletionRequest.SingleTurn(request.SystemPrompt, userMessage, ModelTier.Accurate, MaxTokens, "Tutoring:ProblemGeneration"), ct);
 
             lastWasTruncated = llmResponse.WasTruncated;
 

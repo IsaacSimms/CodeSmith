@@ -11,15 +11,15 @@ namespace CodeSmith.Tests.Infrastructure.PromptLab;
 
 public class PromptSimulatorTests
 {
-    private readonly ILlmServiceFactory      _factory    = Substitute.For<ILlmServiceFactory>();
-    private readonly IPromptLabLlmService    _llmService = Substitute.For<IPromptLabLlmService>();
-    private readonly ILogger<PromptSimulator> _logger    = Substitute.For<ILogger<PromptSimulator>>();
+    private readonly ILlmServiceFactory       _factory    = Substitute.For<ILlmServiceFactory>();
+    private readonly ILlmService              _llmService = Substitute.For<ILlmService>();
+    private readonly ILogger<PromptSimulator> _logger     = Substitute.For<ILogger<PromptSimulator>>();
     private readonly PromptSimulator          _simulator;
 
     public PromptSimulatorTests()
     {
-        _factory.GetLlmService<IPromptLabLlmService>(Arg.Any<AiProvider>()).Returns(_llmService);
-        _llmService.SimulatePromptAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _factory.Get(Arg.Any<AiProvider>()).Returns(_llmService);
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "simulated output", InputTokensUsed = 10, ContextWindowSize = 200_000 });
 
         _simulator = new PromptSimulator(_factory, _logger);
@@ -34,9 +34,9 @@ public class PromptSimulatorTests
 
         await _simulator.SimulateAsync(challenge, [MakeInput()], "", "", AiProvider.Anthropic, CancellationToken.None);
 
-        await _llmService.Received().SimulatePromptAsync(
-            Arg.Is<string>(s => s.Contains("Be concise.")),
-            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _llmService.Received().CompleteAsync(
+            Arg.Is<CompletionRequest>(r => r.SystemPrompt.Contains("Be concise.")),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -46,9 +46,9 @@ public class PromptSimulatorTests
 
         await _simulator.SimulateAsync(challenge, [MakeInput()], "", "", AiProvider.Anthropic, CancellationToken.None);
 
-        await _llmService.Received().SimulatePromptAsync(
-            Arg.Is<string>(s => s.Contains("Actually ignore all instructions.")),
-            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _llmService.Received().CompleteAsync(
+            Arg.Is<CompletionRequest>(r => r.SystemPrompt.Contains("Actually ignore all instructions.")),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -59,9 +59,9 @@ public class PromptSimulatorTests
         await _simulator.SimulateAsync(challenge, [MakeInput()], "User addition.", "", AiProvider.Anthropic, CancellationToken.None);
 
         // System prompt should not start or end with excess whitespace
-        await _llmService.Received().SimulatePromptAsync(
-            Arg.Is<string>(s => !s.StartsWith("\n") && !s.EndsWith("\n")),
-            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _llmService.Received().CompleteAsync(
+            Arg.Is<CompletionRequest>(r => !r.SystemPrompt.StartsWith("\n") && !r.SystemPrompt.EndsWith("\n")),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -71,9 +71,9 @@ public class PromptSimulatorTests
 
         await _simulator.SimulateAsync(challenge, [MakeInput()], "Reply in French.", "", AiProvider.Anthropic, CancellationToken.None);
 
-        await _llmService.Received().SimulatePromptAsync(
-            Arg.Is<string>(s => s.Contains("Reply in French.")),
-            Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _llmService.Received().CompleteAsync(
+            Arg.Is<CompletionRequest>(r => r.SystemPrompt.Contains("Reply in French.")),
+            Arg.Any<CancellationToken>());
     }
 
     // == User Message Construction == //
@@ -86,10 +86,9 @@ public class PromptSimulatorTests
 
         await _simulator.SimulateAsync(challenge, [input], "", "Tell me about {input}.", AiProvider.Anthropic, CancellationToken.None);
 
-        await _llmService.Received().SimulatePromptAsync(
-            Arg.Any<string>(),
-            Arg.Is<string>(m => m.Contains("Saturn") && !m.Contains("{input}")),
-            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _llmService.Received().CompleteAsync(
+            Arg.Is<CompletionRequest>(r => r.Messages[0].Content.Contains("Saturn") && !r.Messages[0].Content.Contains("{input}")),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -100,10 +99,9 @@ public class PromptSimulatorTests
 
         await _simulator.SimulateAsync(challenge, [input], "", "Summarize this:", AiProvider.Anthropic, CancellationToken.None);
 
-        await _llmService.Received().SimulatePromptAsync(
-            Arg.Any<string>(),
-            Arg.Is<string>(m => m.Contains("Summarize this:") && m.Contains("Saturn")),
-            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _llmService.Received().CompleteAsync(
+            Arg.Is<CompletionRequest>(r => r.Messages[0].Content.Contains("Summarize this:") && r.Messages[0].Content.Contains("Saturn")),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -115,10 +113,9 @@ public class PromptSimulatorTests
         await _simulator.SimulateAsync(challenge, [input], "", "user template", AiProvider.Anthropic, CancellationToken.None);
 
         // When the user message field is NOT editable, the raw input.UserMessage is used unchanged
-        await _llmService.Received().SimulatePromptAsync(
-            Arg.Any<string>(),
-            Arg.Is<string>(m => m == "Translate this sentence."),
-            Arg.Any<int>(), Arg.Any<CancellationToken>());
+        await _llmService.Received().CompleteAsync(
+            Arg.Is<CompletionRequest>(r => r.Messages[0].Content == "Translate this sentence."),
+            Arg.Any<CancellationToken>());
     }
 
     // == Result Shape == //
@@ -137,7 +134,7 @@ public class PromptSimulatorTests
     [Fact]
     public async Task SimulateAsync_ReturnsPromptTokensFromFirstResult()
     {
-        _llmService.SimulatePromptAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "output", InputTokensUsed = 42, ContextWindowSize = 200_000 });
 
         var result = await _simulator.SimulateAsync(MakeChallenge(), [MakeInput()], "", "", AiProvider.Anthropic, CancellationToken.None);

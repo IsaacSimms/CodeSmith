@@ -106,12 +106,12 @@ public class TutoringServiceTests
         var store = Substitute.For<ISessionStore<ProblemSession>>();
         store.Get(Arg.Any<string>()).Returns(session);
 
-        var llmService = Substitute.For<ITutoringLlmService>();
-        llmService.GetGuidanceAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<ChatMessage>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        var llmService = Substitute.For<ILlmService>();
+        llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "Think about goroutines.", InputTokensUsed = 75, ContextWindowSize = 200_000 });
 
         var factory = Substitute.For<ILlmServiceFactory>();
-        factory.GetLlmService<ITutoringLlmService>(AiProvider.Anthropic).Returns(llmService);
+        factory.Get(AiProvider.Anthropic).Returns(llmService);
 
         var templates = Substitute.For<ITutoringPromptTemplates>();
         templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<GuidanceMode>())
@@ -140,12 +140,12 @@ public class TutoringServiceTests
         var store = Substitute.For<ISessionStore<ProblemSession>>();
         store.Get(Arg.Any<string>()).Returns(session);
 
-        var llmService = Substitute.For<ITutoringLlmService>();
-        llmService.GetGuidanceAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<ChatMessage>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        var llmService = Substitute.For<ILlmService>();
+        llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "Try QuickSort.", InputTokensUsed = 20, ContextWindowSize = 200_000 });
 
         var factory = Substitute.For<ILlmServiceFactory>();
-        factory.GetLlmService<ITutoringLlmService>(Arg.Any<AiProvider>()).Returns(llmService);
+        factory.Get(Arg.Any<AiProvider>()).Returns(llmService);
 
         var templates = Substitute.For<ITutoringPromptTemplates>();
         templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<GuidanceMode>())
@@ -183,15 +183,15 @@ public class TutoringServiceTests
         // and gets mutated (assistant message appended) immediately after the LLM returns.
         // Arg.Is would evaluate against the post-mutation list (4 items, not 3).
         List<string>? capturedContents = null;
-        var llmService = Substitute.For<ITutoringLlmService>();
+        var llmService = Substitute.For<ILlmService>();
         llmService
-            .When(x => x.GetGuidanceAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<ChatMessage>>(), Arg.Any<int>(), Arg.Any<CancellationToken>()))
-            .Do(call => capturedContents = call.Arg<IReadOnlyList<ChatMessage>>().Select(m => m.Content).ToList());
-        llmService.GetGuidanceAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<ChatMessage>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .When(x => x.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>()))
+            .Do(call => capturedContents = call.Arg<CompletionRequest>().Messages.Select(m => m.Content).ToList());
+        llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "second answer", InputTokensUsed = 30, ContextWindowSize = 200_000 });
 
         var factory = Substitute.For<ILlmServiceFactory>();
-        factory.GetLlmService<ITutoringLlmService>(Arg.Any<AiProvider>()).Returns(llmService);
+        factory.Get(Arg.Any<AiProvider>()).Returns(llmService);
 
         var templates = Substitute.For<ITutoringPromptTemplates>();
         templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<GuidanceMode>())
@@ -223,12 +223,12 @@ public class TutoringServiceTests
         var store = Substitute.For<ISessionStore<ProblemSession>>();
         store.Get(Arg.Any<string>()).Returns(session);
 
-        var llmService = Substitute.For<ITutoringLlmService>();
-        llmService.GetGuidanceAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<ChatMessage>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        var llmService = Substitute.For<ILlmService>();
+        llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "Good start.", InputTokensUsed = 10, ContextWindowSize = 200_000 });
 
         var factory = Substitute.For<ILlmServiceFactory>();
-        factory.GetLlmService<ITutoringLlmService>(Arg.Any<AiProvider>()).Returns(llmService);
+        factory.Get(Arg.Any<AiProvider>()).Returns(llmService);
 
         var templates = Substitute.For<ITutoringPromptTemplates>();
         templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<GuidanceMode>())
@@ -260,12 +260,12 @@ public class TutoringServiceTests
         var store = Substitute.For<ISessionStore<ProblemSession>>();
         store.Get(Arg.Any<string>()).Returns(session);
 
-        var llmService = Substitute.For<ITutoringLlmService>();
-        llmService.GetGuidanceAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<ChatMessage>>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        var llmService = Substitute.For<ILlmService>();
+        llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "Your output looks correct.", InputTokensUsed = 15, ContextWindowSize = 200_000 });
 
         var factory = Substitute.For<ILlmServiceFactory>();
-        factory.GetLlmService<ITutoringLlmService>(Arg.Any<AiProvider>()).Returns(llmService);
+        factory.Get(Arg.Any<AiProvider>()).Returns(llmService);
 
         var templates = Substitute.For<ITutoringPromptTemplates>();
         templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<GuidanceMode>())

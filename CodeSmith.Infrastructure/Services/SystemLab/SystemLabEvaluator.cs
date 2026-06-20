@@ -4,6 +4,7 @@ using System.Text.Json;
 using CodeSmith.Core.Enums;
 using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
+using CodeSmith.Core.Models;
 using CodeSmith.Core.Models.PromptLab;
 using CodeSmith.Core.Models.SystemLab;
 using Microsoft.Extensions.Logging;
@@ -35,7 +36,8 @@ public sealed class SystemLabEvaluator : ISystemLabEvaluator
         var systemPrompt = BuildEvaluatorSystemPrompt(scenario);
         var userMessage  = BuildEvaluationPrompt(scenario, justification);
 
-        var response = await _factory.GetLlmService<ISystemLabLlmService>(provider).EvaluateJustificationAsync(systemPrompt, userMessage, EvaluationMaxTokens, ct);
+        var response = await _factory.Get(provider).CompleteAsync(
+            CompletionRequest.SingleTurn(systemPrompt, userMessage, ModelTier.Accurate, EvaluationMaxTokens, "SystemLab:Evaluate"), ct);
 
         return ParseAttempt(scenario, justification, response.Content);
     }

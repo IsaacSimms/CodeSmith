@@ -12,13 +12,13 @@ namespace CodeSmith.Tests.Infrastructure.PromptLab;
 public class TestInputGeneratorTests
 {
     private readonly ILlmServiceFactory          _factory    = Substitute.For<ILlmServiceFactory>();
-    private readonly IPromptLabLlmService        _llmService = Substitute.For<IPromptLabLlmService>();
+    private readonly ILlmService                _llmService = Substitute.For<ILlmService>();
     private readonly ILogger<TestInputGenerator> _logger     = Substitute.For<ILogger<TestInputGenerator>>();
     private readonly TestInputGenerator           _generator;
 
     public TestInputGeneratorTests()
     {
-        _factory.GetLlmService<IPromptLabLlmService>(Arg.Any<AiProvider>()).Returns(_llmService);
+        _factory.Get(Arg.Any<AiProvider>()).Returns(_llmService);
         _generator = new TestInputGenerator(_factory, _logger);
     }
 
@@ -27,7 +27,7 @@ public class TestInputGeneratorTests
     [Fact]
     public async Task GenerateAsync_ValidJsonArray_ReturnsFourInputs()
     {
-        _llmService.GenerateTestInputsAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = ValidFourInputsJson() });
 
         var result = await _generator.GenerateAsync(MakeChallenge(), AiProvider.Anthropic, CancellationToken.None);
@@ -38,7 +38,7 @@ public class TestInputGeneratorTests
     [Fact]
     public async Task GenerateAsync_ValidJson_MapsFieldsCorrectly()
     {
-        _llmService.GenerateTestInputsAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = ValidFourInputsJson() });
 
         var result = await _generator.GenerateAsync(MakeChallenge(), AiProvider.Anthropic, CancellationToken.None);
@@ -53,7 +53,7 @@ public class TestInputGeneratorTests
     public async Task GenerateAsync_JsonWrappedInMarkdownFences_ParsesSuccessfully()
     {
         var fenced = $"```json\n{ValidFourInputsJson()}\n```";
-        _llmService.GenerateTestInputsAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = fenced });
 
         var result = await _generator.GenerateAsync(MakeChallenge(), AiProvider.Anthropic, CancellationToken.None);
@@ -74,7 +74,7 @@ public class TestInputGeneratorTests
             ]
             """;
 
-        _llmService.GenerateTestInputsAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = threeInputsJson });
 
         await Assert.ThrowsAsync<InvalidOperationException>(
@@ -84,7 +84,7 @@ public class TestInputGeneratorTests
     [Fact]
     public async Task GenerateAsync_MalformedJson_Throws()
     {
-        _llmService.GenerateTestInputsAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "this is not json" });
 
         await Assert.ThrowsAsync<System.Text.Json.JsonException>(

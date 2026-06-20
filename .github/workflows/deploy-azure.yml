@@ -1,0 +1,79 @@
+# == Deploy Seam: CodeSmith.Api to Azure Container Apps via ACR == #
+# This workflow is the deploy seam.
+# It is manually triggered (workflow_dispatch) so changes can be merged to main,
+# integration tests run, and only then explicitly promoted.
+# Once executed, the June 18 usage enforcement seam (UsageEnforcer + decorators + EF + auth skeleton)
+# and all other code becomes live in the ca-codesmith-api-001 Container App.
+#
+# Prerequisites (run by user, not in this workflow):
+# - ACR (acrcodesmithprod001) created
+# - Managed Identity mi-codesmith-backend-prod-centralus-001 granted AcrPull on the ACR
+# - GitHub repo secrets: AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID (Service Principal)
+# - Container App already exists (or you have run one-time setup) with MI + Key Vault refs.
+#
+# IMPORTANT (one-time, outside this workflow):
+# The stock aspnet:8.0 image the app currently runs typically listens on 8080 inside the container.
+# Your Container App's ingress "target port" must be 8080 (not 80).
+# If it is still 80 from initial provisioning, run this ONCE (after or before first deploy):
+#   az containerapp ingress update \
+#     --name ca-codesmith-api-001 --resource-group rg-codesmith-prod-centralus-001 \
+#     --target-port 8080
+# Subsequent image updates via this workflow will then work. Image changes do not alter ingress config.
+#
+# Never auto-triggers on push. No test/migration/business logic steps here.
+
+name: Deploy Azure
+
+on:
+  workflow_dispatch:
+    # Inputs can be added later without breaking callers.
+
+permissions:
+  contents: read
+  id-token: write   # ready for future OIDC upgrade
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        # shallow is fine for build; full history not required
+
+      - name: Install Azure CLI
+        # ubuntu-latest does not ship az; this is required for the az commands below to execute
+        # in the host context (so az acr login affects the runner's docker config.json).
+        run: curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+      - name: Azure Login (Service Principal)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to ACR
+        # az acr login updates the host Docker config (~/.docker/config.json) so that
+        # subsequent docker buildx / push commands can push to the private ACR using the SP identity.
+        # This must run in the job's host context (not inside an azure/CLI action container).
+        run: az acr login --name acrcodesmithprod001
+
+      - name: Build and push image
+        # Uses full commit sha for immutable, auditable deploys. Revision history in Container Apps will show the exact commit.
+        run: |
+          docker buildx build \
+            --push \
+            -t acrcodesmithprod001.azurecr.io/codesmith-api:${{ github.sha }} \
+            -f CodeSmith.Api/Dockerfile \
+            .
+
+      - name: Update Container App revision
+        run: |
+          az containerapp update \
+            --name ca-codesmith-api-001 \
+            --resource-group rg-codesmith-prod-centralus-001 \
+            --image acrcodesmithprod001.azurecr.io/codesmith-api:${{ github.sha }}
