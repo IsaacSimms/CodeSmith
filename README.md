@@ -3,6 +3,7 @@
 An AI-powered learning platform for software engineers. Three distinct practice modes let you sharpen coding skills, prompt engineering fundamentals, and infrastructure architecture reasoning — all guided by an AI pair programmer. 
 
 **SaaS cost controls**: Every LLM call is metered against a per-`objectId` free quota (20k tokens, 48h window) + per-IP caps + prepaid credits. Free-tier evaluations are automatically downgraded to the fast model.
+An AI-powered learning platform for technologists. Three distinct practice modes let you sharpen coding skills, prompt engineering fundamentals, and infrastructure architecture reasoning — all guided by an AI pair programmer powered by your choice of xAI, Anthropic, or OpenAI models.
 
 ---
 
