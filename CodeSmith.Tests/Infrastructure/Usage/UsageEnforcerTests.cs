@@ -21,10 +21,12 @@ public class UsageEnforcerTests
         ICreditBalanceRepository balanceRepo,
         IUsageLedgerRepository?  ledgerRepo = null,
         ILlmPricing?             pricing    = null,
+        IIpFreeUsageRepository?  ipRepo     = null,
         long                     freeQuota  = 0)
         => new(
             balanceRepo,
             ledgerRepo ?? Substitute.For<IUsageLedgerRepository>(),
+            ipRepo     ?? Substitute.For<IIpFreeUsageRepository>(),
             pricing    ?? Substitute.For<ILlmPricing>(),
             new UserUsageLock(),
             Options.Create(new UsageOptions { FreeMonthlyTokenQuota = freeQuota }),
@@ -39,16 +41,17 @@ public class UsageEnforcerTests
         // Without per-user serialization, interleaved deductions lose updates and the final balance is too high.
         var repo = new SnapshotBalanceRepository(new CreditBalance
         {
-            ObjectId           = ObjectId,
-            FreeQuotaMax       = 0,        // force everything onto paid credits
-            PaidCreditsBalance = 100m
+            ObjectId               = ObjectId,
+            FreeQuotaMax           = 0,        // force everything onto paid credits
+            PaidCreditsBalance     = 100m,
+            FirstSeenUtc           = DateTime.UtcNow
         });
 
         var enforcer = BuildEnforcer(repo);
 
         const int calls = 50;
         var tasks = Enumerable.Range(0, calls).Select(_ =>
-            enforcer.RecordActualAsync(ObjectId, AiProvider.Anthropic, "model", actualInput: 1, actualOutput: 0, costUsd: 1m));
+            enforcer.RecordActualAsync(ObjectId, clientIp: null, AiProvider.Anthropic, "model", actualInput: 1, actualOutput: 0, costUsd: 1m));
 
         await Task.WhenAll(tasks);
 
@@ -69,7 +72,7 @@ public class UsageEnforcerTests
         var enforcer = BuildEnforcer(repo, pricing: pricing, freeQuota: 0);
 
         await Assert.ThrowsAsync<InsufficientQuotaException>(
-            () => enforcer.CheckAndReserveAsync(ObjectId, AiProvider.Anthropic, 100, 100));
+            () => enforcer.CheckAndReserveAsync(ObjectId, clientIp: null, AiProvider.Anthropic, 100, 100));
     }
 
     [Fact]
@@ -83,8 +86,8 @@ public class UsageEnforcerTests
 
         var enforcer = BuildEnforcer(repo, pricing: pricing, freeQuota: 100_000);
 
-        // Should not throw — free quota of 100k covers a ~20-token estimate
-        await enforcer.CheckAndReserveAsync(ObjectId, AiProvider.Anthropic, 10, 10);
+        // Should not throw — free quota of 20k covers a ~20-token estimate (within window)
+        await enforcer.CheckAndReserveAsync(ObjectId, clientIp: null, AiProvider.Anthropic, 10, 10);
     }
 
     // == Fake repository that models DB read/write hazard window == //
@@ -113,9 +116,9 @@ public class UsageEnforcerTests
         {
             ObjectId                = b.ObjectId,
             PaidCreditsBalance      = b.PaidCreditsBalance,
-            FreeTokensUsedThisMonth = b.FreeTokensUsedThisMonth,
+            FreeTokensUsedInWindow  = b.FreeTokensUsedInWindow,
             FreeQuotaMax            = b.FreeQuotaMax,
-            LastFreeResetUtc        = b.LastFreeResetUtc
+            FirstSeenUtc            = b.FirstSeenUtc
         };
     }
 }

@@ -6,4 +6,5 @@ namespace CodeSmith.Infrastructure.Services.Usage;
 internal sealed class NoopCurrentUser : ICurrentUser
 {
     public string? ObjectId => null;
+    public string? ClientIp => null;
 }

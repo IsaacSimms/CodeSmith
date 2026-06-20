@@ -37,14 +37,30 @@ internal sealed class UsageEnforcingLlmService : ILlmService
     public async Task<LlmResponse> CompleteAsync(CompletionRequest request, CancellationToken ct = default)
     {
         var objectId = RequireObjectId();
+        var clientIp = _currentUser.ClientIp;
 
         var estInput = EstimateInputTokens(request);
-        await _enforcer.CheckAndReserveAsync(objectId, _provider, estInput, request.MaxTokens, ct);
+        var usedFree = await _enforcer.CheckAndReserveAsync(objectId, clientIp, _provider, estInput, request.MaxTokens, ct);
 
-        var response = await _inner.CompleteAsync(request, ct);
+        // Downgrade evaluations to Fast tier only while consuming free quota (inside 48h window).
+        // Paid / post-window usage gets Accurate for quality.
+        var effectiveRequest = request;
+        if (usedFree && IsEvaluationFeature(request.Feature))
+        {
+            effectiveRequest = new CompletionRequest
+            {
+                SystemPrompt = request.SystemPrompt,
+                Messages = request.Messages,
+                Tier = ModelTier.Fast,
+                MaxTokens = request.MaxTokens,
+                Feature = request.Feature
+            };
+        }
+
+        var response = await _inner.CompleteAsync(effectiveRequest, ct);
 
         var cost = _pricing.ComputeCostUsd(_provider, response.Model, response.InputTokensUsed, response.OutputTokensUsed);
-        await _enforcer.RecordActualAsync(objectId, _provider, response.Model, response.InputTokensUsed, response.OutputTokensUsed, cost, request.Feature, ct);
+        await _enforcer.RecordActualAsync(objectId, clientIp, _provider, response.Model, response.InputTokensUsed, response.OutputTokensUsed, cost, request.Feature, ct);
 
         return response;
     }
@@ -64,5 +80,12 @@ internal sealed class UsageEnforcingLlmService : ILlmService
         var chars = request.SystemPrompt.Length;
         foreach (var m in request.Messages) chars += m.Content.Length;
         return chars / 4 + 100;
+    }
+
+    private static bool IsEvaluationFeature(string? feature)
+    {
+        if (string.IsNullOrWhiteSpace(feature)) return false;
+        return feature.Contains("Evaluate", StringComparison.OrdinalIgnoreCase) ||
+               feature.Contains("SystemLab", StringComparison.OrdinalIgnoreCase);
     }
 }

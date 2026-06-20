@@ -6,6 +6,7 @@ using CodeSmith.Api.Middleware.ExceptionMappers;
 using CodeSmith.Api.Services;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Infrastructure.DependencyInjection;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,6 +22,14 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddProblemDetails();
 builder.Services.AddSingleton<IExceptionMapper, SessionNotFoundExceptionMapper>();
+
+// Forwarded headers so RemoteIpAddress reflects the real client (Azure / proxies)
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 builder.Services.AddSingleton<IExceptionMapper, ChallengeNotFoundExceptionMapper>();
 builder.Services.AddSingleton<IExceptionMapper, ScenarioNotFoundExceptionMapper>();
 builder.Services.AddSingleton<IExceptionMapper, AiServiceExceptionMapper>();
@@ -82,6 +91,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 app.UseRateLimiter();
 app.UseCors();
