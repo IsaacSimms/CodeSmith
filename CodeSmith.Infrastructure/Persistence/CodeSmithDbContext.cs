@@ -13,6 +13,7 @@ public class CodeSmithDbContext : DbContext
 
     public DbSet<CreditBalance> CreditBalances => Set<CreditBalance>();
     public DbSet<UsageLedgerEntry> UsageLedgerEntries => Set<UsageLedgerEntry>();
+    public DbSet<IpFreeUsage> IpFreeUsages => Set<IpFreeUsage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -32,6 +33,13 @@ public class CodeSmithDbContext : DbContext
             b.Property(x => x.CostUsd).HasPrecision(18, 6);
             b.HasIndex(x => new { x.ObjectId, x.TimestampUtc });
             b.HasIndex(x => x.TimestampUtc);
+        });
+
+        // IpFreeUsage: aggregate cap per IP (string key)
+        modelBuilder.Entity<IpFreeUsage>(b =>
+        {
+            b.HasKey(x => x.Ip);
+            b.HasIndex(x => x.Ip);
         });
     }
 }

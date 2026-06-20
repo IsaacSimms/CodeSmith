@@ -1,5 +1,8 @@
 # CodeSmith
 
+An AI-powered learning platform for software engineers. Three distinct practice modes let you sharpen coding skills, prompt engineering fundamentals, and infrastructure architecture reasoning — all guided by an AI pair programmer. 
+
+**SaaS cost controls**: Every LLM call is metered against a per-`objectId` free quota (20k tokens, 48h window) + per-IP caps + prepaid credits. Free-tier evaluations are automatically downgraded to the fast model.
 An AI-powered learning platform for technologists. Three distinct practice modes let you sharpen coding skills, prompt engineering fundamentals, and infrastructure architecture reasoning — all guided by an AI pair programmer powered by your choice of xAI, Anthropic, or OpenAI models.
 
 ---
@@ -67,34 +70,53 @@ Scenario categories: Identity & Governance, Compute, Storage, Networking & Conne
 | Project | Role |
 |---------|------|
 | `CodeSmith.Core` | Domain models, enums, interfaces, exceptions — zero external dependencies |
-| `CodeSmith.Infrastructure` | Service implementations, Anthropic integration, Piston executor, in-memory stores, DI config |
-| `CodeSmith.Api` | ASP.NET Core Web API — controllers, DTOs, middleware, rate limiting, CORS |
+| `CodeSmith.Infrastructure` | Service implementations, Anthropic/OpenAI/xAI integration, Piston, EF + usage repos (`CreditBalance`, `IpFreeUsage`, ledger), DI, usage enforcement |
+| `CodeSmith.Api` | ASP.NET Core Web API — controllers, DTOs, middleware (incl. forwarded headers), rate limiting, CORS, debug auth |
 | `CodeSmith.CLI` | Interactive console client for local testing |
 | `CodeSmith.Web` | React 19 frontend — feature-based folder structure, Monaco editors, TanStack Query mutations |
-| `CodeSmith.Tests` | xUnit + NSubstitute test suite mirroring the source project structure |
+| `CodeSmith.Tests` | xUnit + NSubstitute test suite mirroring the source project structure (incl. usage tests) |
 
 ### Key Seams
 
 | Seam | Interface | Adapters |
 |------|-----------|---------|
-| LLM provider | `ILlmService` | `AnthropicLlmService`, `OpenAiCompatibleLlmService` (OpenAI + xAI) |
-| LLM selection | `ILlmServiceFactory` | Resolves at call time by session's `AiProvider` |
+| LLM completion (unified) | `ILlmService` | `AnthropicLlmService`, `OpenAiCompatibleLlmService` (OpenAI + xAI), each wrapped by `UsageEnforcingLlmService` |
+| Provider routing | `ILlmServiceFactory` | `LlmServiceFactory` (keyed by `AiProvider` at runtime) |
+| Usage enforcement | `IUsageEnforcer` | `UsageEnforcer` (free quota window + paid credits) |
+| Per-user usage lock | `IUserUsageLock` | `UserUsageLock` (singleton) |
 | Tutoring logic | `ITutoringService` | `TutoringService` |
 | Session persistence | `ISessionStore<T>` | `InMemorySessionStore`, `InMemoryPromptLabSessionStore`, `InMemorySystemLabSessionStore` |
-| Code execution | `ICodeExecutionService` | `PistonCodeExecutionService`, `LocalProcessCodeExecutionService` |
+| Code execution | `ICodeExecutionService` | `PistonCodeExecutionService` (default), `LocalProcessCodeExecutionService` (dev) |
 
 Code execution backend is config-driven — set `CodeExecution:Backend` in `appsettings.json` to `Piston` or `LocalProcess`.
 
+### Usage Enforcement & Cost Protection
+
+Every LLM call is metered and protected before execution:
+
+- **Free quota**: 20,000 tokens per `objectId`, available only for the first 48 hours after first sighting (global per objectId). Free quota is lost forever after the window or after exhaustion.
+- **IP caps**: Additional 60,000-token aggregate limit per client IP (across all objectIds from that IP).
+- **Paid credits**: After free is exhausted, `PaidCreditsBalance` is debited (USD-equivalent).
+- Free-first deduction. Upper-bound pre-check (using highest-rate estimate) + actual record after the call.
+- "Lenient last action" gate: a call that would exhaust the remaining free quota is allowed to complete; subsequent calls are blocked.
+- During the free window, expensive evaluation phases (Prompt Lab / System Lab) are automatically downgraded to the Fast model to control spend. Problem generation stays on Accurate.
+
+Enforcement lives in `UsageEnforcingLlmService` (decorator) + `UsageEnforcer` (per-objectId + per-IP logic under `IUserUsageLock`). See `CONTEXT.md` and the usage recaps for full details.
+
+**HTTP result**: 402 Payment Required when quota/credits are insufficient.
+
 ### LLM Model Selection
 
-| Operation | Model | Why |
-|-----------|-------|-----|
-| Problem generation | Sonnet | Once per session; quality matters |
-| Chat guidance | Haiku | Per-message; latency and cost |
-| Prompt Lab simulation | Haiku | Parallel per test input; fast |
-| Prompt Lab evaluation | Sonnet | Rubric scoring; accuracy matters |
-| System Lab evaluation | Sonnet | Architectural judgment; accuracy matters |
-| System Lab guidance chat | Haiku | Conversational; latency matters |
+| Operation | Tier (Free Window) | Tier (Paid / Window Expired) | Notes |
+|-----------|--------------------|------------------------------|-------|
+| Problem generation | Accurate (Sonnet) | Accurate (Sonnet) | Quality always matters |
+| Chat / guidance | Fast (Haiku) | Fast (Haiku) | Latency |
+| Prompt Lab simulation | Fast (Haiku) | Fast (Haiku) | Parallel, speed |
+| Prompt Lab evaluation | Fast (Haiku) | Accurate (Sonnet) | Downgraded for free users to control cost |
+| System Lab evaluation | Fast (Haiku) | Accurate (Sonnet) | Downgraded for free users |
+| System Lab guidance chat | Fast (Haiku) | Fast (Haiku) | Latency |
+
+Free quota uses a 48-hour window + per-objectId and per-IP caps (see Usage Enforcement below).
 
 ### API Endpoints
 
@@ -106,27 +128,40 @@ Code execution backend is config-driven — set `CodeExecution:Backend` in `apps
 | `POST` | `/api/session/{id}/run` | Execute code in the Piston sandbox |
 | `GET` | `/api/prompt-lab/challenges` | List all Prompt Lab challenges |
 | `GET` | `/api/prompt-lab/challenges/{id}` | Get a single challenge |
-| `POST` | `/api/prompt-lab/sessions` | Start a Prompt Lab challenge session |
-| `POST` | `/api/prompt-lab/sessions/{id}/submit` | Submit a prompt attempt for scoring |
+| `POST` | `/api/prompt-lab/sessions` 🔒 | Start a Prompt Lab challenge session |
+| `POST` | `/api/prompt-lab/sessions/{id}/submit` 🔒 | Submit a prompt attempt for scoring |
 | `GET` | `/api/system-lab/scenarios` | List all System Lab scenarios |
 | `GET` | `/api/system-lab/scenarios/{id}` | Get a single scenario |
-| `POST` | `/api/system-lab/sessions` | Start a System Lab scenario session |
-| `POST` | `/api/system-lab/sessions/{id}/submit` | Submit a justification for scoring |
-| `POST` | `/api/system-lab/sessions/{id}/chat` | Guidance chat within a System Lab session |
+| `POST` | `/api/system-lab/sessions` 🔒 | Start a System Lab scenario session |
+| `POST` | `/api/system-lab/sessions/{id}/submit` 🔒 | Submit a justification for scoring |
+| `POST` | `/api/system-lab/sessions/{id}/chat` 🔒 | Guidance chat within a System Lab session |
+
+**Note:** LLM-mutating endpoints (`🔒`) are protected by usage quota. Exhausting free quota (or IP cap) returns 402 Payment Required.
 
 ### Middleware Pipeline
 
-Requests pass through in this order: `ExceptionHandlingMiddleware` → `RequestLoggingMiddleware` → HTTPS Redirection → Rate Limiting → CORS → Controllers.
+Requests pass through (in order):
 
-Rate limiting: fixed-window, 60 req/min per IP, no queue — excess requests receive `429` immediately.
+1. `UseExceptionHandler()` + `AppExceptionHandler` (maps domain exceptions via `IExceptionMapper` adapters)
+2. `UseRequestLogging()`
+3. Swagger (dev only)
+4. `UseForwardedHeaders()` (for correct client IP behind proxies)
+5. HTTPS Redirection
+6. `UseRateLimiter()` — 60 requests / minute per client IP (fixed window, 429 on excess)
+7. CORS
+8. Authentication / Authorization
+9. Controllers
 
-### Security
+**Quota enforcement** (402) happens inside the `UsageEnforcingLlmService` decorator before expensive LLM calls. 402 = out of quota/credits; 429 = rate limit.
+
+### Security & Cost Protection
 
 - API keys are never committed. `appsettings.Development.json` is gitignored.
 - Error responses never include stack traces.
 - Request logging never captures request or response bodies.
 - User code runs inside Piston — isolated Linux container, no network access, chroot filesystem, cgroup CPU/memory/time limits. The API host process is never exposed to submitted code.
 - `CodeExecution:Backend=LocalProcess` must never be used in any deployed environment.
+- LLM spend is protected by `IUsageEnforcer` (pre-check + post-record) using `ICurrentUser.ObjectId` (Entra or explicit debug list). See quota details above.
 
 ---
 
@@ -149,22 +184,31 @@ Rate limiting: fixed-window, 60 req/min per IP, no queue — excess requests rec
 dotnet build CodeSmith.slnx
 ```
 
-**2. Configure the Anthropic API key**
+**2. Configure keys and (for full features) the database**
 
-Create `CodeSmith.Api/appsettings.Development.json` (gitignored):
+Create `CodeSmith.Api/appsettings.Development.json` (gitignored). Minimal example:
 
 ```json
 {
   "Logging": { "LogLevel": { "Default": "Information", "Microsoft.AspNetCore": "Warning" } },
-  "Anthropic": { "ApiKey": "sk-ant-your-key-here" }
+  "Anthropic": { "ApiKey": "sk-ant-your-key-here" },
+  "Usage": {
+    "AllowedDebugObjectIds": ["my-test-user-123"]
+  }
 }
 ```
 
-Or set it as an environment variable:
+For complete testing of quota, credits, and usage enforcement, also add a connection string:
 
-```powershell
-$env:Anthropic__ApiKey = "sk-ant-your-key-here"
+```json
+"ConnectionStrings": {
+  "CodeSmithDb": "Server=(localdb)\\MSSQLLocalDB;Database=CodeSmithDev;Trusted_Connection=True;TrustServerCertificate=True;"
+}
 ```
+
+Or use environment variables / user secrets.
+
+**Debug users**: Set `X-Debug-User-Id: my-test-user-123` (only values listed in `AllowedDebugObjectIds` are honored). Different values act as different users for quota tracking.
 
 **3. Start Piston and install language runtimes**
 
@@ -225,6 +269,8 @@ cd CodeSmith.Web ; npm run dev
 
 Frontend runs at `https://localhost:5173`. Proxies `/api/*` to the backend. Accept the self-signed cert warning on first visit.
 
+To test as different users or exercise quota, use a browser extension to inject `X-Debug-User-Id` (value must be listed under `Usage:AllowedDebugObjectIds` in your dev settings).
+
 **CLI (optional):**
 
 ```powershell
@@ -244,6 +290,12 @@ dotnet run --project CodeSmith.CLI
 | Playwright E2E | `cd CodeSmith.Web ; npx playwright test` |
 
 Playwright requires both the API and frontend running.
+
+### Additional Documentation
+
+- `CONTEXT.md` — Ground-truth architecture reference (seams, lifetimes, ubiquitous language, current state).
+- `USER_TESTING.md` — Manual / user-based end-to-end testing guide for the full product.
+- `Recaps/` — Historical design and implementation recaps (LLM seam reshape, usage enforcement, quota overhaul, deploy seam, etc.).
 
 ---
 
@@ -272,14 +324,16 @@ This executes submitted code as host subprocesses. Requires `python`, `npx`/`tsx
 
 ---
 
-### Before Production Deployment
+### Deployment & Production
 
-The compose file currently only defines Piston. Before deploying publicly:
+A minimal production deploy seam now exists:
 
-1. Write `CodeSmith.Api/Dockerfile` — multi-stage .NET 8 build (SDK image → runtime image).
-2. Add an `api` service to `docker-compose.yml` that depends on `piston` and communicates over the internal Docker network (`CodeExecution:Piston:BaseUrl=http://piston:2000`).
-3. Add a `docker-compose.prod.yml` overlay — API key from a secret manager, no source bind-mounts, tighter restart policies. Deploy with `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`.
-4. Remove `ports: ["2000:2000"]` from Piston in the prod overlay — only the API should reach it; Piston is not a public surface.
-5. Add per-user rate limiting. The current 60 req/min global limit is not sufficient to prevent a single user from burning compute on Test Code runs.
+- `CodeSmith.Api/Dockerfile` (multi-stage .NET 8)
+- `.dockerignore` (handles slnx + excluded projects)
+- `.github/workflows/deploy-azure.yml` (manual `workflow_dispatch` to ACR + Container Apps)
 
-No code changes required — the `ICodeExecutionService` seam and API are already shaped correctly for containerization.
+**To run locally with full SaaS features** (quota, credits, usage ledger): provide a `ConnectionStrings:CodeSmithDb` pointing to SQL Server. Usage tables (`CreditBalances`, `IpFreeUsages`, `UsageLedgerEntries`) are created via EF migrations (apply separately; no auto-migrate in the app).
+
+See `Recaps/2026-06-19-azure-deploy-seam.md` and `USER_TESTING.md` for more.
+
+The old "before production" list in previous versions of this document has been partially implemented. Consult the Azure deploy recap and handoff docs for the current state of the deploy seam.

@@ -46,6 +46,7 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<CodeSmith.Core.Interfaces.ICreditBalanceRepository, CodeSmith.Infrastructure.Persistence.Repositories.EfCreditBalanceRepository>();
         services.AddScoped<CodeSmith.Core.Interfaces.IUsageLedgerRepository, CodeSmith.Infrastructure.Persistence.Repositories.EfUsageLedgerRepository>();
+        services.AddScoped<CodeSmith.Core.Interfaces.IIpFreeUsageRepository, CodeSmith.Infrastructure.Persistence.Repositories.EfIpFreeUsageRepository>();
         services.AddSingleton<CodeSmith.Core.Interfaces.ILlmPricing, CodeSmith.Infrastructure.Services.Usage.LlmPricing>();
         services.AddScoped<CodeSmith.Core.Interfaces.IUsageEnforcer, CodeSmith.Infrastructure.Services.Usage.UsageEnforcer>();
         // Per-user lock registry — singleton so check/record serialize across requests and concurrent completions

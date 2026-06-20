@@ -4,8 +4,9 @@ using System.ComponentModel.DataAnnotations;
 namespace CodeSmith.Core.Models.Usage;
 
 /// <summary>
-/// Per-user balance for free monthly quota + prepaid credits.
+/// Per-user balance for free quota (time-boxed window) + prepaid credits.
 /// Strong consistency enforced at the database/row level for checks.
+/// Free quota is available only for the first 48 hours after first sighting of the objectId.
 /// </summary>
 public class CreditBalance
 {
@@ -14,11 +15,11 @@ public class CreditBalance
 
     public decimal PaidCreditsBalance { get; set; }                 // Purchased credits (treated in USD-equivalent for pass-through + markup)
 
-    public long FreeTokensUsedThisMonth { get; set; }               // Tokens consumed against the free monthly quota
+    public long FreeTokensUsedInWindow { get; set; }                // Tokens consumed against the free window quota
 
-    public long FreeQuotaMax { get; set; } = 100_000;               // Configurable hard cap for free tier (default; overridable via UsageOptions)
+    public long FreeQuotaMax { get; set; } = 20_000;                // Configurable hard cap for free tier (default; overridable via UsageOptions)
 
-    public DateTime LastFreeResetUtc { get; set; } = DateTime.UtcNow; // Used to detect monthly rollover and reset FreeTokensUsedThisMonth
+    public DateTime FirstSeenUtc { get; set; } = DateTime.UtcNow;   // Start of the 48h free window for this objectId (global)
 
     [Timestamp]
     public byte[]? RowVersion { get; set; }                         // Optimistic concurrency token for safe concurrent deducts
