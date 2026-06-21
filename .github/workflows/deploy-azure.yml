@@ -73,4 +73,6 @@ jobs:
           az containerapp update \
             --name ca-codesmith-api-001 \
             --resource-group rg-codesmith-prod-centralus-001 \
-            --image acrcodesmithprod001.azurecr.io/codesmith-api:${{ github.sha }}
+            --image acrcodesmithprod001.azurecr.io/codesmith-api:${{ github.sha }} \
+            --registry-server acrcodesmithprod001.azurecr.io \
+            --registry-identity /subscriptions/b4449a41-633d-420e-8939-23c0f7a72e40/resourceGroups/rg-codesmith-prod-centralus-001/providers/Microsoft.ManagedIdentity/userAssignedIdentities/mi-codesmith-backend-prod-centralus-001
