@@ -14,8 +14,8 @@ COPY CodeSmith.Core/CodeSmith.Core.csproj CodeSmith.Core/
 COPY CodeSmith.Infrastructure/CodeSmith.Infrastructure.csproj CodeSmith.Infrastructure/
 COPY CodeSmith.Api/CodeSmith.Api.csproj CodeSmith.Api/
 
-# Restore using the authoritative solution (requires all project manifests to be present — see .dockerignore negations)
-RUN dotnet restore CodeSmith.slnx
+# Restore the API project (and its dependencies)
+RUN dotnet restore CodeSmith.Api/CodeSmith.Api.csproj
 
 # Copy remaining source
 COPY . .
