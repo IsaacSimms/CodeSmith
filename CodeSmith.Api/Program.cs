@@ -6,6 +6,7 @@ using CodeSmith.Api.Middleware.ExceptionMappers;
 using CodeSmith.Api.Services;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Infrastructure.DependencyInjection;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -42,9 +43,25 @@ builder.Services.AddExceptionHandler<AppExceptionHandler>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
 
-// Minimal auth skeleton so [Authorize] on LLM actions works. Full Entra wiring (AddMicrosoftIdentityWebApi etc.) comes in next seam work.
-builder.Services.AddAuthentication();
+// == Dev Debug Auth Scheme == //
+// In Development we register "Debug" as the default authentication scheme and wire the
+// DebugAuthenticationHandler. A request carrying X-Debug-User-Id whose value is present in
+// Usage:AllowedDebugObjectIds will be treated as authenticated. This makes every [Authorize]
+// attribute on LLM-spending actions succeed so that HttpCurrentUser + the usage decorators
+// are reached. The scheme is deliberately Development-only; non-dev environments will still
+// enforce that a real authentication scheme must be configured.
+// Full Entra wiring (AddMicrosoftIdentityWebApi) replaces this registration later.
 builder.Services.AddAuthorization();
+
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddAuthentication("Debug")
+        .AddScheme<AuthenticationSchemeOptions, DebugAuthenticationHandler>("Debug", options => { });
+}
+else
+{
+    builder.Services.AddAuthentication();
+}
 
 // Register CodeSmith Infrastructure services (Anthropic client, session store)
 builder.Services.AddCodeSmithInfrastructure(builder.Configuration);

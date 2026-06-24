@@ -2,7 +2,7 @@
 
 CodeSmith is an AI-powered practice tool for technical interviews. It hosts three independent practice surfaces — **Tutoring** (coding problems with a Socratic pair-programmer), **Prompt Lab** (prompt-engineering challenges scored against a rubric), and **System Lab** (system-design justification scenarios) — over a shared, provider-agnostic LLM layer. Every LLM call is metered against a per-user free quota and paid credit balance so the SaaS cannot be run at a loss.
 
-This document is the ground-truth architectural reference. It reflects the repo as of 2026-06-19. Keep the Seams table, API Reference, subsystem sections, and the [Ubiquitous Language](#ubiquitous-language) glossary updated as the architecture evolves.
+This document is the ground-truth architectural reference. It reflects the repo as of 2026-06-19 (reviewed 2026-06-23). Keep the Seams table, API Reference, subsystem sections, and the [Ubiquitous Language](#ubiquitous-language) glossary updated as the architecture evolves.
 
 > **Vocabulary note.** This project uses a deliberate architecture vocabulary — **Module, Interface, Implementation, Depth, Seam, Adapter, Leverage, Locality**. Definitions are in the [Ubiquitous Language](#ubiquitous-language) section at the end. Use these terms exactly; do not substitute "component / service / boundary."
 
@@ -147,7 +147,7 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 
 ### Authentication & usage
 
-- LLM-mutating endpoints carry `[Authorize]`. Auth is a minimal skeleton today (`AddAuthentication`/`AddAuthorization`); full Entra (`AddMicrosoftIdentityWebApi`) wiring is planned.
+- LLM-mutating endpoints carry `[Authorize]`. In Development a "Debug" scheme (registered only under `IsDevelopment()`) accepts allow-listed `X-Debug-User-Id` headers to satisfy auth. Full Entra (`AddMicrosoftIdentityWebApi`) wiring is planned for later.
 - `ICurrentUser.ObjectId` is the stable Entra objectId. `HttpCurrentUser` resolves it from the request (with a dev bypass); `NoopCurrentUser` is the Infrastructure default so decorator registration succeeds without the Api layer.
 - Usage decorators require a non-null `ObjectId` and throw `InvalidOperationException` if absent.
 
