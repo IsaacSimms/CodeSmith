@@ -99,6 +99,10 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<ILlmServiceFactory, LlmServiceFactory>();
 
+        // Shared multi-turn guidance Module — owns the append/trim/call/persist/rollback turn invariant
+        // for all three surfaces. Scoped because it resolves the scoped ILlmServiceFactory.
+        services.AddScoped<IGuidanceConversation, GuidanceConversation>();
+
         // Stateless singletons — safe and avoid repeated allocations
         services.AddSingleton<ITutoringPromptTemplates, TutoringPromptTemplates>();
         services.AddSingleton<IProblemResponseParser, ProblemResponseParser>();

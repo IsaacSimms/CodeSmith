@@ -15,16 +15,14 @@ public class SystemLabServiceTests
 {
     private readonly ISystemLabSessionStore        _sessionStore = Substitute.For<ISystemLabSessionStore>();
     private readonly ISystemLabEvaluator           _evaluator    = Substitute.For<ISystemLabEvaluator>();
-    private readonly ILlmServiceFactory            _factory      = Substitute.For<ILlmServiceFactory>();
-    private readonly ILlmService                   _llmService   = Substitute.For<ILlmService>();
+    private readonly IGuidanceConversation         _guidance     = Substitute.For<IGuidanceConversation>();
     private readonly ILogger<SystemLabService>     _logger       = Substitute.For<ILogger<SystemLabService>>();
     private readonly SystemLabService              _service;
 
     public SystemLabServiceTests()
     {
-        _factory.Get(Arg.Any<AiProvider>()).Returns(_llmService);
         _sessionStore.GetLock(Arg.Any<string>()).Returns(new SemaphoreSlim(1, 1)); // Required for all submit/chat paths
-        _service = new SystemLabService(_evaluator, _factory, _sessionStore, _logger);
+        _service = new SystemLabService(_evaluator, _guidance, _sessionStore, _logger);
     }
 
     // == Catalog Tests == //
@@ -165,37 +163,28 @@ public class SystemLabServiceTests
             () => _service.ChatAsync(Guid.NewGuid(), "help me", null));
     }
 
+    // The append/persist/rollback turn mechanics now live in GuidanceConversation (see
+    // GuidanceConversationTests); the orchestrator's job is only to route the right history, provider,
+    // and SystemLab:Chat feature and return the reply.
     [Fact]
-    public async Task ChatAsync_AppendsBothTurnsToSessionChatHistory()
+    public async Task ChatAsync_DelegatesToGuidanceWithSessionHistoryAndReturnsContent()
     {
         var scenarioId = _service.GetScenarios()[0].ScenarioId;
-        var session    = new SystemLabSession { ScenarioId = scenarioId };
+        var session    = new SystemLabSession { ScenarioId = scenarioId, Provider = AiProvider.Anthropic };
 
         _sessionStore.Get(session.SessionId.ToString()).Returns(session);
 
-        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new LlmResponse { Content = "Think about why private endpoints matter here." });
-
-        await _service.ChatAsync(session.SessionId, "what should I consider?", "my draft justification");
-
-        // User turn + assistant turn both stored
-        Assert.Equal(2, session.ChatHistory.Count);
-        _sessionStore.Received(1).Set(Arg.Is<SystemLabSession>(s => s.ChatHistory.Count == 2));
-    }
-
-    [Fact]
-    public async Task ChatAsync_ReturnsAssistantResponse()
-    {
-        var scenarioId = _service.GetScenarios()[0].ScenarioId;
-        var session    = new SystemLabSession { ScenarioId = scenarioId };
-
-        _sessionStore.Get(session.SessionId.ToString()).Returns(session);
-
-        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+        _guidance.RunTurnAsync(Arg.Any<AiProvider>(), Arg.Any<List<ChatMessage>>(), Arg.Any<GuidanceTurnRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "Consider the RTO implications." });
 
-        var response = await _service.ChatAsync(session.SessionId, "what about failover?", null);
+        var response = await _service.ChatAsync(session.SessionId, "what about failover?", "my draft justification");
 
         Assert.Equal("Consider the RTO implications.", response);
+        await _guidance.Received(1).RunTurnAsync(
+            session.Provider,
+            session.ChatHistory,
+            Arg.Is<GuidanceTurnRequest>(r => r.Feature == "SystemLab:Chat" && r.UserMessage == "what about failover?"),
+            Arg.Any<Action>(),
+            Arg.Any<CancellationToken>());
     }
 }

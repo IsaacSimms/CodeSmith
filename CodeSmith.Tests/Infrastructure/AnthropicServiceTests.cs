@@ -15,18 +15,35 @@ public class TutoringServiceTests
 
     private static TutoringService BuildService(
         IProblemGenerator?             problemGenerator = null,
-        ILlmServiceFactory?            factory          = null,
+        IGuidanceConversation?         guidance         = null,
         ISessionStore<ProblemSession>? store            = null,
         ICodeExecutionService?         codeExec         = null,
         ITutoringPromptTemplates?      templates        = null,
         ILogger<TutoringService>?      logger           = null)
         => new(
             problemGenerator ?? Substitute.For<IProblemGenerator>(),
-            factory          ?? Substitute.For<ILlmServiceFactory>(),
+            guidance         ?? Substitute.For<IGuidanceConversation>(),
             store            ?? Substitute.For<ISessionStore<ProblemSession>>(),
             codeExec         ?? Substitute.For<ICodeExecutionService>(),
             templates        ?? Substitute.For<ITutoringPromptTemplates>(),
             logger           ?? Substitute.For<ILogger<TutoringService>>());
+
+    // Builds a guidance substitute that returns the given reply, so the orchestrator can project it.
+    private static IGuidanceConversation GuidanceReturning(LlmResponse response)
+    {
+        var guidance = Substitute.For<IGuidanceConversation>();
+        guidance.RunTurnAsync(Arg.Any<AiProvider>(), Arg.Any<List<ChatMessage>>(), Arg.Any<GuidanceTurnRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>())
+            .Returns(response);
+        return guidance;
+    }
+
+    private static ITutoringPromptTemplates TemplatesReturning(string systemPrompt)
+    {
+        var templates = Substitute.For<ITutoringPromptTemplates>();
+        templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<GuidanceMode>())
+            .Returns(systemPrompt);
+        return templates;
+    }
 
     // == Session Not Found Tests == //
 
@@ -91,9 +108,13 @@ public class TutoringServiceTests
     }
 
     // == Guidance Happy Path == //
+    // The turn mechanics (append user/assistant, history window, rollback, error-wrapping) live in
+    // GuidanceConversation — see GuidanceConversationTests. These cover the orchestrator's own job:
+    // building the prompt from templates, delegating with the Tutoring:Guidance feature, and projecting
+    // the returned completion into a ChatResponse.
 
     [Fact]
-    public async Task GetGuidanceAsync_ReturnsLlmResponseWithTokenInfo()
+    public async Task GetGuidanceAsync_DelegatesWithSessionHistoryAndProjectsResult()
     {
         var session = new ProblemSession
         {
@@ -106,107 +127,24 @@ public class TutoringServiceTests
         var store = Substitute.For<ISessionStore<ProblemSession>>();
         store.Get(Arg.Any<string>()).Returns(session);
 
-        var llmService = Substitute.For<ILlmService>();
-        llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new LlmResponse { Content = "Think about goroutines.", InputTokensUsed = 75, ContextWindowSize = 200_000 });
+        var guidance = GuidanceReturning(new LlmResponse { Content = "Think about goroutines.", InputTokensUsed = 75, ContextWindowSize = 200_000 });
 
-        var factory = Substitute.For<ILlmServiceFactory>();
-        factory.Get(AiProvider.Anthropic).Returns(llmService);
-
-        var templates = Substitute.For<ITutoringPromptTemplates>();
-        templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<GuidanceMode>())
-            .Returns("system prompt");
-
-        var service = BuildService(factory: factory, store: store, templates: templates);
+        var service = BuildService(guidance: guidance, store: store, templates: TemplatesReturning("system prompt"));
 
         var response = await service.GetGuidanceAsync(session.SessionId, "I'm stuck", null, GuidanceMode.Guidance, CancellationToken.None);
 
+        // Projects the completion's token info into the ChatResponse
         Assert.Equal("Think about goroutines.", response.Response);
-        Assert.Equal(75,       response.ContextTokensUsed);
-        Assert.Equal(200_000,  response.ContextWindowSize);
-    }
+        Assert.Equal(75,      response.ContextTokensUsed);
+        Assert.Equal(200_000, response.ContextWindowSize);
 
-    [Fact]
-    public async Task GetGuidanceAsync_AppendsUserAndAssistantMessagesToSession()
-    {
-        var session = new ProblemSession
-        {
-            Language           = Language.CSharp,
-            Provider           = AiProvider.Anthropic,
-            ProblemDescription = "Sort a list.",
-            StarterCode        = "void Sort() {}"
-        };
-
-        var store = Substitute.For<ISessionStore<ProblemSession>>();
-        store.Get(Arg.Any<string>()).Returns(session);
-
-        var llmService = Substitute.For<ILlmService>();
-        llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new LlmResponse { Content = "Try QuickSort.", InputTokensUsed = 20, ContextWindowSize = 200_000 });
-
-        var factory = Substitute.For<ILlmServiceFactory>();
-        factory.Get(Arg.Any<AiProvider>()).Returns(llmService);
-
-        var templates = Substitute.For<ITutoringPromptTemplates>();
-        templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<GuidanceMode>())
-            .Returns("system prompt");
-
-        var service = BuildService(factory: factory, store: store, templates: templates);
-
-        await service.GetGuidanceAsync(session.SessionId, "What algorithm should I use?", null, GuidanceMode.Guidance, CancellationToken.None);
-
-        store.Received(1).Set(Arg.Is<ProblemSession>(s =>
-            s.Messages.Count == 2 &&
-            s.Messages[0].Role    == MessageRole.User      && s.Messages[0].Content == "What algorithm should I use?" &&
-            s.Messages[1].Role    == MessageRole.Assistant && s.Messages[1].Content == "Try QuickSort."));
-    }
-
-    [Fact]
-    public async Task GetGuidanceAsync_PassesPriorHistoryToLlm()
-    {
-        var session = new ProblemSession
-        {
-            Language           = Language.Rust,
-            Provider           = AiProvider.Anthropic,
-            ProblemDescription = "Implement a stack.",
-            StarterCode        = "struct Stack {}"
-        };
-
-        // Pre-populate with one prior exchange
-        session.Messages.Add(new ChatMessage { Role = MessageRole.User,      Content = "first question" });
-        session.Messages.Add(new ChatMessage { Role = MessageRole.Assistant, Content = "first answer"   });
-
-        var store = Substitute.For<ISessionStore<ProblemSession>>();
-        store.Get(Arg.Any<string>()).Returns(session);
-
-        // Snapshot the history contents at call time — session.Messages is the same list object
-        // and gets mutated (assistant message appended) immediately after the LLM returns.
-        // Arg.Is would evaluate against the post-mutation list (4 items, not 3).
-        List<string>? capturedContents = null;
-        var llmService = Substitute.For<ILlmService>();
-        llmService
-            .When(x => x.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>()))
-            .Do(call => capturedContents = call.Arg<CompletionRequest>().Messages.Select(m => m.Content).ToList());
-        llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new LlmResponse { Content = "second answer", InputTokensUsed = 30, ContextWindowSize = 200_000 });
-
-        var factory = Substitute.For<ILlmServiceFactory>();
-        factory.Get(Arg.Any<AiProvider>()).Returns(llmService);
-
-        var templates = Substitute.For<ITutoringPromptTemplates>();
-        templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<GuidanceMode>())
-            .Returns("system prompt");
-
-        var service = BuildService(factory: factory, store: store, templates: templates);
-
-        await service.GetGuidanceAsync(session.SessionId, "second question", null, GuidanceMode.Guidance, CancellationToken.None);
-
-        // LLM receives 2 prior messages + the new user message = 3 total
-        Assert.NotNull(capturedContents);
-        Assert.Equal(3,               capturedContents.Count);
-        Assert.Equal("first question", capturedContents[0]);
-        Assert.Equal("first answer",   capturedContents[1]);
-        Assert.Equal("second question", capturedContents[2]);
+        // Delegates the turn against the session's own history, provider, and the Tutoring:Guidance feature
+        await guidance.Received(1).RunTurnAsync(
+            session.Provider,
+            session.Messages,
+            Arg.Is<GuidanceTurnRequest>(r => r.Feature == "Tutoring:Guidance" && r.UserMessage == "I'm stuck"),
+            Arg.Any<Action>(),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -223,18 +161,8 @@ public class TutoringServiceTests
         var store = Substitute.For<ISessionStore<ProblemSession>>();
         store.Get(Arg.Any<string>()).Returns(session);
 
-        var llmService = Substitute.For<ILlmService>();
-        llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new LlmResponse { Content = "Good start.", InputTokensUsed = 10, ContextWindowSize = 200_000 });
-
-        var factory = Substitute.For<ILlmServiceFactory>();
-        factory.Get(Arg.Any<AiProvider>()).Returns(llmService);
-
-        var templates = Substitute.For<ITutoringPromptTemplates>();
-        templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<GuidanceMode>())
-            .Returns("system prompt");
-
-        var service = BuildService(factory: factory, store: store, templates: templates);
+        var templates = TemplatesReturning("system prompt");
+        var service   = BuildService(guidance: GuidanceReturning(new LlmResponse { Content = "Good start." }), store: store, templates: templates);
 
         await service.GetGuidanceAsync(session.SessionId, "review my code", "const solve = () => 42;", GuidanceMode.Guidance, CancellationToken.None);
 
@@ -260,18 +188,8 @@ public class TutoringServiceTests
         var store = Substitute.For<ISessionStore<ProblemSession>>();
         store.Get(Arg.Any<string>()).Returns(session);
 
-        var llmService = Substitute.For<ILlmService>();
-        llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new LlmResponse { Content = "Your output looks correct.", InputTokensUsed = 15, ContextWindowSize = 200_000 });
-
-        var factory = Substitute.For<ILlmServiceFactory>();
-        factory.Get(Arg.Any<AiProvider>()).Returns(llmService);
-
-        var templates = Substitute.For<ITutoringPromptTemplates>();
-        templates.GuidanceSystemPrompt(Arg.Any<Language>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<GuidanceMode>())
-            .Returns("code analysis system prompt");
-
-        var service = BuildService(factory: factory, store: store, templates: templates);
+        var templates = TemplatesReturning("code analysis system prompt");
+        var service   = BuildService(guidance: GuidanceReturning(new LlmResponse { Content = "Your output looks correct." }), store: store, templates: templates);
 
         await service.GetGuidanceAsync(session.SessionId, "I ran my code", null, guidanceMode: GuidanceMode.CodeAnalysis, CancellationToken.None);
 

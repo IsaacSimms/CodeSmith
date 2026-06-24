@@ -19,10 +19,10 @@ public class PromptLabService : IPromptLabService
     private readonly IPromptEvaluator    _evaluator;
     private readonly ITestInputGenerator _generator;
     private readonly IPromptLabSessionStore _sessionStore;
-    private readonly ILlmServiceFactory  _factory;
+    private readonly IGuidanceConversation _guidance;
     private readonly ILogger<PromptLabService> _logger;
 
-    private const int ChatHistoryWindow = 20;   // Max turns retained before trimming
+    private const int ChatHistoryWindow = 20;   // Max messages retained before older turns are trimmed
     private const int ChatMaxTokens     = 1024; // Response token budget for guidance replies
 
     public PromptLabService(
@@ -30,14 +30,14 @@ public class PromptLabService : IPromptLabService
         IPromptEvaluator evaluator,
         ITestInputGenerator generator,
         IPromptLabSessionStore sessionStore,
-        ILlmServiceFactory factory,
+        IGuidanceConversation guidance,
         ILogger<PromptLabService> logger)
     {
         _simulator    = simulator;
         _evaluator    = evaluator;
         _generator    = generator;
         _sessionStore = sessionStore;
-        _factory      = factory;
+        _guidance     = guidance;
         _logger       = logger;
     }
 
@@ -120,35 +120,17 @@ public class PromptLabService : IPromptLabService
         var session   = _sessionStore.Get(sessionId.ToString()) ?? throw new SessionNotFoundException(sessionId);
         var challenge = GetChallenge(session.ChallengeId);
 
-        // Append user turn before calling LLM so history is current
-        session.ChatHistory.Add(new ChatMessage { Role = MessageRole.User, Content = message });
-        TrimHistoryIfNeeded(session);
-
         var systemPrompt = BuildChatSystemPrompt(challenge, session, editorContent);
-
-        try
+        var response = await _guidance.RunTurnAsync(session.Provider, session.ChatHistory, new GuidanceTurnRequest
         {
-            var response = await _factory.Get(session.Provider).CompleteAsync(new CompletionRequest
-            {
-                SystemPrompt = systemPrompt,
-                Messages     = session.ChatHistory,
-                Tier         = ModelTier.Fast,
-                MaxTokens    = ChatMaxTokens,
-                Feature      = "PromptLab:Chat"
-            }, ct);
+            SystemPrompt = systemPrompt,
+            UserMessage  = message,
+            MaxTokens    = ChatMaxTokens,
+            MaxTurns     = ChatHistoryWindow,
+            Feature      = "PromptLab:Chat"
+        }, () => _sessionStore.Set(session), ct);
 
-            session.ChatHistory.Add(new ChatMessage { Role = MessageRole.Assistant, Content = response.Content });
-            _sessionStore.Set(session);
-
-            return response.Content;
-        }
-        catch (Exception ex) when (ex is not AiServiceException and not SessionNotFoundException and not ChallengeNotFoundException)
-        {
-            // Remove the optimistically added user turn so history stays consistent on failure
-            session.ChatHistory.RemoveAt(session.ChatHistory.Count - 1);
-            _logger.LogError(ex, "Failed to get guidance for session {SessionId}", sessionId);
-            throw new AiServiceException("Failed to get guidance. Please try again.", ex);
-        }
+        return response.Content;
     }
 
     // == Chat Prompt Builder == //
@@ -200,13 +182,5 @@ public class PromptLabService : IPromptLabService
 
         sb.AppendLine("Guide the student. Do not reveal hidden test inputs or adversarial conditions.");
         return sb.ToString();
-    }
-
-    // == Helpers == //
-
-    private static void TrimHistoryIfNeeded(PromptLabSession session)
-    {
-        while (session.ChatHistory.Count > ChatHistoryWindow)
-            session.ChatHistory.RemoveAt(0);
     }
 }

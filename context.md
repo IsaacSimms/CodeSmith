@@ -81,6 +81,7 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 | LLM completion (all surfaces) | `ILlmService` | `AnthropicLlmService`, `OpenAiCompatibleLlmService` (OpenAI + xAI), each wrapped by `UsageEnforcingLlmService` |
 | Provider routing | `ILlmServiceFactory` | `LlmServiceFactory` (keyed DI by `AiProvider`) |
 | Per-user usage lock | `IUserUsageLock` | `UserUsageLock` (singleton SemaphoreSlim registry) |
+| Guidance turn (shared chat) | `IGuidanceConversation` | `GuidanceConversation` (append/trim/call/persist/rollback for all three surfaces) |
 | Tutoring orchestration | `ITutoringService` | `TutoringService` |
 | Problem generation | `IProblemGenerator` | `ProblemGenerator` (retry-on-truncation loop) |
 | Problem parsing | `IProblemResponseParser` | `ProblemResponseParser` (DESCRIPTION/STARTER_CODE format) |
@@ -221,7 +222,7 @@ OpenAI/xAI map the same Fast/Accurate tiers to their own model names in `OpenAiO
 
 ### Tutoring (coding problems)
 
-`SessionController` → `ITutoringService`. Problem creation delegates to `IProblemGenerator`, which builds a prompt from `ITutoringPromptTemplates`, calls the accurate model, and parses the `DESCRIPTION:` / `STARTER_CODE:` markers via `IProblemResponseParser`. It retries up to 2 times on truncation (`LlmResponse.WasTruncated`) or incomplete parse. Guidance is multi-turn: the user turn is appended to `session.Messages`, the system prompt is rebuilt each turn (it injects the current editor contents), and the fast model answers. `RunCodeAsync` validates the session exists, then delegates to `ICodeExecutionService`.
+`SessionController` → `ITutoringService`. Problem creation delegates to `IProblemGenerator`, which builds a prompt from `ITutoringPromptTemplates`, calls the accurate model, and parses the `DESCRIPTION:` / `STARTER_CODE:` markers via `IProblemResponseParser`. It retries up to 2 times on truncation (`LlmResponse.WasTruncated`) or incomplete parse. Guidance is multi-turn: the service rebuilds the system prompt each turn (injecting the current editor contents) and hands the turn to the shared `IGuidanceConversation`, which owns the append/trim/call/persist/rollback mechanics; the service projects the returned completion into a `ChatResponse`. `RunCodeAsync` validates the session exists, then delegates to `ICodeExecutionService`.
 
 ### Prompt Lab (prompt engineering)
 
@@ -230,11 +231,11 @@ OpenAI/xAI map the same Fast/Accurate tiers to their own model names in `OpenAiO
 - **`IPromptSimulator`** — runs the student's prompt against every test input **in parallel** (fast model), combining locked + adversarial + user prompt content. Effective system prompt = `[LockedSystemPrompt] + [HiddenAdversarialPrompt] + [UserSystemPromptEdits]`; the adversarial segment is invisible to the user and cannot be overridden (anti-gaming).
 - **`IPromptEvaluator`** — scores each output against the rubric **in parallel** (accurate model), returning JSON parsed into `CriterionScore`s.
 
-Chat is Socratic guidance with a 20-turn sliding history window; the user turn is rolled back if the LLM call fails. `ChallengeCatalog` is a static in-memory collection (categories × difficulties, each with a locked prompt, hidden adversarial prompt, test inputs, and rubric).
+Chat is Socratic guidance delegated to the shared `IGuidanceConversation` (20-message sliding window, user turn rolled back on failure). `ChallengeCatalog` is a static in-memory collection (categories × difficulties, each with a locked prompt, hidden adversarial prompt, test inputs, and rubric).
 
 ### System Lab (system design)
 
-`SystemLabController` → `ISystemLabService` → `ISystemLabEvaluator`. The evaluator builds a mode-specific system prompt (`SingleAnswer` / `TradeoffReasoning` / `OpenJudgment`), generates the JSON schema dynamically from the scenario's cross-cutting dimensions, calls the accurate model, and parses criterion scores, tradeoff engagement, and dimension deductions — clamping every value and **dropping hallucinated criterion IDs** to prevent phantom points. Unlike the other surfaces, System Lab session mutation is guarded by a **per-session `SemaphoreSlim`** (`ISystemLabSessionStore.GetLock`).
+`SystemLabController` → `ISystemLabService` → `ISystemLabEvaluator`. The evaluator builds a mode-specific system prompt (`SingleAnswer` / `TradeoffReasoning` / `OpenJudgment`), generates the JSON schema dynamically from the scenario's cross-cutting dimensions, calls the accurate model, and parses criterion scores, tradeoff engagement, and dimension deductions — clamping every value and **dropping hallucinated criterion IDs** to prevent phantom points. Chat delegates to the shared `IGuidanceConversation`. Unlike the other surfaces, System Lab session mutation is guarded by a **per-session `SemaphoreSlim`** (`ISystemLabSessionStore.GetLock`), held by the orchestrator around both submit and chat (it is broader than a single guidance turn, so it stays out of `IGuidanceConversation`).
 
 ### Usage & credits (cost protection)
 
@@ -410,3 +411,7 @@ Shared vocabulary. Each word has an ordinary meaning too — these are the proje
 **CompletionRequest** — the parameter object carrying a Completion's inputs and caller intent (system prompt, messages, tier, max tokens, feature).
 **ModelTier** — the caller-chosen quality/cost tier (`Fast`, `Accurate`); each provider Adapter maps a tier to a concrete model name.
 **Feature** — a free-form `string` label identifying what a Completion is for (e.g. `"Tutoring:Guidance"`); flows to error logs and the usage ledger.
+
+### Domain terms introduced by the Guidance Conversation Seam
+**Guidance Conversation** — the multi-turn Socratic exchange a student has with a surface's tutor (Tutoring, Prompt Lab, or System Lab). The deep Module that owns one round of it is `IGuidanceConversation`; each surface keeps its own system-prompt builder and supplies the result as data.
+**Guidance Turn** — a single round of a Guidance Conversation, the unit behind `IGuidanceConversation.RunTurnAsync(provider, history, GuidanceTurnRequest, persist, ct)`. It owns the full mutation/error invariant in one place: append the user message → trim history to a whole-turn window anchored on a User message → run one Fast-tier Completion → append the assistant reply → persist; on non-domain failure, roll the user turn back and surface `AiServiceException`. Replaces the three hand-copied chat flows in `TutoringService.GetGuidanceAsync`, `PromptLabService.ChatAsync`, and `SystemLabService.ChatAsync` (which diverged on rollback, error-wrapping, and trimming).

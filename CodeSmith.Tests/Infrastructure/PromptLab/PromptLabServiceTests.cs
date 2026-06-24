@@ -2,6 +2,7 @@
 using CodeSmith.Core.Enums;
 using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
+using CodeSmith.Core.Models;
 using CodeSmith.Core.Models.PromptLab;
 using CodeSmith.Infrastructure.Services.PromptLab;
 using Microsoft.Extensions.Logging;
@@ -15,13 +16,13 @@ public class PromptLabServiceTests
     private readonly IPromptSimulator           _simulator    = Substitute.For<IPromptSimulator>();
     private readonly IPromptEvaluator           _evaluator    = Substitute.For<IPromptEvaluator>();
     private readonly ITestInputGenerator        _generator    = Substitute.For<ITestInputGenerator>();
-    private readonly ILlmServiceFactory         _factory      = Substitute.For<ILlmServiceFactory>();
+    private readonly IGuidanceConversation      _guidance     = Substitute.For<IGuidanceConversation>();
     private readonly ILogger<PromptLabService>  _logger       = Substitute.For<ILogger<PromptLabService>>();
     private readonly PromptLabService           _service;
 
     public PromptLabServiceTests()
     {
-        _service = new PromptLabService(_simulator, _evaluator, _generator, _sessionStore, _factory, _logger);
+        _service = new PromptLabService(_simulator, _evaluator, _generator, _sessionStore, _guidance, _logger);
     }
 
     // == Catalog Tests == //
@@ -198,5 +199,40 @@ public class PromptLabServiceTests
 
         Assert.Equal(77,      attempt.PromptTokensUsed);
         Assert.Equal(180_000, attempt.ContextWindowSize);
+    }
+
+    // == ChatAsync Tests == //
+
+    [Fact]
+    public async Task ChatAsync_WithUnknownSession_ThrowsSessionNotFoundException()
+    {
+        _sessionStore.Get(Arg.Any<string>()).Returns((PromptLabSession?)null);
+
+        await Assert.ThrowsAsync<SessionNotFoundException>(
+            () => _service.ChatAsync(Guid.NewGuid(), "help me", null, CancellationToken.None));
+    }
+
+    // Turn mechanics live in GuidanceConversation (see GuidanceConversationTests); the orchestrator only
+    // routes the session history, provider, and PromptLab:Chat feature and returns the reply.
+    [Fact]
+    public async Task ChatAsync_DelegatesToGuidanceWithSessionHistoryAndReturnsContent()
+    {
+        var challengeId = _service.GetChallenges()[0].ChallengeId;
+        var session     = new PromptLabSession { ChallengeId = challengeId, Provider = AiProvider.Anthropic };
+
+        _sessionStore.Get(session.SessionId.ToString()).Returns(session);
+
+        _guidance.RunTurnAsync(Arg.Any<AiProvider>(), Arg.Any<List<ChatMessage>>(), Arg.Any<GuidanceTurnRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmResponse { Content = "What does the rubric reward?" });
+
+        var response = await _service.ChatAsync(session.SessionId, "how do I improve?", "my draft prompt", CancellationToken.None);
+
+        Assert.Equal("What does the rubric reward?", response);
+        await _guidance.Received(1).RunTurnAsync(
+            session.Provider,
+            session.ChatHistory,
+            Arg.Is<GuidanceTurnRequest>(r => r.Feature == "PromptLab:Chat" && r.UserMessage == "how do I improve?"),
+            Arg.Any<Action>(),
+            Arg.Any<CancellationToken>());
     }
 }

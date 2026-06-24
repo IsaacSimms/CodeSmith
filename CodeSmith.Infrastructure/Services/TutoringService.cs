@@ -14,24 +14,25 @@ namespace CodeSmith.Infrastructure.Services;
 public class TutoringService : ITutoringService
 {
     private readonly IProblemGenerator _problemGenerator;
-    private readonly ILlmServiceFactory _factory;
+    private readonly IGuidanceConversation _guidance;
     private readonly ISessionStore<ProblemSession> _sessionStore;
     private readonly ICodeExecutionService _codeExecutionService;
     private readonly ITutoringPromptTemplates _templates;
     private readonly ILogger<TutoringService> _logger;
 
-    private const int GuidanceMaxTokens = 1024; // Per-message guidance response budget
+    private const int GuidanceMaxTokens    = 1024; // Per-message guidance response budget
+    private const int GuidanceHistoryWindow = 20;  // Max messages retained before older turns are trimmed
 
     public TutoringService(
         IProblemGenerator problemGenerator,
-        ILlmServiceFactory factory,
+        IGuidanceConversation guidance,
         ISessionStore<ProblemSession> sessionStore,
         ICodeExecutionService codeExecutionService,
         ITutoringPromptTemplates templates,
         ILogger<TutoringService> logger)
     {
         _problemGenerator     = problemGenerator;
-        _factory              = factory;
+        _guidance             = guidance;
         _sessionStore         = sessionStore;
         _codeExecutionService = codeExecutionService;
         _templates            = templates;
@@ -77,33 +78,15 @@ public class TutoringService : ITutoringService
 
         _logger.LogInformation("Processing guidance request for session {SessionId}", sessionId);
 
-        // Add user message to history before calling the LLM
-        session.Messages.Add(new ChatMessage
-        {
-            Role      = MessageRole.User,
-            Content   = userMessage,
-            Timestamp = DateTime.UtcNow
-        });
-
         var systemPrompt = _templates.GuidanceSystemPrompt(session.Language, session.ProblemDescription, session.StarterCode, editorContent, guidanceMode);
-        var llmResponse  = await _factory.Get(session.Provider).CompleteAsync(new CompletionRequest
+        var llmResponse  = await _guidance.RunTurnAsync(session.Provider, session.Messages, new GuidanceTurnRequest
         {
             SystemPrompt = systemPrompt,
-            Messages     = session.Messages,
-            Tier         = ModelTier.Fast,
+            UserMessage  = userMessage,
             MaxTokens    = GuidanceMaxTokens,
+            MaxTurns     = GuidanceHistoryWindow,
             Feature      = "Tutoring:Guidance"
-        }, ct);
-
-        // Add assistant response to history
-        session.Messages.Add(new ChatMessage
-        {
-            Role      = MessageRole.Assistant,
-            Content   = llmResponse.Content,
-            Timestamp = DateTime.UtcNow
-        });
-
-        _sessionStore.Set(session);
+        }, () => _sessionStore.Set(session), ct);
 
         return new ChatResponse
         {

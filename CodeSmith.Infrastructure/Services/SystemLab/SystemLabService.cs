@@ -11,25 +11,27 @@ namespace CodeSmith.Infrastructure.Services.SystemLab;
 
 /// <summary>
 /// Orchestrates the System Lab workflow: catalog lookup, justification evaluation, and guidance chat.
-/// Delegates evaluation to ISystemLabEvaluator and LLM calls to ILlmServiceFactory routed by session provider.
+/// Delegates evaluation to ISystemLabEvaluator and each guidance turn to IGuidanceConversation, while
+/// retaining the per-session lock that also guards SubmitAttemptAsync.
 /// </summary>
 public class SystemLabService : ISystemLabService
 {
     private readonly ISystemLabEvaluator     _evaluator;
-    private readonly ILlmServiceFactory      _factory;
+    private readonly IGuidanceConversation   _guidance;
     private readonly ISystemLabSessionStore  _sessionStore;
     private readonly ILogger<SystemLabService> _logger;
 
-    private const int ChatMaxTokens = 800;
+    private const int ChatMaxTokens     = 800;
+    private const int ChatHistoryWindow = 20;  // Max messages retained before older turns are trimmed
 
     public SystemLabService(
         ISystemLabEvaluator evaluator,
-        ILlmServiceFactory factory,
+        IGuidanceConversation guidance,
         ISystemLabSessionStore sessionStore,
         ILogger<SystemLabService> logger)
     {
         _evaluator    = evaluator;
-        _factory      = factory;
+        _guidance     = guidance;
         _sessionStore = sessionStore;
         _logger       = logger;
     }
@@ -96,36 +98,23 @@ public class SystemLabService : ISystemLabService
         var session  = _sessionStore.Get(sessionId.ToString()) ?? throw new SessionNotFoundException(sessionId);
         var scenario = GetScenario(session.ScenarioId);
 
+        // The per-session lock stays with the orchestrator: it also guards SubmitAttemptAsync, so it is
+        // broader than a single guidance turn and cannot live inside the Guidance Conversation Module.
         var semaphore = _sessionStore.GetLock(sessionId.ToString());
         await semaphore.WaitAsync(ct);
         try
         {
-            // Append user turn before calling LLM so history is current
-            session.ChatHistory.Add(new ChatMessage { Role = MessageRole.User, Content = message });
-
             var systemPrompt = BuildChatSystemPrompt(scenario, currentJustification);
-            var response     = await _factory.Get(session.Provider).CompleteAsync(new CompletionRequest
+            var response = await _guidance.RunTurnAsync(session.Provider, session.ChatHistory, new GuidanceTurnRequest
             {
                 SystemPrompt = systemPrompt,
-                Messages     = session.ChatHistory,
-                Tier         = ModelTier.Fast,
+                UserMessage  = message,
                 MaxTokens    = ChatMaxTokens,
+                MaxTurns     = ChatHistoryWindow,
                 Feature      = "SystemLab:Chat"
-            }, ct);
-
-            session.ChatHistory.Add(new ChatMessage { Role = MessageRole.Assistant, Content = response.Content });
-            _sessionStore.Set(session);
+            }, () => _sessionStore.Set(session), ct);
 
             return response.Content;
-        }
-        catch (Exception ex) when (ex is not AiServiceException and not SessionNotFoundException and not ScenarioNotFoundException)
-        {
-            // Remove the user turn we added so history stays consistent on failure
-            if (session.ChatHistory.Count > 0 && session.ChatHistory[^1].Role == MessageRole.User)
-                session.ChatHistory.RemoveAt(session.ChatHistory.Count - 1);
-
-            _logger.LogError(ex, "Failed to get guidance for session {SessionId}", sessionId);
-            throw new AiServiceException("Failed to get guidance. Please try again.", ex);
         }
         finally
         {
