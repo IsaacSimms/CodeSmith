@@ -3,7 +3,7 @@ pid: 30584
 cwd: "C:\CodeSmith\CodeSmith"
 command: "cd C:\\CodeSmith\\CodeSmith\\CodeSmith.Api; $env:ASPNETCORE_ENVIRONMENT='Development'; dotnet run --no-build"
 started_at: 2026-06-27T05:45:49.341Z
-running_for_ms: 219998   
+running_for_ms: 1099999  
 ---
 Using launch settings from C:\CodeSmith\CodeSmith\CodeSmith.Api\Properties\launchSettings.json...
 info: Microsoft.Hosting.Lifetime[14]
