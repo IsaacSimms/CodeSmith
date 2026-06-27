@@ -10,15 +10,13 @@ using Microsoft.Extensions.Options;
 namespace CodeSmith.Api.Services;
 
 /// <summary>
-/// Development-only authentication handler. When a request carries an X-Debug-User-Id header
-/// whose value is listed in UsageOptions.AllowedDebugObjectIds, it produces a successful
-/// AuthenticationTicket with the minimal claims needed for [Authorize] and for HttpCurrentUser
-/// to resolve the objectId. All other cases (missing header or unlisted value) return NoResult
-/// so that the authorization pipeline correctly denies.
-/// 
-/// This satisfies [Authorize] on spending endpoints without altering any usage enforcement,
-/// decorators, HttpCurrentUser logic, or controller attributes. It is a temporary bridge until
-/// full Entra External ID is wired.
+/// Development-only side authentication scheme (not the default). Bearer via Entra External ID
+/// is the production-standard default; this handler coexists in Development only. When a request
+/// carries an X-Debug-User-Id header whose value is listed in UsageOptions.AllowedDebugObjectIds,
+/// it produces a successful AuthenticationTicket with the minimal claims needed for [Authorize]
+/// and for HttpCurrentUser to resolve the objectId. All other cases return NoResult.
+///
+/// Temporary dev bridge for Thunder Client smoke tests until CIAM tenant provisioning is complete.
 /// </summary>
 public class DebugAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {

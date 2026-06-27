@@ -1,24 +1,20 @@
-// == Http Current User (dev bypass + Entra objectId extraction) == //
+// == Http Current User (Entra objectId from authenticated claims) == //
 using CodeSmith.Core.Interfaces;
-using CodeSmith.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Options;
 
 namespace CodeSmith.Api.Services;
 
 /// <summary>
-/// Resolves the current user's Entra objectId from claims or debug header (only if explicitly allowed).
-/// Also provides ClientIp for per-IP usage caps. Header bypass is locked down via AllowedDebugObjectIds.
+/// Resolves the current user's Entra objectId from authenticated claims.
+/// Also provides ClientIp for per-IP usage caps.
 /// </summary>
 public class HttpCurrentUser : ICurrentUser
 {
     private readonly IHttpContextAccessor _accessor;
-    private readonly UsageOptions _options;
 
-    public HttpCurrentUser(IHttpContextAccessor accessor, IOptions<UsageOptions> options)
+    public HttpCurrentUser(IHttpContextAccessor accessor)
     {
         _accessor = accessor;
-        _options = options.Value;
     }
 
     public string? ObjectId
@@ -28,24 +24,12 @@ public class HttpCurrentUser : ICurrentUser
             var ctx = _accessor.HttpContext;
             if (ctx is null) return null;
 
-            var header = ctx.Request.Headers["X-Debug-User-Id"].FirstOrDefault();
-            if (!string.IsNullOrWhiteSpace(header))
-            {
-                // Only honor if explicitly listed (production list is empty)
-                if (_options.AllowedDebugObjectIds != null &&
-                    _options.AllowedDebugObjectIds.Contains(header, StringComparer.Ordinal))
-                {
-                    return header;
-                }
-            }
-
-            // Entra External ID typical claims
             var user = ctx.User;
             if (user?.Identity?.IsAuthenticated != true) return null;
 
             return user.FindFirst("oid")?.Value
                 ?? user.FindFirst("http://schemas.microsoft.com/identity/claims/objectidentifier")?.Value
-                ?? user.FindFirst("sub")?.Value; // fallback
+                ?? user.FindFirst("sub")?.Value;
         }
     }
 

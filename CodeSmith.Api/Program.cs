@@ -7,7 +7,10 @@ using CodeSmith.Api.Services;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Infrastructure.DependencyInjection;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Identity.Web;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -43,25 +46,35 @@ builder.Services.AddExceptionHandler<AppExceptionHandler>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
 
-// == Dev Debug Auth Scheme == //
-// In Development we register "Debug" as the default authentication scheme and wire the
-// DebugAuthenticationHandler. A request carrying X-Debug-User-Id whose value is present in
-// Usage:AllowedDebugObjectIds will be treated as authenticated. This makes every [Authorize]
-// attribute on LLM-spending actions succeed so that HttpCurrentUser + the usage decorators
-// are reached. The scheme is deliberately Development-only; non-dev environments will still
-// enforce that a real authentication scheme must be configured.
-// Full Entra wiring (AddMicrosoftIdentityWebApi) replaces this registration later.
-builder.Services.AddAuthorization();
+// == Authentication (Bearer + Dev Debug side path) == //
+// Bearer (Entra External ID) is the default scheme in all environments. In Development only,
+// the Debug scheme is also registered and included in the default authorization policy so
+// allow-listed X-Debug-User-Id headers satisfy [Authorize] without a bearer token.
+var authenticationBuilder = builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme);
+authenticationBuilder.AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
 
 if (builder.Environment.IsDevelopment())
 {
-    builder.Services.AddAuthentication("Debug")
-        .AddScheme<AuthenticationSchemeOptions, DebugAuthenticationHandler>("Debug", options => { });
+    authenticationBuilder.AddScheme<AuthenticationSchemeOptions, DebugAuthenticationHandler>("Debug", _ => { });
 }
-else
+
+builder.Services.AddAuthorization(options =>
 {
-    builder.Services.AddAuthentication();
-}
+    if (builder.Environment.IsDevelopment())
+    {
+        options.DefaultPolicy = new AuthorizationPolicyBuilder(
+                JwtBearerDefaults.AuthenticationScheme, "Debug")
+            .RequireAuthenticatedUser()
+            .Build();
+    }
+    else
+    {
+        options.DefaultPolicy = new AuthorizationPolicyBuilder(
+                JwtBearerDefaults.AuthenticationScheme)
+            .RequireAuthenticatedUser()
+            .Build();
+    }
+});
 
 // Register CodeSmith Infrastructure services (Anthropic client, session store)
 builder.Services.AddCodeSmithInfrastructure(builder.Configuration);
