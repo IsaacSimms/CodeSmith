@@ -72,7 +72,7 @@ public class UsageEnforcerTests
 
         UsageLedgerEntry? captured = null;
         var ledger = Substitute.For<IUsageLedgerRepository>();
-        ledger.AppendAsync(Arg.Do<UsageLedgerEntry>(e => captured = e), Arg.Any<CancellationToken>());
+        _ = ledger.AppendAsync(Arg.Do<UsageLedgerEntry>(e => captured = e), Arg.Any<CancellationToken>());
 
         var enforcer = BuildEnforcer(repo, ledgerRepo: ledger);
 
