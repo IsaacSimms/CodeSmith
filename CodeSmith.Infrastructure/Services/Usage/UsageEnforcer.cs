@@ -70,26 +70,35 @@ public class UsageEnforcer : IUsageEnforcer
             var ipIssued = await _ipRepo.GetIssuedAsync(normalizedIp, ct);
             var ipRem = 60_000L - ipIssued;
 
-            var hasFree = objectFreeRem >= estTotalTokens && ipRem >= estTotalTokens;
+            var hasFreeStrict = windowActive && objectFreeRem >= estTotalTokens && ipRem >= estTotalTokens;
             var hasPaid = balance.PaidCreditsBalance >= estCost;
 
-            if (!hasFree && !hasPaid)
-            {
-                // Lenient "last action" gate: allow the call that will exhaust the quota (if any remaining > 0)
-                // so the user completes the intended action, then subsequent calls are blocked.
-                bool hasObjectRoom = windowActive && objectFreeRem > 0;
-                bool hasIpRoom = ipRem > 0;
-                if (hasObjectRoom || (hasIpRoom && balance.FreeQuotaMax > 0))
-                {
-                    _logger.LogInformation("Permitting final free action for {ObjectId} (will exhaust remaining free quota or IP cap).", objectId);
-                    return true; // will consume free
-                }
+            if (hasFreeStrict)
+                return true;
 
-                _logger.LogWarning("Quota/credit check failed for {ObjectId}. Free remaining: {Free}, IP rem: {IpRem}, Paid: {Paid}, estCost: {Cost}", objectId, objectFreeRem, ipRem, balance.PaidCreditsBalance, estCost);
-                throw new InsufficientQuotaException(objectId, "Insufficient quota or credits for this request.");
+            if (hasPaid)
+                return false;
+
+            var freeCover = ComputeFreeCover(windowActive, objectFreeRem, ipRem, estTotalTokens);
+            if (freeCover > 0)
+            {
+                var overflowTokens = estTotalTokens - freeCover;
+                var (overflowInput, overflowOutput) = SplitTokensProportionally(estInputTokens, estOutputTokens, overflowTokens, estTotalTokens);
+                var overflowCost = _pricing.EstimateUpperBoundCost(provider, overflowInput, overflowOutput);
+
+                if (overflowCost == 0m || balance.PaidCreditsBalance >= overflowCost)
+                {
+                    _logger.LogInformation(
+                        "Strict estimate exceeds remaining free quota; permitting partial-free call for {ObjectId} (free cover {FreeCover}, est {Est})",
+                        objectId, freeCover, estTotalTokens);
+                    return true;
+                }
             }
 
-            return windowActive && objectFreeRem >= estTotalTokens; // indicates free will be used (for tier downgrade)
+            _logger.LogWarning(
+                "Quota/credit check failed for {ObjectId}. WindowActive: {Window}, Free remaining: {Free}, IP rem: {IpRem}, Paid: {Paid}, estCost: {Cost}",
+                objectId, windowActive, objectFreeRem, ipRem, balance.PaidCreditsBalance, estCost);
+            throw new InsufficientQuotaException(objectId, "Insufficient quota or credits for this request.");
         }
         finally
         {
@@ -118,21 +127,19 @@ public class UsageEnforcer : IUsageEnforcer
             var balance = await _balanceRepo.GetAsync(objectId, ct)
                 ?? new CreditBalance { ObjectId = objectId, FreeQuotaMax = _options.FreeMonthlyTokenQuota, FirstSeenUtc = DateTime.UtcNow };
 
-            // Free first (only within active window)
+            // Free first (only within active window), then paid for any remainder
             var windowActive = (DateTime.UtcNow - balance.FirstSeenUtc).TotalHours < 48;
             var freeRem = windowActive ? (balance.FreeQuotaMax - balance.FreeTokensUsedInWindow) : 0L;
+            var ipIssued = await _ipRepo.GetIssuedAsync(normalizedIp, ct);
+            var ipRem = 60_000L - ipIssued;
 
-            long freeUsedThisCall = 0;
-            if (windowActive && freeRem >= actualTokens)
-            {
-                balance.FreeTokensUsedInWindow += actualTokens;
-                freeUsedThisCall = actualTokens;
-            }
-            else
-            {
-                // Fall back to (or continue with) paid credits — debit the customer charge
-                balance.PaidCreditsBalance -= chargeUsd;
-            }
+            var freeUsedThisCall = ComputeFreeCover(windowActive, freeRem, ipRem, actualTokens);
+            if (freeUsedThisCall > 0)
+                balance.FreeTokensUsedInWindow += freeUsedThisCall;
+
+            var paidTokens = actualTokens - freeUsedThisCall;
+            if (paidTokens > 0)
+                balance.PaidCreditsBalance -= chargeUsd * paidTokens / actualTokens;
 
             var entry = new UsageLedgerEntry
             {
@@ -163,5 +170,26 @@ public class UsageEnforcer : IUsageEnforcer
             ipGate?.Release();
             objectGate.Release();
         }
+    }
+
+    // == Quota helpers == //
+
+    private static long ComputeFreeCover(bool windowActive, long objectFreeRem, long ipRem, long totalTokens)
+    {
+        if (!windowActive || objectFreeRem <= 0 || ipRem <= 0 || totalTokens <= 0)
+            return 0;
+        return Math.Min(objectFreeRem, Math.Min(ipRem, totalTokens));
+    }
+
+    private static (int Input, int Output) SplitTokensProportionally(int input, int output, long portion, long total)
+    {
+        if (total <= 0 || portion <= 0)
+            return (0, 0);
+        if (portion >= total)
+            return (input, output);
+
+        var inputPortion = (int)Math.Round(input * (double)portion / total);
+        var outputPortion = (int)(portion - inputPortion);
+        return (inputPortion, outputPortion);
     }
 }

@@ -116,6 +116,180 @@ public class UsageEnforcerTests
         await enforcer.CheckAndReserveAsync(ObjectId, clientIp: null, AiProvider.Anthropic, 10, 10);
     }
 
+    // == Quota exhaustion boundary == //
+
+    [Fact]
+    public async Task CheckAndReserveAsync_ExhaustedObjectQuota_ThrowsInsufficientQuota()
+    {
+        var repo = Substitute.For<ICreditBalanceRepository>();
+        repo.GetAsync(ObjectId, Arg.Any<CancellationToken>())
+            .Returns(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 20_000));
+
+        var ipRepo = Substitute.For<IIpFreeUsageRepository>();
+        ipRepo.GetIssuedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(0L);
+
+        var pricing = Substitute.For<ILlmPricing>();
+        pricing.EstimateUpperBoundCost(Arg.Any<AiProvider>(), Arg.Any<int>(), Arg.Any<int>()).Returns(1m);
+
+        var enforcer = BuildEnforcer(repo, pricing: pricing, ipRepo: ipRepo);
+
+        await Assert.ThrowsAsync<InsufficientQuotaException>(
+            () => enforcer.CheckAndReserveAsync(ObjectId, clientIp: "1.2.3.4", AiProvider.Anthropic, 100, 100));
+    }
+
+    [Fact]
+    public async Task CheckAndReserveAsync_ExhaustedIpQuota_ThrowsInsufficientQuota()
+    {
+        var repo = Substitute.For<ICreditBalanceRepository>();
+        repo.GetAsync(ObjectId, Arg.Any<CancellationToken>())
+            .Returns(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 0));
+
+        var ipRepo = Substitute.For<IIpFreeUsageRepository>();
+        ipRepo.GetIssuedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(60_000L);
+
+        var pricing = Substitute.For<ILlmPricing>();
+        pricing.EstimateUpperBoundCost(Arg.Any<AiProvider>(), Arg.Any<int>(), Arg.Any<int>()).Returns(1m);
+
+        var enforcer = BuildEnforcer(repo, pricing: pricing, ipRepo: ipRepo);
+
+        await Assert.ThrowsAsync<InsufficientQuotaException>(
+            () => enforcer.CheckAndReserveAsync(ObjectId, clientIp: "1.2.3.4", AiProvider.Anthropic, 100, 100));
+    }
+
+    [Fact]
+    public async Task CheckAndReserveAsync_ObjectExhaustedButIpHasRoom_ThrowsInsufficientQuota()
+    {
+        var repo = Substitute.For<ICreditBalanceRepository>();
+        repo.GetAsync(ObjectId, Arg.Any<CancellationToken>())
+            .Returns(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 20_000));
+
+        var ipRepo = Substitute.For<IIpFreeUsageRepository>();
+        ipRepo.GetIssuedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(0L);
+
+        var pricing = Substitute.For<ILlmPricing>();
+        pricing.EstimateUpperBoundCost(Arg.Any<AiProvider>(), Arg.Any<int>(), Arg.Any<int>()).Returns(1m);
+
+        var enforcer = BuildEnforcer(repo, pricing: pricing, ipRepo: ipRepo);
+
+        await Assert.ThrowsAsync<InsufficientQuotaException>(
+            () => enforcer.CheckAndReserveAsync(ObjectId, clientIp: "1.2.3.4", AiProvider.Anthropic, 10, 10));
+    }
+
+    [Fact]
+    public async Task CheckAndReserveAsync_PartialFreeHeadroomWithPaidOverflow_DoesNotThrow()
+    {
+        var repo = Substitute.For<ICreditBalanceRepository>();
+        repo.GetAsync(ObjectId, Arg.Any<CancellationToken>())
+            .Returns(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 19_500, paid: 25m));
+
+        var ipRepo = Substitute.For<IIpFreeUsageRepository>();
+        ipRepo.GetIssuedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(0L);
+
+        var pricing = CreatePerTokenPricing();
+
+        var enforcer = BuildEnforcer(repo, pricing: pricing, ipRepo: ipRepo);
+
+        await enforcer.CheckAndReserveAsync(ObjectId, clientIp: "1.2.3.4", AiProvider.Anthropic, 100, 2500);
+    }
+
+    [Fact]
+    public async Task CheckAndReserveAsync_PartialFreeNoPaidForOverflow_ThrowsInsufficientQuota()
+    {
+        var repo = Substitute.For<ICreditBalanceRepository>();
+        repo.GetAsync(ObjectId, Arg.Any<CancellationToken>())
+            .Returns(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 19_500));
+
+        var ipRepo = Substitute.For<IIpFreeUsageRepository>();
+        ipRepo.GetIssuedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(0L);
+
+        var pricing = CreatePerTokenPricing();
+
+        var enforcer = BuildEnforcer(repo, pricing: pricing, ipRepo: ipRepo);
+
+        await Assert.ThrowsAsync<InsufficientQuotaException>(
+            () => enforcer.CheckAndReserveAsync(ObjectId, clientIp: "1.2.3.4", AiProvider.Anthropic, 100, 2500));
+    }
+
+    [Fact]
+    public async Task CheckAndReserveAsync_WindowExpired_ThrowsInsufficientQuota()
+    {
+        var repo = Substitute.For<ICreditBalanceRepository>();
+        repo.GetAsync(ObjectId, Arg.Any<CancellationToken>())
+            .Returns(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 0, firstSeen: DateTime.UtcNow.AddHours(-49)));
+
+        var ipRepo = Substitute.For<IIpFreeUsageRepository>();
+        ipRepo.GetIssuedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(0L);
+
+        var pricing = Substitute.For<ILlmPricing>();
+        pricing.EstimateUpperBoundCost(Arg.Any<AiProvider>(), Arg.Any<int>(), Arg.Any<int>()).Returns(1m);
+
+        var enforcer = BuildEnforcer(repo, pricing: pricing, ipRepo: ipRepo);
+
+        await Assert.ThrowsAsync<InsufficientQuotaException>(
+            () => enforcer.CheckAndReserveAsync(ObjectId, clientIp: "1.2.3.4", AiProvider.Anthropic, 10, 10));
+    }
+
+    [Fact]
+    public async Task CheckAndReserveAsync_AfterFreeQuotaExhaustedByRecord_ThrowsInsufficientQuota()
+    {
+        var repo = new SnapshotBalanceRepository(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 19_900));
+
+        var ipRepo = Substitute.For<IIpFreeUsageRepository>();
+        ipRepo.GetIssuedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(0L);
+
+        var pricing = CreatePerTokenPricing();
+        var enforcer = BuildEnforcer(repo, pricing: pricing, ipRepo: ipRepo);
+
+        await enforcer.RecordActualAsync(ObjectId, clientIp: "1.2.3.4", AiProvider.Anthropic, "model", actualInput: 50, actualOutput: 50, chargeUsd: 1m, providerCostUsd: 0.5m);
+
+        await Assert.ThrowsAsync<InsufficientQuotaException>(
+            () => enforcer.CheckAndReserveAsync(ObjectId, clientIp: "1.2.3.4", AiProvider.Anthropic, 10, 10));
+    }
+
+    [Fact]
+    public async Task RecordActualAsync_PartialFree_SplitsFreeAndPaidDeduction()
+    {
+        var repo = new SnapshotBalanceRepository(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 19_500, paid: 15m));
+
+        var ipRepo = Substitute.For<IIpFreeUsageRepository>();
+        ipRepo.GetIssuedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(0L);
+
+        var pricing = CreatePerTokenPricing();
+        var enforcer = BuildEnforcer(repo, pricing: pricing, ipRepo: ipRepo);
+
+        await enforcer.RecordActualAsync(ObjectId, clientIp: "1.2.3.4", AiProvider.Anthropic, "model", actualInput: 100, actualOutput: 1700, chargeUsd: 18m, providerCostUsd: 9m);
+
+        Assert.Equal(20_000, repo.Current.FreeTokensUsedInWindow);
+        Assert.Equal(2m, repo.Current.PaidCreditsBalance); // 1300/1800 of $18 charge = $13; 15 - 13 = 2
+        await ipRepo.Received(1).AddIssuedAsync("1.2.3.4", 500, Arg.Any<CancellationToken>());
+    }
+
+    private static CreditBalance ActiveBalance(
+        long freeQuotaMax,
+        long freeTokensUsed,
+        decimal paid = 0m,
+        DateTime? firstSeen = null)
+        => new()
+        {
+            ObjectId               = ObjectId,
+            FreeQuotaMax           = freeQuotaMax,
+            FreeTokensUsedInWindow = freeTokensUsed,
+            PaidCreditsBalance     = paid,
+            FirstSeenUtc           = firstSeen ?? DateTime.UtcNow
+        };
+
+    private static ILlmPricing CreatePerTokenPricing()
+    {
+        var pricing = Substitute.For<ILlmPricing>();
+        pricing.EstimateUpperBoundCost(Arg.Any<AiProvider>(), Arg.Any<int>(), Arg.Any<int>())
+            .Returns(call => (call.ArgAt<int>(1) + call.ArgAt<int>(2)) * 0.01m);
+        pricing.ComputeChargeUsd(Arg.Any<AiProvider>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<int>())
+            .Returns(call => (call.ArgAt<int>(2) + call.ArgAt<int>(3)) * 0.01m);
+        pricing.ComputeCostUsd(Arg.Any<AiProvider>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<int>())
+            .Returns(call => (call.ArgAt<int>(2) + call.ArgAt<int>(3)) * 0.005m);
+        return pricing;
+    }
+
     // == Fake repository that models DB read/write hazard window == //
 
     private sealed class SnapshotBalanceRepository : ICreditBalanceRepository
