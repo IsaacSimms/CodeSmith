@@ -86,6 +86,17 @@ public class SessionControllerTests
         Assert.Equal(400, badRequest.StatusCode);
     }
 
+    [Fact]
+    public async Task CreateSession_WithInvalidProvider_Returns400()
+    {
+        var result = await _controller.CreateSession(
+            new CreateSessionRequest { Difficulty = Difficulty.Easy, Language = Language.CSharp, Provider = (AiProvider)999 },
+            CancellationToken.None);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Equal(400, badRequest.StatusCode);
+    }
+
     [Theory]
     [InlineData(Language.CSharp)]
     [InlineData(Language.Cpp)]

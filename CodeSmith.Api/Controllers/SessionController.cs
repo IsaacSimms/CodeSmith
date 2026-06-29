@@ -62,6 +62,11 @@ public class SessionController : ControllerBase
             return BadRequest(new { error = "Invalid language value. Use CSharp, Cpp, Go, Rust, Python, Java, or TypeScript." });
         }
 
+        if (!Enum.IsDefined(typeof(AiProvider), request.Provider))
+        {
+            return BadRequest(new { error = "Invalid provider value. Use Anthropic, OpenAi, or Xai." });
+        }
+
         var session = await _tutoringService.GenerateProblemAsync(request.Difficulty, request.Language, request.Provider, ct);
 
         return CreatedAtAction(nameof(CreateSession), new { sessionId = session.SessionId }, session);
