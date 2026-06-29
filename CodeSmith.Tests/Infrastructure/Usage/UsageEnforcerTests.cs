@@ -51,11 +51,37 @@ public class UsageEnforcerTests
 
         const int calls = 50;
         var tasks = Enumerable.Range(0, calls).Select(_ =>
-            enforcer.RecordActualAsync(ObjectId, clientIp: null, AiProvider.Anthropic, "model", actualInput: 1, actualOutput: 0, costUsd: 1m));
+            enforcer.RecordActualAsync(ObjectId, clientIp: null, AiProvider.Anthropic, "model", actualInput: 1, actualOutput: 0, chargeUsd: 1m, providerCostUsd: 0.5m));
 
         await Task.WhenAll(tasks);
 
+        // Paid balance is debited the charge, not the raw cost
         Assert.Equal(100m - calls, repo.Current.PaidCreditsBalance);
+    }
+
+    [Fact]
+    public async Task RecordActualAsync_PaidPath_LedgerRecordsChargeAndProviderCost()
+    {
+        var repo = new SnapshotBalanceRepository(new CreditBalance
+        {
+            ObjectId           = ObjectId,
+            FreeQuotaMax       = 0,        // force onto paid credits
+            PaidCreditsBalance = 100m,
+            FirstSeenUtc       = DateTime.UtcNow
+        });
+
+        UsageLedgerEntry? captured = null;
+        var ledger = Substitute.For<IUsageLedgerRepository>();
+        ledger.AppendAsync(Arg.Do<UsageLedgerEntry>(e => captured = e), Arg.Any<CancellationToken>());
+
+        var enforcer = BuildEnforcer(repo, ledgerRepo: ledger);
+
+        await enforcer.RecordActualAsync(ObjectId, clientIp: null, AiProvider.Xai, "grok-4.3", actualInput: 1, actualOutput: 0, chargeUsd: 2m, providerCostUsd: 1m);
+
+        Assert.NotNull(captured);
+        Assert.Equal(2m, captured!.CostUsd);          // charged amount
+        Assert.Equal(1m, captured.ProviderCostUsd);   // raw provider cost
+        Assert.Equal(98m, repo.Current.PaidCreditsBalance);
     }
 
     // == Check gate == //

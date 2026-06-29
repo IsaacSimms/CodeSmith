@@ -31,6 +31,7 @@ public class CodeSmithDbContext : DbContext
         {
             b.HasKey(x => x.Id);
             b.Property(x => x.CostUsd).HasPrecision(18, 6);
+            b.Property(x => x.ProviderCostUsd).HasPrecision(18, 6);
             b.HasIndex(x => new { x.ObjectId, x.TimestampUtc });
             b.HasIndex(x => x.TimestampUtc);
         });

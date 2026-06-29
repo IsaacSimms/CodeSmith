@@ -59,8 +59,10 @@ internal sealed class UsageEnforcingLlmService : ILlmService
 
         var response = await _inner.CompleteAsync(effectiveRequest, ct);
 
-        var cost = _pricing.ComputeCostUsd(_provider, response.Model, response.InputTokensUsed, response.OutputTokensUsed);
-        await _enforcer.RecordActualAsync(objectId, clientIp, _provider, response.Model, response.InputTokensUsed, response.OutputTokensUsed, cost, request.Feature, ct);
+        // Raw provider cost (for the ledger / margin) and the customer charge (debited from credits).
+        var providerCost = _pricing.ComputeCostUsd(_provider, response.Model, response.InputTokensUsed, response.OutputTokensUsed);
+        var charge       = _pricing.ComputeChargeUsd(_provider, response.Model, response.InputTokensUsed, response.OutputTokensUsed);
+        await _enforcer.RecordActualAsync(objectId, clientIp, _provider, response.Model, response.InputTokensUsed, response.OutputTokensUsed, charge, providerCost, request.Feature, ct);
 
         return response;
     }

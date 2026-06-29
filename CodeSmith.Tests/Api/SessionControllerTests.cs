@@ -19,8 +19,20 @@ public class SessionControllerTests
 
     public SessionControllerTests()
     {
-        var aiOptions = Options.Create(new AiOptions { ActiveProvider = "Anthropic" });
+        var aiOptions = Options.Create(new AiOptions { ActiveProvider = "Xai" });
         _controller = new SessionController(_tutoringService, aiOptions);
+    }
+
+    // == Providers Endpoint == //
+
+    [Fact]
+    public void GetProviders_ReportsConfiguredActiveProvider()
+    {
+        var result = Assert.IsType<OkObjectResult>(_controller.GetProviders());
+
+        // activeProvider comes from AiOptions (now "Xai" by default)
+        var activeProvider = result.Value!.GetType().GetProperty("activeProvider")!.GetValue(result.Value);
+        Assert.Equal("Xai", activeProvider);
     }
 
     // == CreateSession Tests == //

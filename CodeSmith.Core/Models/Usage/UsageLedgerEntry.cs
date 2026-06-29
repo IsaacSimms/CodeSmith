@@ -20,7 +20,9 @@ public class UsageLedgerEntry
 
     public int OutputTokens { get; set; }
 
-    public decimal CostUsd { get; set; }                   // Computed using ILlmPricing at record time
+    public decimal CostUsd { get; set; }                   // Charged amount (raw cost × markup) debited from PaidCreditsBalance
+
+    public decimal? ProviderCostUsd { get; set; }          // Raw provider cost (what we pay the provider); nullable for rows written before this column existed
 
     public string? Feature { get; set; }                   // e.g. "Tutoring:Guidance", "PromptLab:Evaluate" (simple string per decision)
 

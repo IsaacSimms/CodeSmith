@@ -7,6 +7,10 @@ public class UsageOptions
 
     public long FreeMonthlyTokenQuota { get; set; } = 20_000;
 
+    // Markup applied to raw provider cost to produce the customer-facing charge (1.0 = pass-through, 2.0 = 100% margin).
+    // Only affects the paid-credit path; free quota is token-based and unaffected.
+    public decimal PaidMarkupMultiplier { get; set; } = 2.0m;
+
     /// <summary>
     /// Explicit list of objectIds that are allowed to use the X-Debug-User-Id header bypass.
     /// Empty in production. Only exact matches are honored.

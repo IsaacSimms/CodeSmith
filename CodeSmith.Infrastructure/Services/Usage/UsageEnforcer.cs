@@ -97,7 +97,7 @@ public class UsageEnforcer : IUsageEnforcer
         }
     }
 
-    public async Task RecordActualAsync(string objectId, string? clientIp, AiProvider provider, string model, int actualInput, int actualOutput, decimal costUsd, string? feature = null, CancellationToken ct = default)
+    public async Task RecordActualAsync(string objectId, string? clientIp, AiProvider provider, string model, int actualInput, int actualOutput, decimal chargeUsd, decimal providerCostUsd, string? feature = null, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(objectId)) return;
 
@@ -130,8 +130,8 @@ public class UsageEnforcer : IUsageEnforcer
             }
             else
             {
-                // Fall back to (or continue with) paid credits
-                balance.PaidCreditsBalance -= costUsd;
+                // Fall back to (or continue with) paid credits — debit the customer charge
+                balance.PaidCreditsBalance -= chargeUsd;
             }
 
             var entry = new UsageLedgerEntry
@@ -141,7 +141,8 @@ public class UsageEnforcer : IUsageEnforcer
                 Model = model,
                 InputTokens = actualInput,
                 OutputTokens = actualOutput,
-                CostUsd = costUsd,
+                CostUsd = chargeUsd,              // amount charged to the customer
+                ProviderCostUsd = providerCostUsd, // raw provider cost (margin = CostUsd - ProviderCostUsd)
                 Feature = feature,
                 TimestampUtc = DateTime.UtcNow
             };
@@ -155,7 +156,7 @@ public class UsageEnforcer : IUsageEnforcer
                 await _ipRepo.AddIssuedAsync(normalizedIp, freeUsedThisCall, ct);
             }
 
-            _logger.LogInformation("Recorded usage for {ObjectId}: {In}+{Out} tokens, cost {Cost} via {Provider}/{Model} (free:{Free})", objectId, actualInput, actualOutput, costUsd, provider, model, freeUsedThisCall);
+            _logger.LogInformation("Recorded usage for {ObjectId}: {In}+{Out} tokens, charge {Charge} (cost {Cost}) via {Provider}/{Model} (free:{Free})", objectId, actualInput, actualOutput, chargeUsd, providerCostUsd, provider, model, freeUsedThisCall);
         }
         finally
         {

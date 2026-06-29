@@ -23,8 +23,9 @@ public interface IUsageEnforcer
         CancellationToken ct = default);
 
     /// <summary>
-    /// Records the actual usage (using model + tokens from the LLM response) and deducts the precise cost.
-    /// Free quota is consumed before paid credits. clientIp is used for the per-IP aggregate.
+    /// Records the actual usage (using model + tokens from the LLM response) and deducts the precise charge.
+    /// chargeUsd is debited from paid credits and recorded as CostUsd; providerCostUsd is the raw provider cost,
+    /// recorded for margin reporting. Free quota is consumed before paid credits. clientIp is used for the per-IP aggregate.
     /// </summary>
     Task RecordActualAsync(
         string objectId,
@@ -33,7 +34,8 @@ public interface IUsageEnforcer
         string model,
         int actualInput,
         int actualOutput,
-        decimal costUsd,
+        decimal chargeUsd,
+        decimal providerCostUsd,
         string? feature = null,
         CancellationToken ct = default);
 }

@@ -8,5 +8,5 @@ namespace CodeSmith.Infrastructure.Configuration;
 public class AiOptions
 {
     public const string SectionName = "Ai";                          // Configuration section name
-    public string ActiveProvider { get; set; } = "Anthropic";        // The provider to use. Must match an AiProvider enum value name.
+    public string ActiveProvider { get; set; } = "Xai";              // The default provider. Must match an AiProvider enum value name.
 }

@@ -12,7 +12,7 @@ const providerLabels: Record<AiProvider, string> = {
 
 export function HomePage() {
   const { data: providersData } = useProviders();
-  const { provider, setProvider } = useProviderPreference();
+  const { provider, setProvider } = useProviderPreference(providersData?.activeProvider);
 
   const availableProviders = (providersData?.availableProviders ?? ["Anthropic"]) as AiProvider[];
 
