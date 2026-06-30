@@ -28,10 +28,11 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // Bind configuration
-        services.Configure<AnthropicOptions>(configuration.GetSection(AnthropicOptions.SectionName));
-        services.Configure<OpenAiOptions>(configuration.GetSection(OpenAiOptions.SectionName));
-        services.Configure<XaiOptions>(configuration.GetSection(XaiOptions.SectionName));
+        // Bind configuration. Provider options are validated against the pricing rate table and fail
+        // fast at startup if a configured model has no rate (prevents silent model/rate-table drift).
+        services.AddValidatedProviderOptions<AnthropicOptions>(configuration, AnthropicOptions.SectionName, AiProvider.Anthropic, o => o.AccurateModel, o => o.FastModel);
+        services.AddValidatedProviderOptions<OpenAiOptions>(configuration, OpenAiOptions.SectionName, AiProvider.OpenAi, o => o.AccurateModel, o => o.FastModel);
+        services.AddValidatedProviderOptions<XaiOptions>(configuration, XaiOptions.SectionName, AiProvider.Xai, o => o.AccurateModel, o => o.FastModel);
         services.Configure<AiOptions>(configuration.GetSection(AiOptions.SectionName));
         services.Configure<CodeExecutionOptions>(configuration.GetSection(CodeExecutionOptions.SectionName));
 
@@ -170,4 +171,24 @@ public static class ServiceCollectionExtensions
 
     // DI key for a provider's raw (un-decorated) LLM adapter
     private static string RawKey(AiProvider provider) => $"raw:{provider}";
+
+    // Binds a provider's options and fails fast at startup if either configured model is absent from the
+    // pricing rate table, so model/rate-table drift can never silently mis-charge a live request.
+    private static void AddValidatedProviderOptions<TOptions>(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        string sectionName,
+        AiProvider provider,
+        Func<TOptions, string> accurateModel,
+        Func<TOptions, string> fastModel)
+        where TOptions : class
+    {
+        services.AddOptions<TOptions>()
+            .Bind(configuration.GetSection(sectionName))
+            .Validate(o => LlmPricingCatalog.IsModelPriced(provider, accurateModel(o)),
+                      $"{provider}: configured AccurateModel is not present in the LLM pricing rate table (LlmPricingCatalog).")
+            .Validate(o => LlmPricingCatalog.IsModelPriced(provider, fastModel(o)),
+                      $"{provider}: configured FastModel is not present in the LLM pricing rate table (LlmPricingCatalog).")
+            .ValidateOnStart();
+    }
 }

@@ -2,7 +2,9 @@
 using CodeSmith.Core.Enums;
 using CodeSmith.Infrastructure.Configuration;
 using CodeSmith.Infrastructure.Services.Usage;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using NSubstitute;
 
 namespace CodeSmith.Tests.Infrastructure.Usage;
 
@@ -10,7 +12,7 @@ public class LlmPricingTests
 {
     // Raw cost is markup-independent; pass a non-1 markup to prove ComputeCostUsd ignores it.
     private static LlmPricing BuildPricing(decimal markup = 1.0m)
-        => new(Options.Create(new UsageOptions { PaidMarkupMultiplier = markup }));
+        => new(Options.Create(new UsageOptions { PaidMarkupMultiplier = markup }), Substitute.For<ILogger<LlmPricing>>());
 
     [Fact]
     public void ComputeCostUsd_KnownModel_ReturnsRawProviderCost()

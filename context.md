@@ -94,7 +94,7 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 | Code execution | `ICodeExecutionService` | `PistonCodeExecutionService` (default) or `LocalProcessCodeExecutionService` (config-selected) |
 | Piston runtime mapping | `IPistonRuntimeResolver` | `PistonRuntimeResolver` |
 | Usage enforcement | `IUsageEnforcer` | `UsageEnforcer` (reserve → settle / release; free-then-paid deduction) |
-| Pricing | `ILlmPricing` | `LlmPricing` (versioned rate table) |
+| Pricing | `ILlmPricing` | `LlmPricing` (markup over `LlmPricingCatalog` — the single model↔rate source, also used by startup validation) |
 | Credit / ledger / IP-aggregate storage | `ICreditBalanceRepository`, `IUsageLedgerRepository`, `IIpFreeUsageRepository` | EF repositories (credit balance, usage ledger, per-IP free-token aggregate) |
 | Current user identity | `ICurrentUser` | `HttpCurrentUser` (Api), `NoopCurrentUser` (Infra default) |
 | Exception → HTTP | `IExceptionMapper` | one Adapter per domain exception (see below) |
@@ -146,6 +146,7 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 - Sections: `Ai`, `Anthropic`, `OpenAi`, `Xai`, `CodeExecution`, `Usage`, `AzureAd` (Entra), plus `ConnectionStrings:CodeSmithDb` and `AllowedCorsOrigins`.
 - Each options class exposes a `SectionName` constant; bound via `services.Configure<T>(config.GetSection(T.SectionName))` and injected as `IOptions<T>`.
 - `Ai:ActiveProvider` selects the default provider name (**default `Xai` / Grok**); `CodeExecution:Backend` selects `Piston` vs `LocalProcess` at startup.
+- Each provider's `AccurateModel`/`FastModel` is **validated against the pricing catalog at startup** (`ValidateOnStart`); a model with no rate entry fails the boot rather than mis-charging silently.
 - `Usage` carries `FreeMonthlyTokenQuota` (the per-objectId free cap, default 20,000 — note the name predates the move to a 48h window; it maps to `CreditBalance.FreeQuotaMax`), `PaidMarkupMultiplier` (raw-cost → charge multiplier, default `2.0`), and `AllowedDebugObjectIds` (objectIds permitted to use the dev `X-Debug-User-Id` bypass; empty in production).
 
 ### Authentication & usage
@@ -255,7 +256,7 @@ Every keyed LLM registration wraps the provider Adapter in a usage-enforcing dec
 - **Per-IP free aggregate** — a **60,000-token** total cap on free tokens issued from one client IP across *all* objectIds (`IpFreeUsage` / `IIpFreeUsageRepository`), so many fresh objectIds behind one IP cannot farm unlimited free usage.
 - **Paid credits** — `PaidCreditsBalance`, debited in USD-equivalent when free coverage is exhausted.
 
-**Pricing (`ILlmPricing`).** The rate table holds **raw provider cost** per model (what we pay the provider). A config markup (`UsageOptions.PaidMarkupMultiplier`, default `2.0`) turns raw cost into the **customer charge**. The two are kept as separate methods (`ComputeCostUsd` vs `ComputeChargeUsd`) so the ledger records both — `UsageLedgerEntry.CostUsd` (charge) and `ProviderCostUsd` (raw) — keeping margin reportable. An unknown `(provider, model)` falls back to the global highest rate (intended as a safety ceiling — note it is applied to *both* input and output, so a drift between the configured model name and a rate-table key silently mis-rates).
+**Pricing (`ILlmPricing` + `LlmPricingCatalog`).** `LlmPricingCatalog` is the **single source of truth** binding `(provider, model)` to **raw provider cost** per 1k tokens. A config markup (`UsageOptions.PaidMarkupMultiplier`, default `2.0`) turns raw cost into the **customer charge**; `ComputeCostUsd` vs `ComputeChargeUsd` are kept separate so the ledger records both — `UsageLedgerEntry.CostUsd` (charge) and `ProviderCostUsd` (raw) — keeping margin reportable. **Drift is prevented at startup:** each provider's configured `AccurateModel`/`FastModel` is validated against the catalog via `Options.Validate(...).ValidateOnStart()` — an unpriced model **fails the app boot** with a message naming the provider + tier (see `AddValidatedProviderOptions` in the composition root). The runtime "unknown model → global highest rate" fallback in `ComputeCostUsd` is therefore unreachable for configured models (adapters stamp `LlmResponse.Model` with the configured name); if it ever fires it **logs a warning** and over-charges-safe rather than failing the live request.
 
 The seam is `IUsageEnforcer`, a reserve → settle / release lifecycle (`UsageReservation` is the hold that crosses it):
 
