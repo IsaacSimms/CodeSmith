@@ -84,53 +84,62 @@ public class PromptLabService : IPromptLabService
         string userMessageContent,
         CancellationToken ct = default)
     {
-        var session = _sessionStore.Get(sessionId.ToString())
-            ?? throw new SessionNotFoundException(sessionId);
-
-        var challenge  = GetChallenge(session.ChallengeId);
-        var testInputs = session.TestInputs.Count > 0 ? session.TestInputs : challenge.TestInputs;
-
-        _logger.LogInformation("Processing attempt for session {SessionId}, challenge {ChallengeId}", sessionId, challenge.ChallengeId);
-
-        try
+        // Serialize per session: the attempt mutates the shared Attempts list, so it must not interleave
+        // with another submit or a guidance turn on the same session.
+        return await _sessionStore.WithSessionLockAsync(sessionId.ToString(), async () =>
         {
-            var simulation = await _simulator.SimulateAsync(challenge, testInputs, systemPromptContent, userMessageContent, session.Provider, ct);
-            var attempt    = await _evaluator.EvaluateAsync(challenge, systemPromptContent, userMessageContent, simulation, session.Provider, ct);
+            var session = _sessionStore.Get(sessionId.ToString())
+                ?? throw new SessionNotFoundException(sessionId);
 
-            attempt.PromptTokensUsed  = simulation.PromptTokens;
-            attempt.ContextWindowSize = simulation.ContextWindowSize;
+            var challenge  = GetChallenge(session.ChallengeId);
+            var testInputs = session.TestInputs.Count > 0 ? session.TestInputs : challenge.TestInputs;
 
-            session.Attempts.Add(attempt);
-            _sessionStore.Set(session);
+            _logger.LogInformation("Processing attempt for session {SessionId}, challenge {ChallengeId}", sessionId, challenge.ChallengeId);
 
-            _logger.LogInformation("Attempt complete for session {SessionId}: {Score}/{Max}", sessionId, attempt.TotalScore, attempt.MaxScore);
-            return attempt;
-        }
-        catch (Exception ex) when (ex is not AiServiceException and not SessionNotFoundException and not ChallengeNotFoundException)
-        {
-            _logger.LogError(ex, "Failed to process attempt for session {SessionId}", sessionId);
-            throw new AiServiceException("Failed to evaluate prompt attempt. Please try again.", ex);
-        }
+            try
+            {
+                var simulation = await _simulator.SimulateAsync(challenge, testInputs, systemPromptContent, userMessageContent, session.Provider, ct);
+                var attempt    = await _evaluator.EvaluateAsync(challenge, systemPromptContent, userMessageContent, simulation, session.Provider, ct);
+
+                attempt.PromptTokensUsed  = simulation.PromptTokens;
+                attempt.ContextWindowSize = simulation.ContextWindowSize;
+
+                session.Attempts.Add(attempt);
+                _sessionStore.Set(session);
+
+                _logger.LogInformation("Attempt complete for session {SessionId}: {Score}/{Max}", sessionId, attempt.TotalScore, attempt.MaxScore);
+                return attempt;
+            }
+            catch (Exception ex) when (ex is not AiServiceException and not SessionNotFoundException and not ChallengeNotFoundException)
+            {
+                _logger.LogError(ex, "Failed to process attempt for session {SessionId}", sessionId);
+                throw new AiServiceException("Failed to evaluate prompt attempt. Please try again.", ex);
+            }
+        }, ct);
     }
 
     // == ChatAsync == //
 
     public async Task<string> ChatAsync(Guid sessionId, string message, string? editorContent, CancellationToken ct = default)
     {
-        var session   = _sessionStore.Get(sessionId.ToString()) ?? throw new SessionNotFoundException(sessionId);
-        var challenge = GetChallenge(session.ChallengeId);
-
-        var systemPrompt = BuildChatSystemPrompt(challenge, session, editorContent);
-        var response = await _guidance.RunTurnAsync(session.Provider, session.ChatHistory, new GuidanceTurnRequest
+        // Serialize per session: a Guidance Turn mutates the shared ChatHistory list.
+        return await _sessionStore.WithSessionLockAsync(sessionId.ToString(), async () =>
         {
-            SystemPrompt = systemPrompt,
-            UserMessage  = message,
-            MaxTokens    = ChatMaxTokens,
-            MaxTurns     = ChatHistoryWindow,
-            Feature      = "PromptLab:Chat"
-        }, () => _sessionStore.Set(session), ct);
+            var session   = _sessionStore.Get(sessionId.ToString()) ?? throw new SessionNotFoundException(sessionId);
+            var challenge = GetChallenge(session.ChallengeId);
 
-        return response.Content;
+            var systemPrompt = BuildChatSystemPrompt(challenge, session, editorContent);
+            var response = await _guidance.RunTurnAsync(session.Provider, session.ChatHistory, new GuidanceTurnRequest
+            {
+                SystemPrompt = systemPrompt,
+                UserMessage  = message,
+                MaxTokens    = ChatMaxTokens,
+                MaxTurns     = ChatHistoryWindow,
+                Feature      = "PromptLab:Chat"
+            }, () => _sessionStore.Set(session), ct);
+
+            return response.Content;
+        }, ct);
     }
 
     // == Chat Prompt Builder == //

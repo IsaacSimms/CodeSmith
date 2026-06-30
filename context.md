@@ -2,7 +2,7 @@
 
 CodeSmith is an AI-powered practice tool for technical interviews. It hosts three independent practice surfaces — **Tutoring** (coding problems with a Socratic pair-programmer), **Prompt Lab** (prompt-engineering challenges scored against a rubric), and **System Lab** (system-design justification scenarios) — over a shared, provider-agnostic LLM layer. Every LLM call is metered against a per-user free quota and paid credit balance so the SaaS cannot be run at a loss.
 
-This document is the ground-truth architectural reference. It reflects the repo as of 2026-06-19 (reviewed 2026-06-23). Keep the Seams table, API Reference, subsystem sections, and the [Ubiquitous Language](#ubiquitous-language) glossary updated as the architecture evolves.
+This document is the ground-truth architectural reference. It reflects the repo as of 2026-06-29 (reviewed 2026-06-29). Keep the Seams table, API Reference, subsystem sections, and the [Ubiquitous Language](#ubiquitous-language) glossary updated as the architecture evolves.
 
 > **Vocabulary note.** This project uses a deliberate architecture vocabulary — **Module, Interface, Implementation, Depth, Seam, Adapter, Leverage, Locality**. Definitions are in the [Ubiquitous Language](#ubiquitous-language) section at the end. Use these terms exactly; do not substitute "component / service / boundary."
 
@@ -30,7 +30,7 @@ This document is the ground-truth architectural reference. It reflects the repo 
 
 ```
 CodeSmith.Core/            — Domain models, enums, exceptions, interfaces (no I/O, no SDKs)
-  Enums/                   — AiProvider, Difficulty, Language, MessageRole, GuidanceMode,
+  Enums/                   — AiProvider, ModelTier, Difficulty, Language, MessageRole, GuidanceMode,
                              EvaluationMode, ChallengeCategory, SystemLabCategory, PromptFieldType
   Exceptions/              — Domain exceptions (each maps to one HTTP status, see below)
   Interfaces/              — All seams live here (ILlm*, I*Service, ISessionStore, IUsage*, etc.)
@@ -40,12 +40,12 @@ CodeSmith.Core/            — Domain models, enums, exceptions, interfaces (no 
 CodeSmith.Infrastructure/  — Implementations of Core interfaces; the only project that touches SDKs/EF/HTTP
   Configuration/           — Options classes (Anthropic, OpenAi, Xai, Ai, CodeExecution, Usage)
   DependencyInjection/     — ServiceCollectionExtensions.AddCodeSmithInfrastructure (composition root)
-  Persistence/             — CodeSmithDbContext + EF repositories (credit balance, usage ledger)
+  Persistence/             — CodeSmithDbContext + EF repositories (credit balance, usage ledger, IP free-usage aggregate)
   Services/                — LLM adapters, generators, lab orchestrators, session stores
     PromptLab/             — ChallengeCatalog, PromptSimulator, PromptEvaluator, TestInputGenerator, PromptLabService
     SystemLab/             — ScenarioCatalog, SystemLabEvaluator, SystemLabService
     Piston/                — Sandboxed code-execution adapter + runtime resolver
-    Usage/                 — UsageEnforcer, LlmPricing, NoopCurrentUser, Decorators/
+    Usage/                 — UsageEnforcer, LlmPricing, UserUsageLock, NoopCurrentUser, Decorators/
 
 CodeSmith.Api/             — ASP.NET Core host (HTTPS 7111, HTTP 5175)
   Controllers/             — SessionController, PromptLabController, SystemLabController
@@ -90,12 +90,12 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 | Prompt Lab phases (internal seams) | `IPromptSimulator`, `IPromptEvaluator`, `ITestInputGenerator` | `PromptSimulator`, `PromptEvaluator`, `TestInputGenerator` |
 | System Lab orchestration | `ISystemLabService` | `SystemLabService` |
 | System Lab scoring | `ISystemLabEvaluator` | `SystemLabEvaluator` |
-| Session storage | `ISessionStore<T>` (+ `IPromptLabSessionStore`, `ISystemLabSessionStore`) | `InMemorySessionStore<T>` etc. (ConcurrentDictionary) |
+| Session storage | `ISessionStore<T>` (+ `IPromptLabSessionStore`, `ISystemLabSessionStore`) | `InMemorySessionStore<T>` etc. (ConcurrentDictionary; `WithSessionLockAsync` serializes per-session mutation for all three surfaces) |
 | Code execution | `ICodeExecutionService` | `PistonCodeExecutionService` (default) or `LocalProcessCodeExecutionService` (config-selected) |
 | Piston runtime mapping | `IPistonRuntimeResolver` | `PistonRuntimeResolver` |
-| Usage enforcement | `IUsageEnforcer` | `UsageEnforcer` (free-then-paid deduction) |
+| Usage enforcement | `IUsageEnforcer` | `UsageEnforcer` (reserve → settle / release; free-then-paid deduction) |
 | Pricing | `ILlmPricing` | `LlmPricing` (versioned rate table) |
-| Credit/ledger storage | `ICreditBalanceRepository`, `IUsageLedgerRepository` | EF repositories |
+| Credit / ledger / IP-aggregate storage | `ICreditBalanceRepository`, `IUsageLedgerRepository`, `IIpFreeUsageRepository` | EF repositories (credit balance, usage ledger, per-IP free-token aggregate) |
 | Current user identity | `ICurrentUser` | `HttpCurrentUser` (Api), `NoopCurrentUser` (Infra default) |
 | Exception → HTTP | `IExceptionMapper` | one Adapter per domain exception (see below) |
 
@@ -116,11 +116,12 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 1. `UseExceptionHandler()` → `AppExceptionHandler` (RFC 7807 ProblemDetails via `IExceptionMapper` adapters)
 2. `UseRequestLogging()` (`RequestLoggingMiddleware`)
 3. Swagger (Development only)
-4. `UseHttpsRedirection()`
-5. `UseRateLimiter()` — fixed window, **60 requests / minute per client IP**, `QueueLimit = 0`, rejects with **429**
-6. `UseCors()` — origins from `AllowedCorsOrigins` config (defaults to the HTTPS/HTTP API origins)
-7. `UseAuthentication()` / `UseAuthorization()`
-8. `MapControllers()`
+4. `UseForwardedHeaders()` — honours `X-Forwarded-For` / `X-Forwarded-Proto` (config clears `KnownNetworks`/`KnownProxies`) so `RemoteIpAddress` is the real client IP. **Load-bearing for spend control:** both the rate limiter and the per-IP free-token cap partition on client IP.
+5. `UseHttpsRedirection()`
+6. `UseRateLimiter()` — fixed window, **60 requests / minute per client IP**, `QueueLimit = 0`, rejects with **429**
+7. `UseCors()` — origins from `AllowedCorsOrigins` config (defaults to the HTTPS/HTTP API origins)
+8. `UseAuthentication()` / `UseAuthorization()`
+9. `MapControllers()`
 
 ### Exception → HTTP mapping
 
@@ -142,14 +143,15 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 ### Configuration pattern
 
 - `appsettings.json` (defaults) + `appsettings.Development.json` (dev overrides).
-- Sections: `Ai`, `Anthropic`, `OpenAi`, `Xai`, `CodeExecution`, `Usage`, plus `ConnectionStrings:CodeSmithDb` and `AllowedCorsOrigins`.
+- Sections: `Ai`, `Anthropic`, `OpenAi`, `Xai`, `CodeExecution`, `Usage`, `AzureAd` (Entra), plus `ConnectionStrings:CodeSmithDb` and `AllowedCorsOrigins`.
 - Each options class exposes a `SectionName` constant; bound via `services.Configure<T>(config.GetSection(T.SectionName))` and injected as `IOptions<T>`.
-- `Ai:ActiveProvider` selects the default provider name; `CodeExecution:Backend` selects `Piston` vs `LocalProcess` at startup.
+- `Ai:ActiveProvider` selects the default provider name (**default `Xai` / Grok**); `CodeExecution:Backend` selects `Piston` vs `LocalProcess` at startup.
+- `Usage` carries `FreeMonthlyTokenQuota` (the per-objectId free cap, default 20,000 — note the name predates the move to a 48h window; it maps to `CreditBalance.FreeQuotaMax`), `PaidMarkupMultiplier` (raw-cost → charge multiplier, default `2.0`), and `AllowedDebugObjectIds` (objectIds permitted to use the dev `X-Debug-User-Id` bypass; empty in production).
 
 ### Authentication & usage
 
-- LLM-mutating endpoints carry `[Authorize]`. In Development a "Debug" scheme (registered only under `IsDevelopment()`) accepts allow-listed `X-Debug-User-Id` headers to satisfy auth. Full Entra (`AddMicrosoftIdentityWebApi`) wiring is planned for later.
-- `ICurrentUser.ObjectId` is the stable Entra objectId. `HttpCurrentUser` resolves it from the request (with a dev bypass); `NoopCurrentUser` is the Infrastructure default so decorator registration succeeds without the Api layer.
+- LLM-mutating endpoints carry `[Authorize]`. **Entra is wired:** Bearer (Entra External ID via `AddMicrosoftIdentityWebApi` bound to the `AzureAd` section) is the default scheme in all environments. In Development only, a "Debug" scheme is additionally registered and added to the default authorization policy, so allow-listed `X-Debug-User-Id` headers satisfy `[Authorize]` without a bearer token; the allow-list is `UsageOptions.AllowedDebugObjectIds`.
+- `ICurrentUser.ObjectId` is the stable Entra objectId. `HttpCurrentUser` resolves it from the request (with the dev bypass); `NoopCurrentUser` is the Infrastructure default so decorator registration succeeds without the Api layer.
 - Usage decorators require a non-null `ObjectId` and throw `InvalidOperationException` if absent.
 
 ---
@@ -190,12 +192,14 @@ All routes are under `/api`. Enums serialize as strings (`JsonStringEnumConverte
 | `ChatResponse` | `Response`, `ContextTokensUsed`, `ContextWindowSize` |
 | `ProblemSession` | `SessionId`, `Difficulty`, `Language`, `Provider`, `ProblemDescription`, `StarterCode`, `Messages[]`, `CreatedAt` |
 | `PromptLabSession` | `SessionId`, `ChallengeId`, `Provider`, `TestInputs[]`, `DynamicInputsGenerated`, `Attempts[]`, `ChatHistory[]` |
-| `SystemLabSession` | `SessionId`, `ScenarioId`, `Provider`, `Attempts[]`, `ChatHistory[]` (mutations guarded by a per-session `SemaphoreSlim`) |
+| `SystemLabSession` | `SessionId`, `ScenarioId`, `Provider`, `Attempts[]`, `ChatHistory[]` |
 | `Challenge` | `ChallengeId`, `Title`, `Description`, `Rubric[]`, `EditableFields[]`, `TestInputs[]`, `LockedSystemPrompt`, `HiddenAdversarialPrompt?` |
 | `Scenario` | `ScenarioId`, `Title`, `Description`, `Constraints`, `EvaluationMode`, `Rubric[]`, `RequiredTradeoffs[]`, `Dimensions[]` (cross-cutting pitfalls) |
 | `ChallengeAttempt` / `ScenarioAttempt` | scored result: per-criterion scores, totals, feedback (+ tradeoff results / dimension deductions for System Lab) |
-| `CreditBalance` | `ObjectId`, `FreeQuotaMax`, `FreeTokensUsedThisMonth`, `LastFreeResetUtc`, `PaidCreditsBalance` |
-| `UsageLedgerEntry` | `ObjectId`, `Provider`, `Model`, `InputTokens`, `OutputTokens`, `CostUsd`, `Feature`, `TimestampUtc` |
+| `CreditBalance` | `ObjectId`, `PaidCreditsBalance`, `FreeTokensUsedInWindow`, `FreeQuotaMax` (default 20k), `FirstSeenUtc`, `RowVersion` — free quota is a **48h window** from `FirstSeenUtc`, not a monthly reset; `RowVersion` is an optimistic-concurrency token (present but not yet enforced) |
+| `UsageLedgerEntry` | `Id`, `ObjectId`, `Provider`, `Model`, `InputTokens`, `OutputTokens`, `CostUsd` (amount charged = raw × markup), `ProviderCostUsd` (raw provider cost; nullable for legacy rows), `Feature`, `TimestampUtc` — margin = `CostUsd − ProviderCostUsd` |
+| `IpFreeUsage` | `Ip`, `FreeTokensIssued`, `FirstSeenUtc` — per-IP aggregate of free tokens granted across all objectIds; backs the 60k-per-IP cap |
+| `UsageReservation` | `ObjectId`, `ClientIp`, `Provider`, `ReservedFreeTokens`, `ReservedPaidUsd`, `UsedFree` — the upper-bound hold `ReserveAsync` returns and `SettleAsync`/`ReleaseAsync` reconcile |
 
 **Enums:** `Difficulty {Easy, Medium, Hard}`; `Language {CSharp, Cpp, Go, Rust, Python, Java, TypeScript}`; `AiProvider {Anthropic, OpenAi, Xai}`; `EvaluationMode {SingleAnswer, TradeoffReasoning, OpenJudgment}`; plus `GuidanceMode`, `ChallengeCategory`, `SystemLabCategory`, `PromptFieldType`, `MessageRole`.
 
@@ -214,11 +218,17 @@ Each provider's options class defines two model tiers; callers pick the tier per
 | Test-input generation | Accurate | Sonnet | One call at session start |
 | System Lab justification evaluation | Accurate | Sonnet | Single-turn scoring |
 
-OpenAI/xAI map the same Fast/Accurate tiers to their own model names in `OpenAiOptions` / `XaiOptions`. Context window (Anthropic) is 200,000 tokens. `ContextTokensUsed` / `ContextWindowSize` drive the frontend `TokenUsageBar` (informational only; the real spend control is the usage layer below).
+OpenAI/xAI map the same Fast/Accurate tiers to their own model names in `OpenAiOptions` / `XaiOptions` (OpenAI defaults `gpt-4.1` / `gpt-4.1-mini`; xAI uses `grok-4.3` for **both** tiers). Context windows differ by provider — Anthropic 200,000, OpenAI ~1,047,576, xAI ~1,000,000 tokens. `ContextTokensUsed` / `ContextWindowSize` drive the frontend `TokenUsageBar` (informational only; the real spend control is the usage layer below).
+
+> **Tier downgrade on free quota.** The usage decorator overrides the requested tier to `Fast` for *evaluation* features (`Feature` containing `"Evaluate"` or `"SystemLab"`) **while** the call is being covered by free quota inside the 48h window. Paid or post-window usage keeps `Accurate`. So an Accurate-tier evaluation can run on the Fast model when it costs the house nothing.
 
 ---
 
 ## Subsystem Architecture
+
+### Session serialization (per-session lock)
+
+All three surfaces hold mutable session state (chat history, attempts) in singleton in-memory stores, so concurrent requests for the **same** session must be serialized or they corrupt that shared state — e.g. two guidance turns interleaving their appends break the required user/assistant alternation and the provider rejects the next call (400). `ISessionStore<T>.WithSessionLockAsync(sessionId, action, ct)` runs `action` under a per-session lock (a `SemaphoreSlim` per id, owned by `InMemorySessionStore<T>` so callers cannot leak a held lock); different sessions run concurrently. Each orchestrator wraps its mutating operations in it: Tutoring around `GetGuidanceAsync`; Prompt Lab around `SubmitAttemptAsync` **and** `ChatAsync`; System Lab around `SubmitAttemptAsync` **and** `ChatAsync`. The lock is broader than a single turn (it also covers attempt submission), so it lives in the orchestrators, not in `IGuidanceConversation`. (Per-session locks, like the sessions themselves, are not yet evicted — a noted unbounded-growth follow-up.)
 
 ### Tutoring (coding problems)
 
@@ -235,17 +245,27 @@ Chat is Socratic guidance delegated to the shared `IGuidanceConversation` (20-me
 
 ### System Lab (system design)
 
-`SystemLabController` → `ISystemLabService` → `ISystemLabEvaluator`. The evaluator builds a mode-specific system prompt (`SingleAnswer` / `TradeoffReasoning` / `OpenJudgment`), generates the JSON schema dynamically from the scenario's cross-cutting dimensions, calls the accurate model, and parses criterion scores, tradeoff engagement, and dimension deductions — clamping every value and **dropping hallucinated criterion IDs** to prevent phantom points. Chat delegates to the shared `IGuidanceConversation`. Unlike the other surfaces, System Lab session mutation is guarded by a **per-session `SemaphoreSlim`** (`ISystemLabSessionStore.GetLock`), held by the orchestrator around both submit and chat (it is broader than a single guidance turn, so it stays out of `IGuidanceConversation`).
+`SystemLabController` → `ISystemLabService` → `ISystemLabEvaluator`. The evaluator builds a mode-specific system prompt (`SingleAnswer` / `TradeoffReasoning` / `OpenJudgment`), generates the JSON schema dynamically from the scenario's cross-cutting dimensions, calls the accurate model, and parses criterion scores, tradeoff engagement, and dimension deductions — clamping every value and **dropping hallucinated criterion IDs** to prevent phantom points. Chat delegates to the shared `IGuidanceConversation`. System Lab holds the per-session lock around **both** submit and chat (it is broader than a single guidance turn), so it stays in the orchestrator rather than `IGuidanceConversation` — see [Session serialization](#session-serialization-per-session-lock).
 
 ### Usage & credits (cost protection)
 
-Every keyed LLM registration wraps the provider Adapter in a usage-enforcing decorator that runs **check → call → record** around each call:
-1. **Check** (`IUsageEnforcer.CheckAndReserveAsync`): estimates input tokens (≈ chars/4 + overhead), computes an **upper-bound** cost using the global highest rate, and throws `InsufficientQuotaException` (→ 402) if neither free quota nor paid credits cover it.
-2. **Record** (`RecordActualAsync`): computes actual cost via `ILlmPricing` (versioned per-model rate table), deducts **free quota first, then paid credits**, appends a `UsageLedgerEntry` tagged with a `Feature` string (e.g. `"PromptLab:Evaluate"`), and resets free quota monthly.
+Every keyed LLM registration wraps the provider Adapter in a usage-enforcing decorator that runs **reserve → call → settle** (or **release** on failure) around each call. Two free axes plus a paid balance gate every Completion:
 
-Both the check and the record run under a **per-user lock** (`IUserUsageLock`), so concurrent completions for the same user (notably the Prompt Lab parallel simulate/evaluate fan-out) cannot race on the shared scoped DbContext or lose a balance update.
+- **Per-objectId free window** — `CreditBalance.FreeQuotaMax` tokens (default 20,000) available only during the **48 hours** after `FirstSeenUtc` (first sighting of the objectId). There is **no monthly reset**; once the window closes, free quota is zero.
+- **Per-IP free aggregate** — a **60,000-token** total cap on free tokens issued from one client IP across *all* objectIds (`IpFreeUsage` / `IIpFreeUsageRepository`), so many fresh objectIds behind one IP cannot farm unlimited free usage.
+- **Paid credits** — `PaidCreditsBalance`, debited in USD-equivalent when free coverage is exhausted.
 
-> **Remaining interface-honesty gap:** `CheckAndReserveAsync` still only *checks* — it does not hold/reserve tokens before the LLM call. The per-user lock now prevents the DbContext race and lost updates during recording, but two checks can still each pass the gate before either records, so a user can briefly overspend a near-empty balance. True reservation (deduct-on-check with reconcile, or RowVersion-guarded) remains future work; `CreditBalance.RowVersion` exists but is not yet enforced.
+**Pricing (`ILlmPricing`).** The rate table holds **raw provider cost** per model (what we pay the provider). A config markup (`UsageOptions.PaidMarkupMultiplier`, default `2.0`) turns raw cost into the **customer charge**. The two are kept as separate methods (`ComputeCostUsd` vs `ComputeChargeUsd`) so the ledger records both — `UsageLedgerEntry.CostUsd` (charge) and `ProviderCostUsd` (raw) — keeping margin reportable. An unknown `(provider, model)` falls back to the global highest rate (intended as a safety ceiling — note it is applied to *both* input and output, so a drift between the configured model name and a rate-table key silently mis-rates).
+
+The seam is `IUsageEnforcer`, a reserve → settle / release lifecycle (`UsageReservation` is the hold that crosses it):
+
+1. **Reserve** (`ReserveAsync`): estimates input tokens (≈ chars/4 + overhead) and treats `MaxTokens` as the output estimate, computes an **upper-bound** charge (global highest rate × markup), and admits the call if the free window quota (bounded by both the objectId remainder and the IP remainder) **or** paid credits cover it — including a **partial-free** path where free covers part and paid covers the overflow; otherwise throws `InsufficientQuotaException` (→ 402). Crucially it then **persists the hold** (free tokens against the window + IP aggregate, paid charge against `PaidCreditsBalance`) before releasing the lock, and returns a `UsageReservation` describing exactly what was held.
+2. **Settle** (`SettleAsync`): reverses the hold, then from the response's *actual* tokens deducts **free first** (within the active window, capped by both the objectId and IP remainders) then **paid credits** for the remainder (charge prorated by the paid token fraction); appends a `UsageLedgerEntry` tagged with a `Feature` string (e.g. `"PromptLab:Evaluate"`). The upper-bound hold ≥ actual, so the reconcile only ever refunds.
+3. **Release** (`ReleaseAsync`): reverses the hold with no ledger entry — used by the decorator when the LLM call throws, so a failed call consumes no quota.
+
+All three run under a **per-user lock** (`IUserUsageLock`); IP-aggregate adjustments take an additional `ip:{ip}` lock, so neither the shared scoped DbContext nor the 60k cap loses an update.
+
+> **Reservation honesty — closed in-process (was the headline cost gap).** Because the hold is now *persisted at reserve time*, concurrent completions for one user (a Prompt Lab submit fans out to up to 2N parallel Completions — N simulate + N evaluate, both `Task.WhenAll`) serialize on the per-user lock and each sees the prior holds; they can no longer all pass a gate that only had budget for one. **Still open:** the in-process `UserUsageLock` makes this correct on a single instance only. For a multi-instance deployment, `CreditBalance.RowVersion` (present, configured as the concurrency token, but not yet enforced with a retry loop) would be the cross-process guard — deferred.
 
 ### Code execution
 

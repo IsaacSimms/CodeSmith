@@ -22,6 +22,13 @@ public class PromptLabServiceTests
 
     public PromptLabServiceTests()
     {
+        // Pass-through the per-session lock so submit/chat bodies run inline (the lock itself is covered
+        // by InMemorySessionStoreTests).
+        _sessionStore.WithSessionLockAsync(Arg.Any<string>(), Arg.Any<Func<Task<ChallengeAttempt>>>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Func<Task<ChallengeAttempt>>>()());
+        _sessionStore.WithSessionLockAsync(Arg.Any<string>(), Arg.Any<Func<Task<string>>>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Func<Task<string>>>()());
+
         _service = new PromptLabService(_simulator, _evaluator, _generator, _sessionStore, _guidance, _logger);
     }
 

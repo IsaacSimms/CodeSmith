@@ -73,26 +73,31 @@ public class TutoringService : ITutoringService
 
     public async Task<ChatResponse> GetGuidanceAsync(Guid sessionId, string userMessage, string? editorContent = null, GuidanceMode guidanceMode = GuidanceMode.Guidance, CancellationToken ct = default)
     {
-        var session = _sessionStore.Get(sessionId.ToString())
-            ?? throw new SessionNotFoundException(sessionId);
-
-        _logger.LogInformation("Processing guidance request for session {SessionId}", sessionId);
-
-        var systemPrompt = _templates.GuidanceSystemPrompt(session.Language, session.ProblemDescription, session.StarterCode, editorContent, guidanceMode);
-        var llmResponse  = await _guidance.RunTurnAsync(session.Provider, session.Messages, new GuidanceTurnRequest
+        // Serialize per session: a Guidance Turn mutates the shared Messages list, so concurrent turns
+        // on the same session must not interleave (which would corrupt the user/assistant alternation).
+        return await _sessionStore.WithSessionLockAsync(sessionId.ToString(), async () =>
         {
-            SystemPrompt = systemPrompt,
-            UserMessage  = userMessage,
-            MaxTokens    = GuidanceMaxTokens,
-            MaxTurns     = GuidanceHistoryWindow,
-            Feature      = "Tutoring:Guidance"
-        }, () => _sessionStore.Set(session), ct);
+            var session = _sessionStore.Get(sessionId.ToString())
+                ?? throw new SessionNotFoundException(sessionId);
 
-        return new ChatResponse
-        {
-            Response          = llmResponse.Content,
-            ContextTokensUsed = llmResponse.InputTokensUsed,
-            ContextWindowSize = llmResponse.ContextWindowSize
-        };
+            _logger.LogInformation("Processing guidance request for session {SessionId}", sessionId);
+
+            var systemPrompt = _templates.GuidanceSystemPrompt(session.Language, session.ProblemDescription, session.StarterCode, editorContent, guidanceMode);
+            var llmResponse  = await _guidance.RunTurnAsync(session.Provider, session.Messages, new GuidanceTurnRequest
+            {
+                SystemPrompt = systemPrompt,
+                UserMessage  = userMessage,
+                MaxTokens    = GuidanceMaxTokens,
+                MaxTurns     = GuidanceHistoryWindow,
+                Feature      = "Tutoring:Guidance"
+            }, () => _sessionStore.Set(session), ct);
+
+            return new ChatResponse
+            {
+                Response          = llmResponse.Content,
+                ContextTokensUsed = llmResponse.InputTokensUsed,
+                ContextWindowSize = llmResponse.ContextWindowSize
+            };
+        }, ct);
     }
 }

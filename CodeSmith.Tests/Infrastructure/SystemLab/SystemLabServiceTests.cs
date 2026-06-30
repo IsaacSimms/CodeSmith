@@ -21,7 +21,13 @@ public class SystemLabServiceTests
 
     public SystemLabServiceTests()
     {
-        _sessionStore.GetLock(Arg.Any<string>()).Returns(new SemaphoreSlim(1, 1)); // Required for all submit/chat paths
+        // Pass-through the per-session lock so submit/chat bodies run inline (the lock itself is covered
+        // by InMemorySessionStoreTests).
+        _sessionStore.WithSessionLockAsync(Arg.Any<string>(), Arg.Any<Func<Task<ScenarioAttempt>>>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Func<Task<ScenarioAttempt>>>()());
+        _sessionStore.WithSessionLockAsync(Arg.Any<string>(), Arg.Any<Func<Task<string>>>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Func<Task<string>>>()());
+
         _service = new SystemLabService(_evaluator, _guidance, _sessionStore, _logger);
     }
 

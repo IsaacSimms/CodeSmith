@@ -63,47 +63,44 @@ public class SystemLabService : ISystemLabService
 
     public async Task<ScenarioAttempt> SubmitAttemptAsync(Guid sessionId, string justificationContent, CancellationToken ct = default)
     {
-        var session  = _sessionStore.Get(sessionId.ToString()) ?? throw new SessionNotFoundException(sessionId);
-        var scenario = GetScenario(session.ScenarioId);
-
-        _logger.LogInformation("Evaluating attempt for session {SessionId}, scenario {ScenarioId}", sessionId, scenario.ScenarioId);
-
-        var semaphore = _sessionStore.GetLock(sessionId.ToString());
-        await semaphore.WaitAsync(ct);
-        try
+        // Per-session lock guards both submit and chat: it is broader than a single guidance turn, so it
+        // stays in the orchestrator rather than IGuidanceConversation.
+        return await _sessionStore.WithSessionLockAsync(sessionId.ToString(), async () =>
         {
-            var attempt = await _evaluator.EvaluateAsync(scenario, justificationContent, session.Provider, ct);
+            var session  = _sessionStore.Get(sessionId.ToString()) ?? throw new SessionNotFoundException(sessionId);
+            var scenario = GetScenario(session.ScenarioId);
 
-            session.Attempts.Add(attempt);
-            _sessionStore.Set(session);
+            _logger.LogInformation("Evaluating attempt for session {SessionId}, scenario {ScenarioId}", sessionId, scenario.ScenarioId);
 
-            _logger.LogInformation("Attempt complete for session {SessionId}: {Score}/{Max}", sessionId, attempt.TotalScore, attempt.MaxScore);
-            return attempt;
-        }
-        catch (Exception ex) when (ex is not AiServiceException and not SessionNotFoundException and not ScenarioNotFoundException)
-        {
-            _logger.LogError(ex, "Failed to evaluate attempt for session {SessionId}", sessionId);
-            throw new AiServiceException("Failed to evaluate justification. Please try again.", ex);
-        }
-        finally
-        {
-            semaphore.Release();
-        }
+            try
+            {
+                var attempt = await _evaluator.EvaluateAsync(scenario, justificationContent, session.Provider, ct);
+
+                session.Attempts.Add(attempt);
+                _sessionStore.Set(session);
+
+                _logger.LogInformation("Attempt complete for session {SessionId}: {Score}/{Max}", sessionId, attempt.TotalScore, attempt.MaxScore);
+                return attempt;
+            }
+            catch (Exception ex) when (ex is not AiServiceException and not SessionNotFoundException and not ScenarioNotFoundException)
+            {
+                _logger.LogError(ex, "Failed to evaluate attempt for session {SessionId}", sessionId);
+                throw new AiServiceException("Failed to evaluate justification. Please try again.", ex);
+            }
+        }, ct);
     }
 
     // == ChatAsync == //
 
     public async Task<string> ChatAsync(Guid sessionId, string message, string? currentJustification, CancellationToken ct = default)
     {
-        var session  = _sessionStore.Get(sessionId.ToString()) ?? throw new SessionNotFoundException(sessionId);
-        var scenario = GetScenario(session.ScenarioId);
-
         // The per-session lock stays with the orchestrator: it also guards SubmitAttemptAsync, so it is
         // broader than a single guidance turn and cannot live inside the Guidance Conversation Module.
-        var semaphore = _sessionStore.GetLock(sessionId.ToString());
-        await semaphore.WaitAsync(ct);
-        try
+        return await _sessionStore.WithSessionLockAsync(sessionId.ToString(), async () =>
         {
+            var session  = _sessionStore.Get(sessionId.ToString()) ?? throw new SessionNotFoundException(sessionId);
+            var scenario = GetScenario(session.ScenarioId);
+
             var systemPrompt = BuildChatSystemPrompt(scenario, currentJustification);
             var response = await _guidance.RunTurnAsync(session.Provider, session.ChatHistory, new GuidanceTurnRequest
             {
@@ -115,11 +112,7 @@ public class SystemLabService : ISystemLabService
             }, () => _sessionStore.Set(session), ct);
 
             return response.Content;
-        }
-        finally
-        {
-            semaphore.Release();
-        }
+        }, ct);
     }
 
     // == Chat Prompt Builder == //

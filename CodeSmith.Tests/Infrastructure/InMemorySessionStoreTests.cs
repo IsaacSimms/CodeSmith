@@ -82,4 +82,50 @@ public class InMemorySessionStoreTests
         Assert.Equal("fn solution() {}", retrieved.StarterCode);
         Assert.Single(retrieved.Messages);
     }
+
+    // == Per-session lock == //
+
+    [Fact]
+    public async Task WithSessionLockAsync_SameSession_SerializesAccess()
+    {
+        var store = new InMemorySessionStore<ProblemSession>();
+        var inFlight = 0;
+        var maxInFlight = 0;
+        var sync = new object();
+
+        async Task<int> Body()
+        {
+            var now = Interlocked.Increment(ref inFlight);
+            lock (sync) maxInFlight = Math.Max(maxInFlight, now);
+            await Task.Delay(20);
+            Interlocked.Decrement(ref inFlight);
+            return 0;
+        }
+
+        var tasks = Enumerable.Range(0, 10).Select(_ => store.WithSessionLockAsync("session-1", Body));
+        await Task.WhenAll(tasks);
+
+        Assert.Equal(1, maxInFlight); // never more than one critical section at a time for one session
+    }
+
+    [Fact]
+    public async Task WithSessionLockAsync_DifferentSessions_RunConcurrently()
+    {
+        var store = new InMemorySessionStore<ProblemSession>();
+        var started = 0;
+        var bothStarted = new TaskCompletionSource();
+
+        async Task<int> Body()
+        {
+            if (Interlocked.Increment(ref started) == 2) bothStarted.SetResult();
+            await bothStarted.Task; // can only complete if both bodies run at once → distinct locks
+            return 0;
+        }
+
+        var a = store.WithSessionLockAsync("session-a", Body);
+        var b = store.WithSessionLockAsync("session-b", Body);
+
+        await Task.WhenAll(a, b).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(2, started);
+    }
 }

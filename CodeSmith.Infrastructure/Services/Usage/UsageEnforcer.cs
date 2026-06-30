@@ -10,11 +10,15 @@ using Microsoft.Extensions.Options;
 namespace CodeSmith.Infrastructure.Services.Usage;
 
 /// <summary>
-/// Enforces free quota and paid credit checks before LLM calls (using an upper bound), then records
-/// actuals and deducts (free tokens first, then paid credits). Per-user serialization via
-/// <see cref="IUserUsageLock"/> guarantees that concurrent completions for the same user (e.g. the
-/// Prompt Lab parallel simulate/evaluate fan-out) cannot race on the shared scoped DbContext or lose
-/// a balance update — the check and the read-modify-write each run under the user's lock.
+/// Enforces free quota and paid credit limits as a reserve → settle / release lifecycle.
+/// <see cref="ReserveAsync"/> holds an upper-bound estimate against the user's free window quota, the
+/// per-IP aggregate, and paid credits — and *persists* that hold before releasing the lock. Because the
+/// hold is written, concurrent completions for the same user (the Prompt Lab parallel simulate/evaluate
+/// fan-out) can no longer all pass the same gate: each reservation sees the prior holds. Per-user
+/// serialization via <see cref="IUserUsageLock"/> guards the read-modify-write of the shared scoped
+/// DbContext, and an additional <c>ip:</c> lock guards the per-IP aggregate. <see cref="SettleAsync"/>
+/// reverses the hold and applies the real cost (plus the ledger entry); <see cref="ReleaseAsync"/>
+/// refunds the hold when the call produced nothing billable.
 /// </summary>
 public class UsageEnforcer : IUsageEnforcer
 {
@@ -25,6 +29,8 @@ public class UsageEnforcer : IUsageEnforcer
     private readonly IUserUsageLock _locks;
     private readonly UsageOptions _options;
     private readonly ILogger<UsageEnforcer> _logger;
+
+    private const long IpFreeTokenCap = 60_000; // Aggregate free-token cap per client IP across all objectIds
 
     public UsageEnforcer(
         ICreditBalanceRepository balanceRepo,
@@ -44,75 +50,16 @@ public class UsageEnforcer : IUsageEnforcer
         _logger = logger;
     }
 
-    public async Task<bool> CheckAndReserveAsync(string objectId, string? clientIp, AiProvider provider, int estInputTokens, int estOutputTokens, CancellationToken ct = default)
+    // == ReserveAsync == //
+
+    public async Task<UsageReservation> ReserveAsync(string objectId, string? clientIp, AiProvider provider, int estInputTokens, int estOutputTokens, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(objectId))
             throw new InvalidOperationException("objectId is required for usage enforcement.");
 
         var estCost = _pricing.EstimateUpperBoundCost(provider, estInputTokens, estOutputTokens);
         var estTotalTokens = (long)estInputTokens + estOutputTokens;
-
-        var normalizedIp = string.IsNullOrWhiteSpace(clientIp) ? "unknown" : clientIp;
-        var objectGate = _locks.GetLock(objectId);
-
-        await objectGate.WaitAsync(ct);
-        try
-        {
-            var balance = await _balanceRepo.GetAsync(objectId, ct)
-                ?? new CreditBalance { ObjectId = objectId, FreeQuotaMax = _options.FreeMonthlyTokenQuota, FirstSeenUtc = DateTime.UtcNow };
-
-            // 48h window per objectId (global first sighting). No monthly reset.
-            var windowActive = (DateTime.UtcNow - balance.FirstSeenUtc).TotalHours < 48;
-
-            var objectFreeRem = windowActive ? (balance.FreeQuotaMax - balance.FreeTokensUsedInWindow) : 0L;
-
-            // IP aggregate cap (60k total free from this IP)
-            var ipIssued = await _ipRepo.GetIssuedAsync(normalizedIp, ct);
-            var ipRem = 60_000L - ipIssued;
-
-            var hasFreeStrict = windowActive && objectFreeRem >= estTotalTokens && ipRem >= estTotalTokens;
-            var hasPaid = balance.PaidCreditsBalance >= estCost;
-
-            if (hasFreeStrict)
-                return true;
-
-            if (hasPaid)
-                return false;
-
-            var freeCover = ComputeFreeCover(windowActive, objectFreeRem, ipRem, estTotalTokens);
-            if (freeCover > 0)
-            {
-                var overflowTokens = estTotalTokens - freeCover;
-                var (overflowInput, overflowOutput) = SplitTokensProportionally(estInputTokens, estOutputTokens, overflowTokens, estTotalTokens);
-                var overflowCost = _pricing.EstimateUpperBoundCost(provider, overflowInput, overflowOutput);
-
-                if (overflowCost == 0m || balance.PaidCreditsBalance >= overflowCost)
-                {
-                    _logger.LogInformation(
-                        "Strict estimate exceeds remaining free quota; permitting partial-free call for {ObjectId} (free cover {FreeCover}, est {Est})",
-                        objectId, freeCover, estTotalTokens);
-                    return true;
-                }
-            }
-
-            _logger.LogWarning(
-                "Quota/credit check failed for {ObjectId}. WindowActive: {Window}, Free remaining: {Free}, IP rem: {IpRem}, Paid: {Paid}, estCost: {Cost}",
-                objectId, windowActive, objectFreeRem, ipRem, balance.PaidCreditsBalance, estCost);
-            throw new InsufficientQuotaException(objectId, "Insufficient quota or credits for this request.");
-        }
-        finally
-        {
-            objectGate.Release();
-        }
-    }
-
-    public async Task RecordActualAsync(string objectId, string? clientIp, AiProvider provider, string model, int actualInput, int actualOutput, decimal chargeUsd, decimal providerCostUsd, string? feature = null, CancellationToken ct = default)
-    {
-        if (string.IsNullOrWhiteSpace(objectId)) return;
-
-        var actualTokens = (long)actualInput + actualOutput;
-
-        var normalizedIp = string.IsNullOrWhiteSpace(clientIp) ? "unknown" : clientIp;
+        var normalizedIp = Normalize(clientIp);
 
         var objectGate = _locks.GetLock(objectId);
         await objectGate.WaitAsync(ct);
@@ -120,31 +67,136 @@ public class UsageEnforcer : IUsageEnforcer
         SemaphoreSlim? ipGate = null;
         try
         {
-            // Also serialize IP aggregate updates to prevent lost increments on the 60k cap
             ipGate = _locks.GetLock($"ip:{normalizedIp}");
             await ipGate.WaitAsync(ct);
 
-            var balance = await _balanceRepo.GetAsync(objectId, ct)
-                ?? new CreditBalance { ObjectId = objectId, FreeQuotaMax = _options.FreeMonthlyTokenQuota, FirstSeenUtc = DateTime.UtcNow };
+            var balance = await GetOrCreateBalanceAsync(objectId, ct);
 
-            // Free first (only within active window), then paid for any remainder
-            var windowActive = (DateTime.UtcNow - balance.FirstSeenUtc).TotalHours < 48;
-            var freeRem = windowActive ? (balance.FreeQuotaMax - balance.FreeTokensUsedInWindow) : 0L;
+            var windowActive = WindowActive(balance);
+            var objectFreeRem = windowActive ? (balance.FreeQuotaMax - balance.FreeTokensUsedInWindow) : 0L;
+
             var ipIssued = await _ipRepo.GetIssuedAsync(normalizedIp, ct);
-            var ipRem = 60_000L - ipIssued;
+            var ipRem = IpFreeTokenCap - ipIssued;
+
+            var hasFreeStrict = windowActive && objectFreeRem >= estTotalTokens && ipRem >= estTotalTokens;
+            var hasPaid = balance.PaidCreditsBalance >= estCost;
+
+            // Decide what to hold: full-free, else full-paid, else partial free + paid overflow.
+            long reservedFree;
+            decimal reservedPaid;
+
+            if (hasFreeStrict)
+            {
+                reservedFree = estTotalTokens;
+                reservedPaid = 0m;
+            }
+            else if (hasPaid)
+            {
+                reservedFree = 0;
+                reservedPaid = estCost;
+            }
+            else
+            {
+                var freeCover = ComputeFreeCover(windowActive, objectFreeRem, ipRem, estTotalTokens);
+                var overflowCost = 0m;
+                var permitted = false;
+
+                if (freeCover > 0)
+                {
+                    var overflowTokens = estTotalTokens - freeCover;
+                    var (overflowInput, overflowOutput) = SplitTokensProportionally(estInputTokens, estOutputTokens, overflowTokens, estTotalTokens);
+                    overflowCost = _pricing.EstimateUpperBoundCost(provider, overflowInput, overflowOutput);
+                    permitted = overflowCost == 0m || balance.PaidCreditsBalance >= overflowCost;
+                }
+
+                if (!permitted)
+                {
+                    _logger.LogWarning(
+                        "Quota/credit reservation failed for {ObjectId}. WindowActive: {Window}, Free remaining: {Free}, IP rem: {IpRem}, Paid: {Paid}, estCost: {Cost}",
+                        objectId, windowActive, objectFreeRem, ipRem, balance.PaidCreditsBalance, estCost);
+                    throw new InsufficientQuotaException(objectId, "Insufficient quota or credits for this request.");
+                }
+
+                reservedFree = freeCover;
+                reservedPaid = overflowCost;
+            }
+
+            // Persist the hold so concurrent reservations for this user see the reduced balance.
+            if (reservedFree > 0)
+                balance.FreeTokensUsedInWindow += reservedFree;
+            if (reservedPaid > 0)
+                balance.PaidCreditsBalance -= reservedPaid;
+
+            await _balanceRepo.SaveAsync(balance, ct);
+
+            if (reservedFree > 0)
+                await _ipRepo.AddIssuedAsync(normalizedIp, reservedFree, ct);
+
+            _logger.LogInformation(
+                "Reserved for {ObjectId}: free {Free} tokens, paid {Paid} (est {Est} tokens) via {Provider}",
+                objectId, reservedFree, reservedPaid, estTotalTokens, provider);
+
+            return new UsageReservation
+            {
+                ObjectId = objectId,
+                ClientIp = normalizedIp,
+                Provider = provider,
+                ReservedFreeTokens = reservedFree,
+                ReservedPaidUsd = reservedPaid
+            };
+        }
+        finally
+        {
+            ipGate?.Release();
+            objectGate.Release();
+        }
+    }
+
+    // == SettleAsync == //
+
+    public async Task SettleAsync(UsageReservation reservation, string model, int actualInput, int actualOutput, decimal chargeUsd, decimal providerCostUsd, string? feature = null, CancellationToken ct = default)
+    {
+        if (reservation is null || string.IsNullOrWhiteSpace(reservation.ObjectId)) return;
+
+        var objectId = reservation.ObjectId;
+        var normalizedIp = reservation.ClientIp;
+        var actualTokens = (long)actualInput + actualOutput;
+
+        var objectGate = _locks.GetLock(objectId);
+        await objectGate.WaitAsync(ct);
+
+        SemaphoreSlim? ipGate = null;
+        try
+        {
+            ipGate = _locks.GetLock($"ip:{normalizedIp}");
+            await ipGate.WaitAsync(ct);
+
+            var balance = await GetOrCreateBalanceAsync(objectId, ct);
+
+            // 1) Reverse the hold taken at reserve time.
+            ReverseHold(balance, reservation);
+
+            // 2) Apply the actual deduction: free first (within the active window, bounded by both the
+            //    objectId and IP remainders), then paid credits for the remainder.
+            var windowActive = WindowActive(balance);
+            var freeRem = windowActive ? (balance.FreeQuotaMax - balance.FreeTokensUsedInWindow) : 0L;
+
+            var ipIssued = await _ipRepo.GetIssuedAsync(normalizedIp, ct);
+            var ipIssuedAfterReverse = Math.Max(0, ipIssued - reservation.ReservedFreeTokens); // the hold is being reconciled
+            var ipRem = IpFreeTokenCap - ipIssuedAfterReverse;
 
             var freeUsedThisCall = ComputeFreeCover(windowActive, freeRem, ipRem, actualTokens);
             if (freeUsedThisCall > 0)
                 balance.FreeTokensUsedInWindow += freeUsedThisCall;
 
             var paidTokens = actualTokens - freeUsedThisCall;
-            if (paidTokens > 0)
+            if (paidTokens > 0 && actualTokens > 0)
                 balance.PaidCreditsBalance -= chargeUsd * paidTokens / actualTokens;
 
             var entry = new UsageLedgerEntry
             {
                 ObjectId = objectId,
-                Provider = provider,
+                Provider = reservation.Provider,
                 Model = model,
                 InputTokens = actualInput,
                 OutputTokens = actualOutput,
@@ -157,13 +209,14 @@ public class UsageEnforcer : IUsageEnforcer
             await _ledgerRepo.AppendAsync(entry, ct);
             await _balanceRepo.SaveAsync(balance, ct);
 
-            // Increment IP aggregate only for the portion covered by free quota
-            if (freeUsedThisCall > 0)
-            {
-                await _ipRepo.AddIssuedAsync(normalizedIp, freeUsedThisCall, ct);
-            }
+            // Net IP change: remove the reserved hold, add back the actual free portion.
+            var netIp = freeUsedThisCall - reservation.ReservedFreeTokens;
+            if (netIp != 0)
+                await _ipRepo.AddIssuedAsync(normalizedIp, netIp, ct);
 
-            _logger.LogInformation("Recorded usage for {ObjectId}: {In}+{Out} tokens, charge {Charge} (cost {Cost}) via {Provider}/{Model} (free:{Free})", objectId, actualInput, actualOutput, chargeUsd, providerCostUsd, provider, model, freeUsedThisCall);
+            _logger.LogInformation(
+                "Settled usage for {ObjectId}: {In}+{Out} tokens, charge {Charge} (cost {Cost}) via {Provider}/{Model} (free:{Free})",
+                objectId, actualInput, actualOutput, chargeUsd, providerCostUsd, reservation.Provider, model, freeUsedThisCall);
         }
         finally
         {
@@ -171,6 +224,66 @@ public class UsageEnforcer : IUsageEnforcer
             objectGate.Release();
         }
     }
+
+    // == ReleaseAsync == //
+
+    public async Task ReleaseAsync(UsageReservation reservation, CancellationToken ct = default)
+    {
+        if (reservation is null || string.IsNullOrWhiteSpace(reservation.ObjectId)) return;
+        if (reservation.ReservedFreeTokens == 0 && reservation.ReservedPaidUsd == 0) return;
+
+        var objectId = reservation.ObjectId;
+        var normalizedIp = reservation.ClientIp;
+
+        var objectGate = _locks.GetLock(objectId);
+        await objectGate.WaitAsync(ct);
+
+        SemaphoreSlim? ipGate = null;
+        try
+        {
+            ipGate = _locks.GetLock($"ip:{normalizedIp}");
+            await ipGate.WaitAsync(ct);
+
+            var balance = await _balanceRepo.GetAsync(objectId, ct);
+            if (balance is not null)
+            {
+                ReverseHold(balance, reservation);
+                await _balanceRepo.SaveAsync(balance, ct);
+            }
+
+            if (reservation.ReservedFreeTokens > 0)
+                await _ipRepo.AddIssuedAsync(normalizedIp, -reservation.ReservedFreeTokens, ct);
+
+            _logger.LogInformation("Released reservation for {ObjectId}: free {Free}, paid {Paid}", objectId, reservation.ReservedFreeTokens, reservation.ReservedPaidUsd);
+        }
+        finally
+        {
+            ipGate?.Release();
+            objectGate.Release();
+        }
+    }
+
+    // == Balance helpers == //
+
+    private async Task<CreditBalance> GetOrCreateBalanceAsync(string objectId, CancellationToken ct)
+        => await _balanceRepo.GetAsync(objectId, ct)
+           ?? new CreditBalance { ObjectId = objectId, FreeQuotaMax = _options.FreeMonthlyTokenQuota, FirstSeenUtc = DateTime.UtcNow };
+
+    // 48h window per objectId (global first sighting). No monthly reset.
+    private static bool WindowActive(CreditBalance balance)
+        => (DateTime.UtcNow - balance.FirstSeenUtc).TotalHours < 48;
+
+    // Undoes a reservation's hold on the balance (free tokens floored at zero; paid credits refunded).
+    private static void ReverseHold(CreditBalance balance, UsageReservation reservation)
+    {
+        if (reservation.ReservedFreeTokens > 0)
+            balance.FreeTokensUsedInWindow = Math.Max(0, balance.FreeTokensUsedInWindow - reservation.ReservedFreeTokens);
+        if (reservation.ReservedPaidUsd > 0)
+            balance.PaidCreditsBalance += reservation.ReservedPaidUsd;
+    }
+
+    private static string Normalize(string? clientIp)
+        => string.IsNullOrWhiteSpace(clientIp) ? "unknown" : clientIp;
 
     // == Quota helpers == //
 

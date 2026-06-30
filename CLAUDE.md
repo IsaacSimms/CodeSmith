@@ -1,13 +1,15 @@
 # CodeSmith
 
-AI-powered coding interview practice tool. Users select a language and difficulty, receive a coding problem with starter code in a split-screen editor, and get guided assistance through an AI pair programmer. The AI always has access to the current editor contents.
+AI-powered interview practice tool with three independent surfaces: **Tutoring** (a coding problem with starter code in a split-screen editor and a Socratic AI pair programmer that always has the current editor contents), **Prompt Lab** (prompt-engineering challenges scored against a rubric), and **System Lab** (system-design justification scenarios). All three run over one provider-agnostic LLM layer, and every LLM call is metered against a per-user free quota + paid credit balance so the SaaS cannot run at a loss.
+
+> **`context.md` (repo root) is the exhaustive architecture reference** — seams, full API surface, the usage/credits subsystem, and the project's Ubiquitous Language. Consult it for anything this file doesn't cover.
 
 ## Stack
 
 | Layer         | Technology                     |
 |---------------|--------------------------------|
 | Backend       | .NET 8, ASP.NET Core Web API   |
-| AI            | Anthropic Claude API           |
+| AI            | Anthropic, OpenAI, and xAI/Grok SDKs (provider chosen per session; xAI default) |
 | Frontend      | React 19, TypeScript, Vite 6   |
 | Styling       | Tailwind CSS v4                |
 | Data Fetching | TanStack Query v5              |
@@ -19,7 +21,7 @@ AI-powered coding interview practice tool. Users select a language and difficult
 ## Folder Structure
 
 - `CodeSmith.Core/` — Domain models, enums, interfaces
-- `CodeSmith.Infrastructure/` — Anthropic service, in-memory session store
+- `CodeSmith.Infrastructure/` — LLM provider adapters, usage/credits enforcement, code execution, in-memory session stores, EF persistence
 - `CodeSmith.Api/` — ASP.NET Core Web API (HTTPS 7111, HTTP 5175)
 - `CodeSmith.CLI/` — Command-line interface
 - `CodeSmith.Tests/` — Backend unit/integration tests (Api/, CLI/, Core/, Infrastructure/)
@@ -30,17 +32,19 @@ AI-powered coding interview practice tool. Users select a language and difficult
 
 ## API Endpoints
 
-### POST /api/session
-Create a new coding problem session.
-- Request: `{ "difficulty": "Easy" | "Medium" | "Hard", "language": "CSharp" | "Cpp" | "Go" | "Rust" | "Python" | "Java" | "TypeScript" }`
-- Response (201): `{ sessionId, difficulty, language, problemDescription, starterCode, messages: [], createdAt }`
+LLM-mutating endpoints require auth (`[Authorize]`; in Development an allow-listed `X-Debug-User-Id` header satisfies it). Any metered call can return **402** when free quota and paid credits are exhausted. The Tutoring endpoints below are the originals; the **Prompt Lab** (`/api/prompt-lab/...`), **System Lab** (`/api/system-lab/...`), code-run (`/api/session/{id}/run`), and `/api/providers` endpoints are documented in full in `context.md`.
 
-### POST /api/session/{sessionId}/chat
+### POST /api/session 🔒
+Create a new coding problem session.
+- Request: `{ "difficulty": "Easy" | "Medium" | "Hard", "language": "CSharp" | "Cpp" | "Go" | "Rust" | "Python" | "Java" | "TypeScript", "provider": "Anthropic" | "OpenAi" | "Xai" }`
+- Response (201): `{ sessionId, difficulty, language, provider, problemDescription, starterCode, messages: [], createdAt }`
+
+### POST /api/session/{sessionId}/chat 🔒
 Send a message in an existing session.
-- Request: `{ "message": "..." (1-2000 chars), "editorContent?": "..." (optional, max 50000 chars) }`
-- Response (200): `{ "response": "..." }`
+- Request: `{ "message": "..." (1-2000 chars), "editorContent?": "..." (optional, max 50000 chars), "guidanceMode?": "Guidance" | "CodeAnalysis" }`
+- Response (200): `{ "response": "...", "contextTokensUsed", "contextWindowSize" }`
 - `editorContent` passes the current code editor contents so the AI can reference the student's actual code
-- Errors: 400, 404, 429, 502
+- Errors: 400, 402, 404, 429, 502
 
 ## Dev Commands
 

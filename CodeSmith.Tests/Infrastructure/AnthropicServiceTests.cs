@@ -20,13 +20,22 @@ public class TutoringServiceTests
         ICodeExecutionService?         codeExec         = null,
         ITutoringPromptTemplates?      templates        = null,
         ILogger<TutoringService>?      logger           = null)
-        => new(
+    {
+        store ??= Substitute.For<ISessionStore<ProblemSession>>();
+
+        // Pass-through the per-session lock so GetGuidanceAsync bodies run inline (the lock itself is
+        // covered by InMemorySessionStoreTests + the concurrency test below).
+        store.WithSessionLockAsync(Arg.Any<string>(), Arg.Any<Func<Task<ChatResponse>>>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Func<Task<ChatResponse>>>()());
+
+        return new(
             problemGenerator ?? Substitute.For<IProblemGenerator>(),
             guidance         ?? Substitute.For<IGuidanceConversation>(),
-            store            ?? Substitute.For<ISessionStore<ProblemSession>>(),
+            store,
             codeExec         ?? Substitute.For<ICodeExecutionService>(),
             templates        ?? Substitute.For<ITutoringPromptTemplates>(),
             logger           ?? Substitute.For<ILogger<TutoringService>>());
+    }
 
     // Builds a guidance substitute that returns the given reply, so the orchestrator can project it.
     private static IGuidanceConversation GuidanceReturning(LlmResponse response)
@@ -236,4 +245,51 @@ public class TutoringServiceTests
             () => service.RunCodeAsync(Guid.NewGuid(), Language.Python, "print(42)", CancellationToken.None));
     }
 
+    // == Per-session serialization == //
+    // Real store + real GuidanceConversation so the actual List<ChatMessage> mutation races are exercised.
+    // Without the per-session lock, concurrent turns interleave their appends and corrupt the
+    // user/assistant alternation (or throw on the non-thread-safe List). With it, history stays clean.
+
+    [Fact]
+    public async Task GetGuidanceAsync_ConcurrentTurnsOnSameSession_KeepHistoryConsistent()
+    {
+        var store = new InMemorySessionStore<ProblemSession>();
+
+        var factory = Substitute.For<ILlmServiceFactory>();
+        factory.Get(Arg.Any<AiProvider>()).Returns(new DelayingLlmService());
+        var guidance = new GuidanceConversation(factory, Substitute.For<ILogger<GuidanceConversation>>());
+
+        var service = new TutoringService(
+            Substitute.For<IProblemGenerator>(),
+            guidance,
+            store,
+            Substitute.For<ICodeExecutionService>(),
+            TemplatesReturning("system"),
+            Substitute.For<ILogger<TutoringService>>());
+
+        var session = new ProblemSession { Language = Language.CSharp, ProblemDescription = "p", StarterCode = "c" };
+        store.Set(session);
+
+        const int turns = 8; // 16 messages — under the 20-message window, so no trimming complicates the check
+        var tasks = Enumerable.Range(0, turns).Select(i => service.GetGuidanceAsync(session.SessionId, $"msg-{i}"));
+        await Task.WhenAll(tasks);
+
+        var messages = store.Get(session.SessionId.ToString())!.Messages;
+
+        Assert.Equal(turns * 2, messages.Count);
+        for (var i = 0; i < messages.Count; i++)
+        {
+            var expected = i % 2 == 0 ? MessageRole.User : MessageRole.Assistant;
+            Assert.Equal(expected, messages[i].Role); // strict alternation survives concurrency
+        }
+    }
+
+    private sealed class DelayingLlmService : ILlmService
+    {
+        public async Task<LlmResponse> CompleteAsync(CompletionRequest request, CancellationToken ct = default)
+        {
+            await Task.Delay(10, ct); // widen the interleave window between the user-append and the assistant-append
+            return new LlmResponse { Content = "reply", Model = "m", InputTokensUsed = 1, OutputTokensUsed = 1, ContextWindowSize = 1000 };
+        }
+    }
 }
