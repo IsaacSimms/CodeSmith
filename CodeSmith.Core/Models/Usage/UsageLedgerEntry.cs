@@ -12,15 +12,17 @@ public class UsageLedgerEntry
 
     public string ObjectId { get; set; } = string.Empty;   // Entra objectId
 
-    public AiProvider Provider { get; set; }
+    public LedgerEntryType Type { get; set; }              // Spend (LLM call, default) or TopUp (Stripe credit purchase)
 
-    public string Model { get; set; } = string.Empty;      // Exact model used
+    public AiProvider? Provider { get; set; }              // Null for TopUp rows (no AI provider)
+
+    public string? Model { get; set; }                     // Exact model used; null for TopUp rows
 
     public int InputTokens { get; set; }
 
     public int OutputTokens { get; set; }
 
-    public decimal CostUsd { get; set; }                   // Charged amount (raw cost × markup) debited from PaidCreditsBalance
+    public decimal CostUsd { get; set; }                   // Spend: charged amount debited. TopUp: credited amount added.
 
     public decimal? ProviderCostUsd { get; set; }          // Raw provider cost (what we pay the provider); nullable for rows written before this column existed
 

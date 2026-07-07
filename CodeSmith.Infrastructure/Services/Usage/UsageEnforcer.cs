@@ -266,8 +266,7 @@ public class UsageEnforcer : IUsageEnforcer
     // == Balance helpers == //
 
     private async Task<CreditBalance> GetOrCreateBalanceAsync(string objectId, CancellationToken ct)
-        => await _balanceRepo.GetAsync(objectId, ct)
-           ?? new CreditBalance { ObjectId = objectId, FreeQuotaMax = _options.FreeMonthlyTokenQuota, FirstSeenUtc = DateTime.UtcNow };
+        => await _balanceRepo.GetOrCreateAsync(objectId, _options.FreeMonthlyTokenQuota, ct);
 
     // 48h window per objectId (global first sighting). No monthly reset.
     private static bool WindowActive(CreditBalance balance)

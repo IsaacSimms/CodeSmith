@@ -40,6 +40,8 @@ builder.Services.AddSingleton<IExceptionMapper, AiServiceExceptionMapper>();
 builder.Services.AddSingleton<IExceptionMapper, CodeExecutionExceptionMapper>();
 builder.Services.AddSingleton<IExceptionMapper, OperationCancelledExceptionMapper>();
 builder.Services.AddSingleton<IExceptionMapper, InsufficientQuotaExceptionMapper>();
+builder.Services.AddSingleton<IExceptionMapper, InvalidPriceExceptionMapper>();
+builder.Services.AddSingleton<IExceptionMapper, WebhookSignatureExceptionMapper>();
 builder.Services.AddExceptionHandler<AppExceptionHandler>();
 
 // HttpContext + current user (for usage enforcement seam + dev bypass)

@@ -204,7 +204,8 @@ public class UsageEnforcerTests
     public async Task ReserveAsync_WithNoFreeQuotaAndNoCredits_ThrowsInsufficientQuota()
     {
         var repo = Substitute.For<ICreditBalanceRepository>();
-        repo.GetAsync(ObjectId, Arg.Any<CancellationToken>()).Returns((CreditBalance?)null); // new balance with freeQuota=0
+        repo.GetOrCreateAsync(ObjectId, Arg.Any<long>(), Arg.Any<CancellationToken>())
+            .Returns(ci => CreditBalance.CreateNew(ObjectId, ci.ArgAt<long>(1))); // new balance with freeQuota=0
 
         var pricing = Substitute.For<ILlmPricing>();
         pricing.EstimateUpperBoundCost(Arg.Any<AiProvider>(), Arg.Any<int>(), Arg.Any<int>()).Returns(0.5m);
@@ -219,7 +220,8 @@ public class UsageEnforcerTests
     public async Task ReserveAsync_WhenFreeQuotaCovers_DoesNotThrow()
     {
         var repo = Substitute.For<ICreditBalanceRepository>();
-        repo.GetAsync(ObjectId, Arg.Any<CancellationToken>()).Returns((CreditBalance?)null); // new balance gets freeQuota below
+        repo.GetOrCreateAsync(ObjectId, Arg.Any<long>(), Arg.Any<CancellationToken>())
+            .Returns(ci => CreditBalance.CreateNew(ObjectId, ci.ArgAt<long>(1))); // new balance gets freeQuota below
 
         var pricing = Substitute.For<ILlmPricing>();
         pricing.EstimateUpperBoundCost(Arg.Any<AiProvider>(), Arg.Any<int>(), Arg.Any<int>()).Returns(0.5m);
@@ -235,7 +237,7 @@ public class UsageEnforcerTests
     public async Task ReserveAsync_ExhaustedObjectQuota_ThrowsInsufficientQuota()
     {
         var repo = Substitute.For<ICreditBalanceRepository>();
-        repo.GetAsync(ObjectId, Arg.Any<CancellationToken>())
+        repo.GetOrCreateAsync(ObjectId, Arg.Any<long>(), Arg.Any<CancellationToken>())
             .Returns(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 20_000));
 
         var ipRepo = Substitute.For<IIpFreeUsageRepository>();
@@ -254,7 +256,7 @@ public class UsageEnforcerTests
     public async Task ReserveAsync_ExhaustedIpQuota_ThrowsInsufficientQuota()
     {
         var repo = Substitute.For<ICreditBalanceRepository>();
-        repo.GetAsync(ObjectId, Arg.Any<CancellationToken>())
+        repo.GetOrCreateAsync(ObjectId, Arg.Any<long>(), Arg.Any<CancellationToken>())
             .Returns(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 0));
 
         var ipRepo = Substitute.For<IIpFreeUsageRepository>();
@@ -273,7 +275,7 @@ public class UsageEnforcerTests
     public async Task ReserveAsync_ObjectExhaustedButIpHasRoom_ThrowsInsufficientQuota()
     {
         var repo = Substitute.For<ICreditBalanceRepository>();
-        repo.GetAsync(ObjectId, Arg.Any<CancellationToken>())
+        repo.GetOrCreateAsync(ObjectId, Arg.Any<long>(), Arg.Any<CancellationToken>())
             .Returns(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 20_000));
 
         var ipRepo = Substitute.For<IIpFreeUsageRepository>();
@@ -292,7 +294,7 @@ public class UsageEnforcerTests
     public async Task ReserveAsync_PartialFreeHeadroomWithPaidOverflow_DoesNotThrow()
     {
         var repo = Substitute.For<ICreditBalanceRepository>();
-        repo.GetAsync(ObjectId, Arg.Any<CancellationToken>())
+        repo.GetOrCreateAsync(ObjectId, Arg.Any<long>(), Arg.Any<CancellationToken>())
             .Returns(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 19_500, paid: 25m));
 
         var ipRepo = Substitute.For<IIpFreeUsageRepository>();
@@ -310,7 +312,7 @@ public class UsageEnforcerTests
     public async Task ReserveAsync_PartialFreeNoPaidForOverflow_ThrowsInsufficientQuota()
     {
         var repo = Substitute.For<ICreditBalanceRepository>();
-        repo.GetAsync(ObjectId, Arg.Any<CancellationToken>())
+        repo.GetOrCreateAsync(ObjectId, Arg.Any<long>(), Arg.Any<CancellationToken>())
             .Returns(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 19_500));
 
         var ipRepo = Substitute.For<IIpFreeUsageRepository>();
@@ -326,7 +328,7 @@ public class UsageEnforcerTests
     public async Task ReserveAsync_WindowExpired_ThrowsInsufficientQuota()
     {
         var repo = Substitute.For<ICreditBalanceRepository>();
-        repo.GetAsync(ObjectId, Arg.Any<CancellationToken>())
+        repo.GetOrCreateAsync(ObjectId, Arg.Any<long>(), Arg.Any<CancellationToken>())
             .Returns(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 0, firstSeen: DateTime.UtcNow.AddHours(-49)));
 
         var ipRepo = Substitute.For<IIpFreeUsageRepository>();
@@ -394,6 +396,12 @@ public class UsageEnforcerTests
         {
             await Task.Yield();            // widen the read→modify→write window
             return Clone(_stored);          // snapshot, as a real DB read would return
+        }
+
+        public async Task<CreditBalance> GetOrCreateAsync(string objectId, long freeQuotaMax, CancellationToken ct = default)
+        {
+            await Task.Yield();
+            return Clone(_stored);          // seed always present in these tests
         }
 
         public async Task SaveAsync(CreditBalance balance, CancellationToken ct = default)

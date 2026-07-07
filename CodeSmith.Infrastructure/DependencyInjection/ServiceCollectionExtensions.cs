@@ -38,6 +38,7 @@ public static class ServiceCollectionExtensions
 
         // == Usage / Data Layer (SaaS cost protection) ==
         services.Configure<UsageOptions>(configuration.GetSection(UsageOptions.SectionName ?? "Usage"));
+        services.Configure<StripeOptions>(configuration.GetSection(StripeOptions.SectionName));
         services.AddDbContext<CodeSmithDbContext>(opts =>
         {
             var conn = configuration.GetConnectionString("CodeSmithDb");
@@ -48,6 +49,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<CodeSmith.Core.Interfaces.ICreditBalanceRepository, CodeSmith.Infrastructure.Persistence.Repositories.EfCreditBalanceRepository>();
         services.AddScoped<CodeSmith.Core.Interfaces.IUsageLedgerRepository, CodeSmith.Infrastructure.Persistence.Repositories.EfUsageLedgerRepository>();
         services.AddScoped<CodeSmith.Core.Interfaces.IIpFreeUsageRepository, CodeSmith.Infrastructure.Persistence.Repositories.EfIpFreeUsageRepository>();
+        services.AddScoped<CodeSmith.Core.Interfaces.IStripeCreditStore, CodeSmith.Infrastructure.Persistence.Repositories.EfStripeCreditStore>();
+
+        // == Billing (Stripe prepaid credits) — writes credits only; never debits ==
+        services.AddSingleton<CodeSmith.Infrastructure.Billing.IStripeEventReader, CodeSmith.Infrastructure.Billing.StripeEventReader>();
+        services.AddScoped<CodeSmith.Core.Interfaces.IBillingService, CodeSmith.Infrastructure.Billing.StripeBillingService>();
         services.AddSingleton<CodeSmith.Core.Interfaces.ILlmPricing, CodeSmith.Infrastructure.Services.Usage.LlmPricing>();
         services.AddScoped<CodeSmith.Core.Interfaces.IUsageEnforcer, CodeSmith.Infrastructure.Services.Usage.UsageEnforcer>();
         // Per-user lock registry — singleton so check/record serialize across requests and concurrent completions

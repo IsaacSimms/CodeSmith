@@ -20,6 +20,9 @@ public class EfCreditBalanceRepository : ICreditBalanceRepository
             .FirstOrDefaultAsync(b => b.ObjectId == objectId, ct);
     }
 
+    public async Task<CreditBalance> GetOrCreateAsync(string objectId, long freeQuotaMax, CancellationToken ct = default)
+        => await GetAsync(objectId, ct) ?? CreditBalance.CreateNew(objectId, freeQuotaMax);
+
     public async Task SaveAsync(CreditBalance balance, CancellationToken ct = default)
     {
         if (_db.Entry(balance).State == EntityState.Detached)

@@ -23,4 +23,9 @@ public class CreditBalance
 
     [Timestamp]
     public byte[]? RowVersion { get; set; }                         // Optimistic concurrency token for safe concurrent deducts
+
+    // Canonical seed for a brand-new balance. Single source of the creation defaults shared by usage
+    // enforcement and billing top-ups so the two paths cannot drift.
+    public static CreditBalance CreateNew(string objectId, long freeQuotaMax)
+        => new() { ObjectId = objectId, FreeQuotaMax = freeQuotaMax, FirstSeenUtc = DateTime.UtcNow };
 }
