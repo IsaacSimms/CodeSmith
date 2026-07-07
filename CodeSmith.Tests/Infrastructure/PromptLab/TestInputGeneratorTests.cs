@@ -1,5 +1,6 @@
 // == Test Input Generator Tests == //
 using CodeSmith.Core.Enums;
+using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
 using CodeSmith.Core.Models.PromptLab;
@@ -82,12 +83,12 @@ public class TestInputGeneratorTests
     }
 
     [Fact]
-    public async Task GenerateAsync_MalformedJson_Throws()
+    public async Task GenerateAsync_MalformedJson_ThrowsEvaluationParseException()
     {
         _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "this is not json" });
 
-        await Assert.ThrowsAsync<System.Text.Json.JsonException>(
+        await Assert.ThrowsAsync<EvaluationParseException>(
             () => _generator.GenerateAsync(MakeChallenge(), AiProvider.Anthropic, CancellationToken.None));
     }
 

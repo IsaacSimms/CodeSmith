@@ -1,7 +1,7 @@
 // == Prompt Evaluation Phase == //
 using System.Text;
-using System.Text.Json;
 using CodeSmith.Core.Enums;
+using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
 using CodeSmith.Core.Models.PromptLab;
@@ -49,7 +49,7 @@ public sealed class PromptEvaluator : IPromptEvaluator
         var resultTasks = simulation.Outputs.Select(pair =>
         {
             var computedUserMessage = userMessageIsEditable
-                ? BuildUserMessage(userMessageContent, pair.Input.UserMessage)
+                ? TestInputMessage.Build(userMessageContent, pair.Input.UserMessage)
                 : pair.Input.UserMessage;
             return EvaluateOneAsync(challenge, pair.Input, pair.Output, computedUserMessage, provider, ct);
         });
@@ -119,16 +119,6 @@ public sealed class PromptEvaluator : IPromptEvaluator
         return sb.ToString();
     }
 
-    // Substitutes {input} in the user's template with the test input value.
-    // If the template contains no placeholder, the test input value is appended on a new line.
-    private static string BuildUserMessage(string template, string testInputValue)
-    {
-        const string placeholder = "{input}";
-        return template.Contains(placeholder, StringComparison.OrdinalIgnoreCase)
-            ? template.Replace(placeholder, testInputValue, StringComparison.OrdinalIgnoreCase)
-            : $"{template}\n\n{testInputValue}";
-    }
-
     // == Result Parsing == //
 
     private static TestInputResult ParseResult(
@@ -140,31 +130,12 @@ public sealed class PromptEvaluator : IPromptEvaluator
     {
         try
         {
-            var jsonText = ExtractJson(json);
-            using var doc = JsonDocument.Parse(jsonText);
+            // LlmJson owns fence-stripping, malformed-JSON failure, and rubric integrity (skip/clamp/round)
+            using var doc = LlmJson.Parse(json);
             var root = doc.RootElement;
 
             var passed   = root.TryGetProperty("passed",   out var p) && p.GetBoolean();
             var feedback = root.TryGetProperty("feedback", out var f) ? f.GetString() ?? "" : "";
-
-            var criterionScores = new List<CriterionScore>();
-            if (root.TryGetProperty("criterionScores", out var scoresEl))
-            {
-                foreach (var scoreEl in scoresEl.EnumerateArray())
-                {
-                    var criterionId = scoreEl.GetProperty("criterionId").GetString() ?? "";
-                    var points      = scoreEl.GetProperty("points").GetInt32();
-                    var criterion   = challenge.Rubric.FirstOrDefault(r => r.CriterionId == criterionId);
-
-                    criterionScores.Add(new CriterionScore
-                    {
-                        CriterionId   = criterionId,
-                        CriterionName = criterion?.Name ?? criterionId,
-                        Points        = points,
-                        MaxPoints     = criterion?.MaxPoints ?? 0
-                    });
-                }
-            }
 
             return new TestInputResult
             {
@@ -173,11 +144,11 @@ public sealed class PromptEvaluator : IPromptEvaluator
                 UserMessage      = computedUserMessage,
                 SimulationOutput = simulationOutput,
                 Passed           = passed,
-                CriterionScores  = criterionScores,
+                CriterionScores  = LlmJson.ParseCriterionScores(challenge.Rubric, root),
                 Feedback         = feedback
             };
         }
-        catch (JsonException)
+        catch (EvaluationParseException)
         {
             return new TestInputResult
             {
@@ -202,20 +173,5 @@ public sealed class PromptEvaluator : IPromptEvaluator
         return passed == total
             ? $"All {total} test inputs passed ({attempt.TotalScore}/{attempt.MaxScore} pts). Excellent prompt engineering!"
             : $"{passed}/{total} test inputs passed ({pct}% of available points). Review the per-input feedback to refine your prompt.";
-    }
-
-    // == Helpers == //
-
-    private static string ExtractJson(string text)  // Strips markdown code fences if the model wraps JSON despite instructions
-    {
-        var trimmed = text.Trim();
-        if (trimmed.StartsWith("```"))
-        {
-            var firstNewline = trimmed.IndexOf('\n');
-            var lastFence    = trimmed.LastIndexOf("```");
-            if (firstNewline >= 0 && lastFence > firstNewline)
-                return trimmed[(firstNewline + 1)..lastFence].Trim();
-        }
-        return trimmed;
     }
 }

@@ -31,16 +31,17 @@ This document is the ground-truth architectural reference. It reflects the repo 
 ```
 CodeSmith.Core/            — Domain models, enums, exceptions, interfaces (no I/O, no SDKs)
   Enums/                   — AiProvider, ModelTier, Difficulty, Language, MessageRole, GuidanceMode,
-                             EvaluationMode, ChallengeCategory, SystemLabCategory, PromptFieldType
+                             EvaluationMode, ChallengeCategory, SystemLabCategory, PromptFieldType, LedgerEntryType
   Exceptions/              — Domain exceptions (each maps to one HTTP status, see below)
   Interfaces/              — All seams live here (ILlm*, I*Service, ISessionStore, IUsage*, etc.)
   Models/                  — ChatMessage, LlmResponse, ProblemSession, CodeExecutionResult,
                              PromptLab/*, SystemLab/*, Usage/*
 
 CodeSmith.Infrastructure/  — Implementations of Core interfaces; the only project that touches SDKs/EF/HTTP
-  Configuration/           — Options classes (Anthropic, OpenAi, Xai, Ai, CodeExecution, Usage)
+  Billing/                 — StripeBillingService + IStripeEventReader/StripeEventReader (Stripe seam)
+  Configuration/           — Options classes (Anthropic, OpenAi, Xai, Ai, CodeExecution, Usage, Stripe)
   DependencyInjection/     — ServiceCollectionExtensions.AddCodeSmithInfrastructure (composition root)
-  Persistence/             — CodeSmithDbContext + EF repositories (credit balance, usage ledger, IP free-usage aggregate)
+  Persistence/             — CodeSmithDbContext + EF repositories (credit balance, usage ledger, IP free-usage aggregate, Stripe credit store)
   Services/                — LLM adapters, generators, lab orchestrators, session stores
     PromptLab/             — ChallengeCatalog, PromptSimulator, PromptEvaluator, TestInputGenerator, PromptLabService
     SystemLab/             — ScenarioCatalog, SystemLabEvaluator, SystemLabService
@@ -48,8 +49,8 @@ CodeSmith.Infrastructure/  — Implementations of Core interfaces; the only proj
     Usage/                 — UsageEnforcer, LlmPricing, UserUsageLock, NoopCurrentUser, Decorators/
 
 CodeSmith.Api/             — ASP.NET Core host (HTTPS 7111, HTTP 5175)
-  Controllers/             — SessionController, PromptLabController, SystemLabController
-  DTOs/                    — Request/response shapes per surface (PromptLab/, SystemLab/)
+  Controllers/             — SessionController, PromptLabController, SystemLabController, BillingController
+  DTOs/                    — Request/response shapes per surface (PromptLab/, SystemLab/, Billing/)
   Middleware/              — AppExceptionHandler + IExceptionMapper adapters; RequestLoggingMiddleware
   Services/                — HttpCurrentUser (resolves Entra objectId, dev bypass)
 
@@ -136,6 +137,8 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 | `CodeExecutionException` | 500 Internal Server Error |
 | `OperationCanceledException` | 499 Client Closed Request |
 | `InsufficientQuotaException` | 402 Payment Required |
+| `InvalidPriceException` | 400 Bad Request |
+| `WebhookSignatureException` | 400 Bad Request |
 | *(unmapped, incl. `EvaluationParseException`)* | 500 Internal Server Error |
 
 > Note: **402** = out of quota/credits (`UsageEnforcer`); **429** = rate-limited (too many requests per IP). The full exception is logged internally; only a safe message reaches the client.
@@ -143,11 +146,12 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 ### Configuration pattern
 
 - `appsettings.json` (defaults) + `appsettings.Development.json` (dev overrides).
-- Sections: `Ai`, `Anthropic`, `OpenAi`, `Xai`, `CodeExecution`, `Usage`, `AzureAd` (Entra), plus `ConnectionStrings:CodeSmithDb` and `AllowedCorsOrigins`.
+- Sections: `Ai`, `Anthropic`, `OpenAi`, `Xai`, `CodeExecution`, `Usage`, `Stripe`, `AzureAd` (Entra), plus `ConnectionStrings:CodeSmithDb` and `AllowedCorsOrigins`.
 - Each options class exposes a `SectionName` constant; bound via `services.Configure<T>(config.GetSection(T.SectionName))` and injected as `IOptions<T>`.
 - `Ai:ActiveProvider` selects the default provider name (**default `Xai` / Grok**); `CodeExecution:Backend` selects `Piston` vs `LocalProcess` at startup.
 - Each provider's `AccurateModel`/`FastModel` is **validated against the pricing catalog at startup** (`ValidateOnStart`); a model with no rate entry fails the boot rather than mis-charging silently.
 - `Usage` carries `FreeMonthlyTokenQuota` (the per-objectId free cap, default 20,000 — note the name predates the move to a 48h window; it maps to `CreditBalance.FreeQuotaMax`), `PaidMarkupMultiplier` (raw-cost → charge multiplier, default `2.0`), and `AllowedDebugObjectIds` (objectIds permitted to use the dev `X-Debug-User-Id` bypass; empty in production).
+- `Stripe` (`StripeOptions`) carries `SecretKey` + `WebhookSecret` (secrets — Key Vault / user-secrets), `PriceIds` (allow-list of purchasable packs), and `SuccessUrl`/`CancelUrl`. Not validated at startup (unlike provider options).
 
 ### Authentication & usage
 
@@ -177,6 +181,10 @@ All routes are under `/api`. Enums serialize as strings (`JsonStringEnumConverte
 | POST | `/api/system-lab/sessions` | `StartSystemLabSessionRequest { scenarioId, provider }` | `SystemLabSessionResponse` | 201 / 400 / 404 |
 | POST | `/api/system-lab/sessions/{sessionId}/submit` 🔒 | `SubmitJustificationRequest { justificationContent }` | `SystemLabAttemptResultResponse` | 200 / 400 / 404 |
 | POST | `/api/system-lab/sessions/{sessionId}/chat` 🔒 | `SystemLabChatRequest { message, currentJustification? }` | `SystemLabChatResponse` | 200 / 400 / 404 |
+| POST | `/api/billing/checkout` 🔒 | `CheckoutRequest { priceId }` | `CheckoutResponse { url }` | 200 / 400 (unknown priceId); priceId must be allow-listed |
+| POST | `/api/billing/webhook` | *(raw body)* + `Stripe-Signature` header | `{ result }` | **anonymous, signature-verified**; 400 bad sig / 200 processed-dup-ignored / 500 transient |
+| GET | `/api/billing/balance` 🔒 | — | `BalanceResponse { paidCreditsUsd }` | 200 |
+| GET | `/api/billing/ledger?take=20` 🔒 | — | `LedgerEntryResponse[] { type, amountUsd, feature?, timestampUtc }` | 200; omits `ProviderCostUsd` (margin) |
 
 **Catalog response stripping is a security invariant:** `ChallengeResponse`/`ScenarioResponse` deliberately omit hidden fields (adversarial prompts, security pitfalls, hidden test-input expected behavior) so they never reach the client. Preserve this when editing DTO projections.
 
@@ -197,12 +205,13 @@ All routes are under `/api`. Enums serialize as strings (`JsonStringEnumConverte
 | `Challenge` | `ChallengeId`, `Title`, `Description`, `Rubric[]`, `EditableFields[]`, `TestInputs[]`, `LockedSystemPrompt`, `HiddenAdversarialPrompt?` |
 | `Scenario` | `ScenarioId`, `Title`, `Description`, `Constraints`, `EvaluationMode`, `Rubric[]`, `RequiredTradeoffs[]`, `Dimensions[]` (cross-cutting pitfalls) |
 | `ChallengeAttempt` / `ScenarioAttempt` | scored result: per-criterion scores, totals, feedback (+ tradeoff results / dimension deductions for System Lab) |
-| `CreditBalance` | `ObjectId`, `PaidCreditsBalance`, `FreeTokensUsedInWindow`, `FreeQuotaMax` (default 20k), `FirstSeenUtc`, `RowVersion` — free quota is a **48h window** from `FirstSeenUtc`, not a monthly reset; `RowVersion` is an optimistic-concurrency token (present but not yet enforced) |
-| `UsageLedgerEntry` | `Id`, `ObjectId`, `Provider`, `Model`, `InputTokens`, `OutputTokens`, `CostUsd` (amount charged = raw × markup), `ProviderCostUsd` (raw provider cost; nullable for legacy rows), `Feature`, `TimestampUtc` — margin = `CostUsd − ProviderCostUsd` |
+| `CreditBalance` | `ObjectId`, `PaidCreditsBalance`, `FreeTokensUsedInWindow`, `FreeQuotaMax` (default 20k), `FirstSeenUtc`, `RowVersion` — free quota is a **48h window** from `FirstSeenUtc`, not a monthly reset; `RowVersion` is an optimistic-concurrency token, enforced by the billing store's retry loop (the enforcer serializes via `IUserUsageLock` instead). Seeded via static `CreditBalance.CreateNew(objectId, freeQuotaMax)`, shared by enforcement and billing |
+| `UsageLedgerEntry` | `Id`, `ObjectId`, `Type` (`Spend`/`TopUp`), `Provider?`, `Model?` (null for top-ups), `InputTokens`, `OutputTokens`, `CostUsd` (Spend: amount charged = raw × markup; TopUp: amount credited), `ProviderCostUsd` (raw provider cost; null for top-ups/legacy rows), `Feature`, `TimestampUtc` — margin = `CostUsd − ProviderCostUsd` |
+| `ProcessedStripeEvent` | `EventId` (PK, Stripe event id), `ProcessedUtc` — webhook dedup marker; insert-collision = already-processed |
 | `IpFreeUsage` | `Ip`, `FreeTokensIssued`, `FirstSeenUtc` — per-IP aggregate of free tokens granted across all objectIds; backs the 60k-per-IP cap |
 | `UsageReservation` | `ObjectId`, `ClientIp`, `Provider`, `ReservedFreeTokens`, `ReservedPaidUsd`, `UsedFree` — the upper-bound hold `ReserveAsync` returns and `SettleAsync`/`ReleaseAsync` reconcile |
 
-**Enums:** `Difficulty {Easy, Medium, Hard}`; `Language {CSharp, Cpp, Go, Rust, Python, Java, TypeScript}`; `AiProvider {Anthropic, OpenAi, Xai}`; `EvaluationMode {SingleAnswer, TradeoffReasoning, OpenJudgment}`; plus `GuidanceMode`, `ChallengeCategory`, `SystemLabCategory`, `PromptFieldType`, `MessageRole`.
+**Enums:** `Difficulty {Easy, Medium, Hard}`; `Language {CSharp, Cpp, Go, Rust, Python, Java, TypeScript}`; `AiProvider {Anthropic, OpenAi, Xai}`; `EvaluationMode {SingleAnswer, TradeoffReasoning, OpenJudgment}`; `LedgerEntryType {Spend=0, TopUp}`; plus `GuidanceMode`, `ChallengeCategory`, `SystemLabCategory`, `PromptFieldType`, `MessageRole`.
 
 ---
 
@@ -242,11 +251,13 @@ All three surfaces hold mutable session state (chat history, attempts) in single
 - **`IPromptSimulator`** — runs the student's prompt against every test input **in parallel** (fast model), combining locked + adversarial + user prompt content. Effective system prompt = `[LockedSystemPrompt] + [HiddenAdversarialPrompt] + [UserSystemPromptEdits]`; the adversarial segment is invisible to the user and cannot be overridden (anti-gaming).
 - **`IPromptEvaluator`** — scores each output against the rubric **in parallel** (accurate model), returning JSON parsed into `CriterionScore`s.
 
+All three phases parse model output through the shared **`LlmJson`** Module (fence-stripping, one failure mode: `EvaluationParseException`, rubric-integrity walk — see [Ubiquitous Language](#ubiquitous-language)); the `{input}` placeholder substitution both simulate and evaluate apply to the student's template lives in **`TestInputMessage`**, so the output scored is always the output generated.
+
 Chat is Socratic guidance delegated to the shared `IGuidanceConversation` (20-message sliding window, user turn rolled back on failure). `ChallengeCatalog` is a static in-memory collection (categories × difficulties, each with a locked prompt, hidden adversarial prompt, test inputs, and rubric).
 
 ### System Lab (system design)
 
-`SystemLabController` → `ISystemLabService` → `ISystemLabEvaluator`. The evaluator builds a mode-specific system prompt (`SingleAnswer` / `TradeoffReasoning` / `OpenJudgment`), generates the JSON schema dynamically from the scenario's cross-cutting dimensions, calls the accurate model, and parses criterion scores, tradeoff engagement, and dimension deductions — clamping every value and **dropping hallucinated criterion IDs** to prevent phantom points. Chat delegates to the shared `IGuidanceConversation`. System Lab holds the per-session lock around **both** submit and chat (it is broader than a single guidance turn), so it stays in the orchestrator rather than `IGuidanceConversation` — see [Session serialization](#session-serialization-per-session-lock).
+`SystemLabController` → `ISystemLabService` → `ISystemLabEvaluator`. The evaluator builds a mode-specific system prompt (`SingleAnswer` / `TradeoffReasoning` / `OpenJudgment`), generates the JSON schema dynamically from the scenario's cross-cutting dimensions, calls the accurate model, and parses criterion scores (via the shared `LlmJson` Module), tradeoff engagement, and dimension deductions — clamping every value and **dropping hallucinated criterion IDs and dimension names** so the evaluator can neither invent points nor invent penalties. Chat delegates to the shared `IGuidanceConversation`. System Lab holds the per-session lock around **both** submit and chat (it is broader than a single guidance turn), so it stays in the orchestrator rather than `IGuidanceConversation` — see [Session serialization](#session-serialization-per-session-lock).
 
 ### Usage & credits (cost protection)
 
@@ -266,7 +277,16 @@ The seam is `IUsageEnforcer`, a reserve → settle / release lifecycle (`UsageRe
 
 All three run under a **per-user lock** (`IUserUsageLock`); IP-aggregate adjustments take an additional `ip:{ip}` lock, so neither the shared scoped DbContext nor the 60k cap loses an update.
 
-> **Reservation honesty — closed in-process (was the headline cost gap).** Because the hold is now *persisted at reserve time*, concurrent completions for one user (a Prompt Lab submit fans out to up to 2N parallel Completions — N simulate + N evaluate, both `Task.WhenAll`) serialize on the per-user lock and each sees the prior holds; they can no longer all pass a gate that only had budget for one. **Still open:** the in-process `UserUsageLock` makes this correct on a single instance only. For a multi-instance deployment, `CreditBalance.RowVersion` (present, configured as the concurrency token, but not yet enforced with a retry loop) would be the cross-process guard — deferred.
+> **Reservation honesty — closed in-process (was the headline cost gap).** Because the hold is now *persisted at reserve time*, concurrent completions for one user (a Prompt Lab submit fans out to up to 2N parallel Completions — N simulate + N evaluate, both `Task.WhenAll`) serialize on the per-user lock and each sees the prior holds; they can no longer all pass a gate that only had budget for one. **Still open:** the in-process `UserUsageLock` makes this correct on a single instance only. For a multi-instance deployment, `CreditBalance.RowVersion` would be the cross-process guard for the enforcer — the enforcer does not yet use it (relying on the in-process lock), though the billing store already does (see below). Deferred for enforcement.
+
+### Billing (Stripe prepaid credits)
+
+A module **separate from usage enforcement**: billing *writes* credits, enforcement *debits* them. Billing code never references `IUsageEnforcer`, `IUserUsageLock`, or any LLM service; `objectId` comes only from `ICurrentUser`. `BillingController` → `IBillingService` (Core, carries no Stripe types) → `StripeBillingService` (Infrastructure `Billing/`).
+
+- **Checkout** (`POST /api/billing/checkout`, 🔒): validates `priceId` against `StripeOptions.PriceIds` (else `InvalidPriceException` → 400), creates a hosted Stripe Checkout session (`mode=payment`, `metadata["objectId"] = currentUser.ObjectId`), returns `session.Url`.
+- **Webhook** (`POST /api/billing/webhook`, **anonymous**): reads the **raw body** (no model binding — signature hashes exact bytes) and the `Stripe-Signature` header. Verification is isolated behind the internal `IStripeEventReader` seam (over `EventUtility.ConstructEvent`) so the handler is unit-testable without minting signatures; a mismatch → `WebhookSignatureException` → 400. On `checkout.session.completed` it guards currency == `usd`, presence of `objectId` metadata, and positive `amount_total`, then credits `amount_total / 100` USD. HTTP contract: **400** bad sig · **200** processed/duplicate/ignored · **500** transient (Stripe retries).
+- **Idempotency + atomicity** — the credit lives in the deep `IStripeCreditStore` / `EfStripeCreditStore`, which in **one `SaveChangesAsync`** inserts the `ProcessedStripeEvent` dedup marker, credits `PaidCreditsBalance` (creating the row via `GetOrCreateAsync` for a payer who buys before their first LLM call), and appends a `TopUp` `UsageLedgerEntry`. A re-seen event id (or PK-collision race) returns `AlreadyProcessed` with no change; a concurrent enforcement write surfaces as `DbUpdateConcurrencyException` and is retried against `CreditBalance.RowVersion`. Stripe delivers at-least-once, so this replay-safety is load-bearing.
+- **Reads** (🔒): `GET /balance` returns paid credits; `GET /ledger?take=N` returns recent rows as DTOs that **omit `ProviderCostUsd`** (raw cost / margin) and `RowVersion`.
 
 ### Code execution
 
@@ -432,6 +452,10 @@ Shared vocabulary. Each word has an ordinary meaning too — these are the proje
 **CompletionRequest** — the parameter object carrying a Completion's inputs and caller intent (system prompt, messages, tier, max tokens, feature).
 **ModelTier** — the caller-chosen quality/cost tier (`Fast`, `Accurate`); each provider Adapter maps a tier to a concrete model name.
 **Feature** — a free-form `string` label identifying what a Completion is for (e.g. `"Tutoring:Guidance"`); flows to error logs and the usage ledger.
+
+### Domain terms introduced by the LLM JSON parsing Module
+**LlmJson** — the shared Module owning defensive parsing of Completion content that is expected to be JSON: markdown-fence stripping (`ExtractJson`), document parsing and typed deserialization with a **single failure mode** (`EvaluationParseException`), and the one rubric-integrity walk (`ParseCriterionScores`: entries with missing or hallucinated criterion IDs are dropped, fractional points rounded, missing points default to 0, scores clamped to `[0, MaxPoints]`). A `static` class in Infrastructure, deliberately **not** a Seam — nothing varies behind it, and keeping it un-mockable forces evaluator tests through the real parse path. Consumers: `PromptEvaluator`, `SystemLabEvaluator`, `TestInputGenerator`.
+**TestInputMessage** — the Prompt Lab Module that builds the effective user message for a test input from the student's template: `{input}` placeholder substitution (case-insensitive), or appending the input when no placeholder exists. Shared by the simulate and evaluate phases so both operate on the same message.
 
 ### Domain terms introduced by the Guidance Conversation Seam
 **Guidance Conversation** — the multi-turn Socratic exchange a student has with a surface's tutor (Tutoring, Prompt Lab, or System Lab). The deep Module that owns one round of it is `IGuidanceConversation`; each surface keeps its own system-prompt builder and supplies the result as data.

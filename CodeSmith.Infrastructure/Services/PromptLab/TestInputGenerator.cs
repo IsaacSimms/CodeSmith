@@ -67,9 +67,9 @@ public sealed class TestInputGenerator : ITestInputGenerator
         var response = await _factory.Get(provider).CompleteAsync(
             CompletionRequest.SingleTurn(systemPrompt, prompt, ModelTier.Accurate, GenerationMaxTokens, "PromptLab:TestInputGeneration"), ct);
 
-        var json  = ExtractJson(response.Content);
-        var items = JsonSerializer.Deserialize<List<GeneratedTestInputDto>>(json)
-            ?? throw new InvalidOperationException("Generation returned null JSON.");
+        // LlmJson owns fence-stripping and the malformed-JSON failure mode; the count check below
+        // is semantic validation and stays caller-side
+        var items = LlmJson.Deserialize<List<GeneratedTestInputDto>>(response.Content);
 
         if (items.Count != 4)
             throw new InvalidOperationException($"Expected 4 generated inputs, got {items.Count}.");
@@ -81,21 +81,6 @@ public sealed class TestInputGenerator : ITestInputGenerator
             UserMessage      = item.UserMessage ?? "",
             ExpectedBehavior = item.ExpectedBehavior ?? ""
         }).ToList();
-    }
-
-    // == Helpers == //
-
-    private static string ExtractJson(string text)  // Strips markdown code fences if the model wraps JSON despite instructions
-    {
-        var trimmed = text.Trim();
-        if (trimmed.StartsWith("```"))
-        {
-            var firstNewline = trimmed.IndexOf('\n');
-            var lastFence    = trimmed.LastIndexOf("```");
-            if (firstNewline >= 0 && lastFence > firstNewline)
-                return trimmed[(firstNewline + 1)..lastFence].Trim();
-        }
-        return trimmed;
     }
 
     // DTO for deserializing the generation response — not exposed outside this class

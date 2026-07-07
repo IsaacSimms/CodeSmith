@@ -10,6 +10,7 @@ AI-powered interview practice tool with three independent surfaces: **Tutoring**
 |---------------|--------------------------------|
 | Backend       | .NET 8, ASP.NET Core Web API   |
 | AI            | Anthropic, OpenAI, and xAI/Grok SDKs (provider chosen per session; xAI default) |
+| Payments      | Stripe.net (prepaid credit top-ups; test mode) |
 | Frontend      | React 19, TypeScript, Vite 6   |
 | Styling       | Tailwind CSS v4                |
 | Data Fetching | TanStack Query v5              |
@@ -21,7 +22,7 @@ AI-powered interview practice tool with three independent surfaces: **Tutoring**
 ## Folder Structure
 
 - `CodeSmith.Core/` — Domain models, enums, interfaces
-- `CodeSmith.Infrastructure/` — LLM provider adapters, usage/credits enforcement, code execution, in-memory session stores, EF persistence
+- `CodeSmith.Infrastructure/` — LLM provider adapters, usage/credits enforcement, Stripe billing (`Billing/`), code execution, in-memory session stores, EF persistence
 - `CodeSmith.Api/` — ASP.NET Core Web API (HTTPS 7111, HTTP 5175)
 - `CodeSmith.CLI/` — Command-line interface
 - `CodeSmith.Tests/` — Backend unit/integration tests (Api/, CLI/, Core/, Infrastructure/)
@@ -45,6 +46,26 @@ Send a message in an existing session.
 - Response (200): `{ "response": "...", "contextTokensUsed", "contextWindowSize" }`
 - `editorContent` passes the current code editor contents so the AI can reference the student's actual code
 - Errors: 400, 402, 404, 429, 502
+
+### Billing (Stripe prepaid credits)
+
+Separate module from usage enforcement: **billing writes credits, enforcement debits them** — billing never references `IUsageEnforcer` or any LLM service. `objectId` comes only from `ICurrentUser`. Full seam/entity detail in `context.md`.
+
+#### POST /api/billing/checkout 🔒
+Create a Stripe Checkout session for a credit pack.
+- Request: `{ "priceId": "..." }` — must be an allow-listed Price ID (`StripeOptions.PriceIds`)
+- Response (200): `{ "url": "..." }` (hosted Stripe checkout URL, redirect mode)
+- Errors: 400 (unknown priceId), 401
+
+#### POST /api/billing/webhook
+Stripe completion webhook — **anonymous, signature-verified, raw body** (no model binding). Idempotent via a `ProcessedStripeEvent` dedup table; on `checkout.session.completed` it credits `amount_total` (USD) to `PaidCreditsBalance` and appends a `TopUp` ledger row atomically.
+- Contract: **400** invalid signature · **200** processed / duplicate / ignored (e.g. non-USD) · **500** transient failure (Stripe retries)
+
+#### GET /api/billing/balance 🔒
+Returns the caller's paid credits: `{ "paidCreditsUsd": <decimal> }`.
+
+#### GET /api/billing/ledger?take=20 🔒
+Returns the caller's recent ledger rows (top-ups and spends). DTO omits `ProviderCostUsd` (margin) and `RowVersion`.
 
 ## Dev Commands
 

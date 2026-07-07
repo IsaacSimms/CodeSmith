@@ -2,12 +2,10 @@
 using System.Text;
 using System.Text.Json;
 using CodeSmith.Core.Enums;
-using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
 using CodeSmith.Core.Models.PromptLab;
 using CodeSmith.Core.Models.SystemLab;
-using Microsoft.Extensions.Logging;
 
 namespace CodeSmith.Infrastructure.Services.SystemLab;
 
@@ -19,14 +17,12 @@ public interface ISystemLabEvaluator
 public sealed class SystemLabEvaluator : ISystemLabEvaluator
 {
     private readonly ILlmServiceFactory _factory;
-    private readonly ILogger<SystemLabEvaluator> _logger;
 
     private const int EvaluationMaxTokens = 1500;
 
-    public SystemLabEvaluator(ILlmServiceFactory factory, ILogger<SystemLabEvaluator> logger)
+    public SystemLabEvaluator(ILlmServiceFactory factory)
     {
         _factory = factory;
-        _logger  = logger;
     }
 
     // == EvaluateAsync == //
@@ -137,69 +133,34 @@ public sealed class SystemLabEvaluator : ISystemLabEvaluator
 
     // == Result Parsing == //
 
-    private ScenarioAttempt ParseAttempt(Scenario scenario, string justification, string json)
+    private static ScenarioAttempt ParseAttempt(Scenario scenario, string justification, string json)
     {
-        try
+        // LlmJson owns fence-stripping, malformed-JSON failure (EvaluationParseException), and rubric integrity
+        using var doc = LlmJson.Parse(json);
+        var root = doc.RootElement;
+
+        var criterionScores     = LlmJson.ParseCriterionScores(scenario.Rubric, root);
+        var tradeoffResults     = ParseTradeoffResults(scenario, root);
+        var dimensionDeductions = ParseDimensionDeductions(scenario, root);
+        var overallFeedback     = root.TryGetProperty("overallFeedback", out var of) ? of.GetString() ?? "" : "";
+
+        var rubricScore     = criterionScores.Sum(s => s.Points);
+        var maxRubricScore  = scenario.Rubric.Sum(r => r.MaxPoints);
+        var totalDeductions = dimensionDeductions.Sum(d => d.Deduction);
+        var totalScore      = Math.Max(0, rubricScore - totalDeductions);
+
+        return new ScenarioAttempt
         {
-            var jsonText = ExtractJson(json);
-            using var doc = JsonDocument.Parse(jsonText);
-            var root = doc.RootElement;
-
-            var criterionScores    = ParseCriterionScores(scenario, root);
-            var tradeoffResults    = ParseTradeoffResults(scenario, root);
-            var dimensionDeductions = ParseDimensionDeductions(scenario, root);
-            var overallFeedback    = root.TryGetProperty("overallFeedback", out var of) ? of.GetString() ?? "" : "";
-
-            var rubricScore    = criterionScores.Sum(s => s.Points);
-            var maxRubricScore = scenario.Rubric.Sum(r => r.MaxPoints);
-            var totalDeductions = dimensionDeductions.Sum(d => d.Deduction);
-            var totalScore     = Math.Max(0, rubricScore - totalDeductions);
-
-            return new ScenarioAttempt
-            {
-                JustificationContent = justification,
-                CriterionScores      = criterionScores,
-                TradeoffResults      = tradeoffResults,
-                DimensionDeductions  = dimensionDeductions,
-                RubricScore          = rubricScore,
-                MaxRubricScore       = maxRubricScore,
-                TotalScore           = totalScore,
-                MaxScore             = maxRubricScore,
-                OverallFeedback      = overallFeedback
-            };
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogError(ex, "Failed to parse evaluator response JSON");
-            throw new EvaluationParseException("Evaluator returned malformed JSON", ex);
-        }
-    }
-
-    private static List<CriterionScore> ParseCriterionScores(Scenario scenario, JsonElement root)
-    {
-        var scores = new List<CriterionScore>();
-        if (!root.TryGetProperty("criterionScores", out var scoresEl)) return scores;
-
-        foreach (var el in scoresEl.EnumerateArray())
-        {
-            if (!el.TryGetProperty("criterionId", out var cidEl)) continue;
-            var criterionId = cidEl.GetString() ?? "";
-            var criterion   = scenario.Rubric.FirstOrDefault(r => r.CriterionId == criterionId);
-            if (criterion is null) continue; // Skip hallucinated criterion IDs — prevents phantom points inflating rubric above max
-
-            var points = el.TryGetProperty("points", out var ptsEl)
-                ? (int)Math.Round(ptsEl.GetDouble())
-                : 0;
-
-            scores.Add(new CriterionScore
-            {
-                CriterionId   = criterionId,
-                CriterionName = criterion.Name,
-                Points        = Math.Clamp(points, 0, criterion.MaxPoints),
-                MaxPoints     = criterion.MaxPoints
-            });
-        }
-        return scores;
+            JustificationContent = justification,
+            CriterionScores      = criterionScores,
+            TradeoffResults      = tradeoffResults,
+            DimensionDeductions  = dimensionDeductions,
+            RubricScore          = rubricScore,
+            MaxRubricScore       = maxRubricScore,
+            TotalScore           = totalScore,
+            MaxScore             = maxRubricScore,
+            OverallFeedback      = overallFeedback
+        };
     }
 
     private static List<TradeoffResult> ParseTradeoffResults(Scenario scenario, JsonElement root)
@@ -241,10 +202,11 @@ public sealed class SystemLabEvaluator : ISystemLabEvaluator
                 ? f.GetString()
                 : null;
 
-            // Clamp to the dimension's MaxDeduction to prevent evaluator over-penalizing
-            var dim    = scenario.Dimensions.FirstOrDefault(x => x.Name == name);
-            var maxDed = dim?.MaxDeduction ?? deduction;
-            deduction  = Math.Clamp(deduction, 0, maxDed);
+            // Skip hallucinated dimension names, then clamp to the dimension's MaxDeduction —
+            // the evaluator can neither invent penalties nor over-penalize real dimensions
+            var dim = scenario.Dimensions.FirstOrDefault(x => x.Name == name);
+            if (dim is null) continue;
+            deduction = Math.Clamp(deduction, 0, dim.MaxDeduction);
 
             results.Add(new DimensionDeduction
             {
@@ -254,20 +216,5 @@ public sealed class SystemLabEvaluator : ISystemLabEvaluator
             });
         }
         return results;
-    }
-
-    // == Helpers == //
-
-    private static string ExtractJson(string text) // Strips markdown code fences if the model wraps JSON despite instructions
-    {
-        var trimmed = text.Trim();
-        if (trimmed.StartsWith("```"))
-        {
-            var firstNewline = trimmed.IndexOf('\n');
-            var lastFence    = trimmed.LastIndexOf("```");
-            if (firstNewline >= 0 && lastFence > firstNewline)
-                return trimmed[(firstNewline + 1)..lastFence].Trim();
-        }
-        return trimmed;
     }
 }

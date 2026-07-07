@@ -72,6 +72,81 @@ public class PromptEvaluatorTests
         Assert.Equal("Needs work.", attempt.Results[0].Feedback);
     }
 
+    // == Criterion Score Integrity == //
+
+    [Fact]
+    public async Task EvaluateAsync_HallucinatedCriterionId_IsSkipped()
+    {
+        var challenge  = MakeChallenge(criterionId: "clarity", maxPoints: 3);
+        var simulation = MakeSimulation(challenge);
+
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmResponse { Content = """{"passed":true,"criterionScores":[{"criterionId":"clarity","points":2},{"criterionId":"invented","points":99}],"feedback":""}""" });
+
+        var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
+
+        Assert.Single(attempt.Results[0].CriterionScores);
+        Assert.Equal(2, attempt.TotalScore);          // no phantom points from invented criteria
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_PointsAboveMax_ClampedToCriterionMax()
+    {
+        var challenge  = MakeChallenge(criterionId: "clarity", maxPoints: 3);
+        var simulation = MakeSimulation(challenge);
+
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmResponse { Content = """{"passed":true,"criterionScores":[{"criterionId":"clarity","points":12}],"feedback":""}""" });
+
+        var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
+
+        Assert.Equal(3, attempt.Results[0].CriterionScores[0].Points);
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_NegativePoints_ClampedToZero()
+    {
+        var challenge  = MakeChallenge(criterionId: "clarity", maxPoints: 3);
+        var simulation = MakeSimulation(challenge);
+
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmResponse { Content = """{"passed":false,"criterionScores":[{"criterionId":"clarity","points":-5}],"feedback":""}""" });
+
+        var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
+
+        Assert.Equal(0, attempt.Results[0].CriterionScores[0].Points);
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_FractionalPoints_RoundedInsteadOfFailingResult()
+    {
+        var challenge  = MakeChallenge(criterionId: "clarity", maxPoints: 3);
+        var simulation = MakeSimulation(challenge);
+
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmResponse { Content = """{"passed":true,"criterionScores":[{"criterionId":"clarity","points":2.7}],"feedback":"Close."}""" });
+
+        var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
+
+        Assert.True(attempt.Results[0].Passed);       // a fractional score no longer nukes the whole input
+        Assert.Equal(3, attempt.Results[0].CriterionScores[0].Points);
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_MissingPoints_DefaultsToZeroInsteadOfFailingResult()
+    {
+        var challenge  = MakeChallenge(criterionId: "clarity", maxPoints: 3);
+        var simulation = MakeSimulation(challenge);
+
+        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmResponse { Content = """{"passed":false,"criterionScores":[{"criterionId":"clarity"}],"feedback":"Weak."}""" });
+
+        var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
+
+        Assert.Equal(0, attempt.Results[0].CriterionScores[0].Points);
+        Assert.Equal("Weak.", attempt.Results[0].Feedback);
+    }
+
     // == Overall Feedback == //
 
     [Fact]

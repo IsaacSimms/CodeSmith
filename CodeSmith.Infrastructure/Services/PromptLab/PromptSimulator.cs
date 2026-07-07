@@ -54,7 +54,7 @@ public sealed class PromptSimulator : IPromptSimulator
         var tasks = testInputs.Select(input =>
         {
             var message = userMessageIsEditable
-                ? BuildUserMessage(userMessageContent, input.UserMessage)
+                ? TestInputMessage.Build(userMessageContent, input.UserMessage)
                 : input.UserMessage;
             return SimulateOneAsync(input, effectiveSystemPrompt, message, provider, ct);
         });
@@ -107,15 +107,5 @@ public sealed class PromptSimulator : IPromptSimulator
         }
 
         return sb.ToString().Trim();
-    }
-
-    // Substitutes {input} in the user's template with the test input value.
-    // If the template contains no placeholder, the test input value is appended on a new line.
-    private static string BuildUserMessage(string template, string testInputValue)
-    {
-        const string placeholder = "{input}";
-        return template.Contains(placeholder, StringComparison.OrdinalIgnoreCase)
-            ? template.Replace(placeholder, testInputValue, StringComparison.OrdinalIgnoreCase)
-            : $"{template}\n\n{testInputValue}";
     }
 }
