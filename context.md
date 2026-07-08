@@ -345,6 +345,10 @@ public enum ModelTier { Fast, Accurate }   // two tiers today; extend here if a 
 - Keyed registrations drop from 9 to one-per-provider.
 - Test surface drops from 7 methods × 3 providers to `CompleteAsync` (a single-turn + a multi-turn assertion) × 2 Adapters; every caller test mocks the same `ILlmService.CompleteAsync → LlmResponse` idiom.
 
+### Adapter test seam & cancellation semantics
+
+Each Adapter accepts an optional `HttpClient` (defaulting to the SDK's own transport) — an **internal seam** used only by the Adapter's tests, which pin the full translation contract at the HTTP level with a stub handler: outgoing request (tier→configured model, max tokens, system-prompt placement, role mapping, endpoint routing incl. xAI's base URL) and response mapping (**configured**-model stamping — never the served name, which is what keeps the pricing-catalog fallback unreachable — token counts, `WasTruncated`, multi-block text concatenation). `LlmServiceFactoryTests` pins the two-layer keyed registration through the real composition root (raw Adapters singleton, decorators scoped). Cancellation: caller-initiated cancellation (`ct` requested) propagates as `OperationCanceledException` → 499; a provider-side HTTP timeout is also an OCE but with an un-cancelled token, so it still wraps to `AiServiceException` → 502.
+
 ### What we give up
 
 Compile-time capability segregation (e.g. a System Lab caller could request any completion). This protection was illusory — the method bodies were identical — and the real invariants (tier, feature) become explicit data on the request.

@@ -1,5 +1,6 @@
 // == OpenAI-Compatible LLM Service Implementation == //
 using System.ClientModel;
+using System.ClientModel.Primitives;
 using CodeSmith.Core.Enums;
 using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
@@ -26,6 +27,7 @@ public class OpenAiCompatibleLlmService : ILlmService
     private readonly ILogger _logger;
 
     /// <param name="endpoint">Base URL for an OpenAI-compatible endpoint (e.g. xAI). Null/empty uses the OpenAI default.</param>
+    /// <param name="httpClient">Optional HTTP transport override — the internal seam the adapter's own tests use. Null uses the SDK default.</param>
     public OpenAiCompatibleLlmService(
         AiProvider provider,
         string apiKey,
@@ -33,7 +35,8 @@ public class OpenAiCompatibleLlmService : ILlmService
         string fastModel,
         int contextWindow,
         string? endpoint,
-        ILogger logger)
+        ILogger logger,
+        HttpClient? httpClient = null)
     {
         _provider      = provider;
         _accurateModel = accurateModel;
@@ -41,9 +44,13 @@ public class OpenAiCompatibleLlmService : ILlmService
         _contextWindow = contextWindow;
         _logger        = logger;
 
-        _client = string.IsNullOrWhiteSpace(endpoint)
-            ? new OpenAIClient(apiKey)
-            : new OpenAIClient(new ApiKeyCredential(apiKey), new OpenAIClientOptions { Endpoint = new Uri(endpoint) });
+        var clientOptions = new OpenAIClientOptions();
+        if (!string.IsNullOrWhiteSpace(endpoint))
+            clientOptions.Endpoint = new Uri(endpoint);
+        if (httpClient is not null)
+            clientOptions.Transport = new HttpClientPipelineTransport(httpClient);
+
+        _client = new OpenAIClient(new ApiKeyCredential(apiKey), clientOptions);
     }
 
     // == CompleteAsync == //
@@ -78,7 +85,10 @@ public class OpenAiCompatibleLlmService : ILlmService
                 WasTruncated      = response.Value.FinishReason == ChatFinishReason.Length
             };
         }
-        catch (Exception ex) when (ex is not AiServiceException)
+        // Caller-initiated cancellation must propagate as OperationCanceledException (maps to 499,
+        // not 502); a provider-side timeout is also an OCE but with an un-cancelled token, so it still wraps.
+        catch (Exception ex) when (ex is not AiServiceException
+                                   && !(ex is OperationCanceledException && ct.IsCancellationRequested))
         {
             _logger.LogError(ex, "{Provider} API call failed during {Feature}", _provider, request.Feature);
             throw new AiServiceException($"{_provider} call failed during {request.Feature}. Please try again.", ex);

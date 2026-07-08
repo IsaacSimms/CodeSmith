@@ -21,12 +21,16 @@ public class AnthropicLlmService : ILlmService
     private readonly AnthropicOptions _options;
     private readonly ILogger<AnthropicLlmService> _logger;
 
+    /// <param name="httpClient">Optional HTTP transport override — the internal seam the adapter's own tests use. Null uses the SDK default.</param>
     public AnthropicLlmService(
         IOptions<AnthropicOptions> options,
-        ILogger<AnthropicLlmService> logger)
+        ILogger<AnthropicLlmService> logger,
+        HttpClient? httpClient = null)
     {
         _options = options.Value;
-        _client  = new AnthropicClient { ApiKey = _options.ApiKey };
+        _client  = httpClient is null
+            ? new AnthropicClient { ApiKey = _options.ApiKey }
+            : new AnthropicClient { ApiKey = _options.ApiKey, HttpClient = httpClient };
         _logger  = logger;
     }
 
@@ -62,7 +66,10 @@ public class AnthropicLlmService : ILlmService
                 WasTruncated      = response.StopReason == "max_tokens"
             };
         }
-        catch (Exception ex) when (ex is not AiServiceException)
+        // Caller-initiated cancellation must propagate as OperationCanceledException (maps to 499,
+        // not 502); a provider-side timeout is also an OCE but with an un-cancelled token, so it still wraps.
+        catch (Exception ex) when (ex is not AiServiceException
+                                   && !(ex is OperationCanceledException && ct.IsCancellationRequested))
         {
             _logger.LogError(ex, "Anthropic API call failed during {Feature}", request.Feature);
             throw new AiServiceException($"Failed during {request.Feature}. Please try again.", ex);
