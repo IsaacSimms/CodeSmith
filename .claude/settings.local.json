@@ -50,7 +50,8 @@
       "Bash(Get-ChildItem -Path \"c:\\\\CodeSmith\\\\CodeSmith\" -Directory)",
       "Bash(Select-Object Name)",
       "Bash(Get-ChildItem -Path \"c:\\\\CodeSmith\\\\CodeSmith\" -Recurse -Name)",
-      "PowerShell(dotnet test *)"
+      "PowerShell(dotnet test *)",
+      "PowerShell(Remove-Item *)"
     ]
   }
 }

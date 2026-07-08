@@ -51,7 +51,7 @@ CodeSmith.Infrastructure/  — Implementations of Core interfaces; the only proj
 CodeSmith.Api/             — ASP.NET Core host (HTTPS 7111, HTTP 5175)
   Controllers/             — SessionController, PromptLabController, SystemLabController, BillingController
   DTOs/                    — Request/response shapes per surface (PromptLab/, SystemLab/, Billing/)
-  Middleware/              — AppExceptionHandler + IExceptionMapper adapters; RequestLoggingMiddleware
+  Middleware/              — AppExceptionHandler (declarative exception→status table); RequestLoggingMiddleware
   Services/                — HttpCurrentUser (resolves Entra objectId, dev bypass)
 
 CodeSmith.CLI/             — Command-line client over the API (ApiClient)
@@ -98,7 +98,7 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 | Pricing | `ILlmPricing` | `LlmPricing` (markup over `LlmPricingCatalog` — the single model↔rate source, also used by startup validation) |
 | Credit / ledger / IP-aggregate storage | `ICreditBalanceRepository`, `IUsageLedgerRepository`, `IIpFreeUsageRepository` | EF repositories (credit balance, usage ledger, per-IP free-token aggregate) |
 | Current user identity | `ICurrentUser` | `HttpCurrentUser` (Api), `NoopCurrentUser` (Infra default) |
-| Exception → HTTP | `IExceptionMapper` | one Adapter per domain exception (see below) |
+| Exception → HTTP | declarative mapping table inside `AppExceptionHandler` | *(not a Seam — one row per domain exception, see below)* |
 
 ### Provider routing (how an LLM call finds its Adapter)
 
@@ -126,7 +126,7 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 
 ### Exception → HTTP mapping
 
-`AppExceptionHandler` iterates registered `IExceptionMapper` Adapters and returns the first non-null `ProblemDetails`; no mapper → 500. Adding an exception type means adding one mapper registration — the handler never changes (deep Seam).
+`AppExceptionHandler` owns a declarative `(Type, Status, Title, FixedDetail?)` table, matched in order with **subtype semantics** (`IsInstanceOfType` — so `TaskCanceledException` hits the `OperationCanceledException` row and still maps to 499); no match → 500 with a generic detail that never leaks the internal message. Adding an exception type means adding one table row — the lookup logic never changes. (This replaced nine one-class-per-exception `IExceptionMapper` Adapters that never varied beyond status + title.)
 
 | Exception | Status |
 |-----------|--------|
@@ -384,7 +384,6 @@ ChatWindow
 | Interface | `I` + role | `ILlmServiceFactory` |
 | LLM provider Adapter | `{Provider}LlmService` | `AnthropicLlmService` |
 | Orchestrator | `{Surface}Service` | `PromptLabService` |
-| Exception mapper Adapter | `{Exception}Mapper` | `AiServiceExceptionMapper` |
 | Options | `{Area}Options` + `SectionName` const | `AnthropicOptions` |
 | Request / Response DTO | `{Entity}Request` / `{Entity}Response` | `CreateSessionRequest` |
 

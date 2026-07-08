@@ -142,7 +142,7 @@ Free quota uses a 48-hour window + per-objectId and per-IP caps (see Usage Enfor
 
 Requests pass through (in order):
 
-1. `UseExceptionHandler()` + `AppExceptionHandler` (maps domain exceptions via `IExceptionMapper` adapters)
+1. `UseExceptionHandler()` + `AppExceptionHandler` (maps domain exceptions via its declarative mapping table)
 2. `UseRequestLogging()`
 3. Swagger (dev only)
 4. `UseForwardedHeaders()` (for correct client IP behind proxies)

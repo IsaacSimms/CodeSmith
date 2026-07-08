@@ -2,7 +2,6 @@
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using CodeSmith.Api.Middleware;
-using CodeSmith.Api.Middleware.ExceptionMappers;
 using CodeSmith.Api.Services;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Infrastructure.DependencyInjection;
@@ -25,7 +24,8 @@ builder.Services.AddControllers()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddProblemDetails();
-builder.Services.AddSingleton<IExceptionMapper, SessionNotFoundExceptionMapper>();
+// Exception → status mapping lives in AppExceptionHandler's declarative table; add a row there for new exception types
+builder.Services.AddExceptionHandler<AppExceptionHandler>();
 
 // Forwarded headers so RemoteIpAddress reflects the real client (Azure / proxies)
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
@@ -34,15 +34,6 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
     options.KnownNetworks.Clear();
     options.KnownProxies.Clear();
 });
-builder.Services.AddSingleton<IExceptionMapper, ChallengeNotFoundExceptionMapper>();
-builder.Services.AddSingleton<IExceptionMapper, ScenarioNotFoundExceptionMapper>();
-builder.Services.AddSingleton<IExceptionMapper, AiServiceExceptionMapper>();
-builder.Services.AddSingleton<IExceptionMapper, CodeExecutionExceptionMapper>();
-builder.Services.AddSingleton<IExceptionMapper, OperationCancelledExceptionMapper>();
-builder.Services.AddSingleton<IExceptionMapper, InsufficientQuotaExceptionMapper>();
-builder.Services.AddSingleton<IExceptionMapper, InvalidPriceExceptionMapper>();
-builder.Services.AddSingleton<IExceptionMapper, WebhookSignatureExceptionMapper>();
-builder.Services.AddExceptionHandler<AppExceptionHandler>();
 
 // HttpContext + current user (for usage enforcement seam + dev bypass)
 builder.Services.AddHttpContextAccessor();
