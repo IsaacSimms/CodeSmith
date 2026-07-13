@@ -12,6 +12,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@azure/msal-browser": "^5.17.0",
+    "@azure/msal-react": "^5.5.2",
     "@monaco-editor/react": "^4.7.0",
     "@tanstack/react-query": "^5.96.0",
     "@types/react-syntax-highlighter": "^15.5.13",

@@ -49,6 +49,7 @@ const mockSession: PromptLabSession = {
   testInputs:  mockChallenge.testInputs,
   attempts:    [],
   createdAt:   "2026-04-16T00:00:00Z",
+  dynamicInputsGenerated: true,
 };
 
 const mockAttemptResult: AttemptResult = {

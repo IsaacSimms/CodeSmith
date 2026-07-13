@@ -40,13 +40,39 @@ class ApiClientError extends Error {
   }
 }
 
-async function request<T>(url: string, options: RequestInit): Promise<T> {
-  const response = await fetch(url, {
+// == Access token seam (MSAL wires this at app bootstrap) == //
+export type AccessTokenProvider = () => Promise<string | null | undefined>;
+
+let accessTokenProvider: AccessTokenProvider | null = null;
+
+export function setAccessTokenProvider(provider: AccessTokenProvider | null): void {
+  accessTokenProvider = provider;
+}
+
+// == URL resolution (relative in local/dev; absolute when VITE_API_BASE_URL is set) == //
+export function resolveApiUrl(path: string): string {
+  const raw = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  const base = raw?.trim().replace(/\/$/, "") ?? "";
+  if (!base) return path;
+  return path.startsWith("/") ? `${base}${path}` : `${base}/${path}`;
+}
+
+async function request<T>(path: string, options: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options.headers as Record<string, string> | undefined),
+  };
+
+  if (accessTokenProvider) {
+    const token = await accessTokenProvider();
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+  }
+
+  const response = await fetch(resolveApiUrl(path), {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {

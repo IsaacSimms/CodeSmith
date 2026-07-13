@@ -1,0 +1,54 @@
+# == Deploy Seam: CodeSmith.Web to Azure Static Web Apps == #
+# Manually triggered (workflow_dispatch), same discipline as deploy-azure.yml.
+# Prerequisites (user):
+# - SWA resource exists (e.g. swa-codesmith-prod-centralus-001)
+# - GitHub Secret: AZURE_STATIC_WEB_APPS_API_TOKEN (deployment token from SWA portal)
+# - GitHub Variables (public, baked into the SPA at build time):
+#     VITE_API_BASE_URL, VITE_AAD_CLIENT_ID, VITE_AAD_TENANT_ID,
+#     VITE_AAD_INSTANCE, VITE_AAD_API_SCOPE
+# Never auto-triggers on push.
+
+name: Deploy Static Web App
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    name: Build and Deploy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: CodeSmith.Web/package-lock.json
+
+      - name: Install and build
+        working-directory: CodeSmith.Web
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_AAD_CLIENT_ID: ${{ vars.VITE_AAD_CLIENT_ID }}
+          VITE_AAD_TENANT_ID: ${{ vars.VITE_AAD_TENANT_ID }}
+          VITE_AAD_INSTANCE: ${{ vars.VITE_AAD_INSTANCE }}
+          VITE_AAD_API_SCOPE: ${{ vars.VITE_AAD_API_SCOPE }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: upload
+          app_location: CodeSmith.Web/dist
+          skip_app_build: true
+          skip_api_build: true

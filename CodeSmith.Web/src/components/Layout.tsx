@@ -1,6 +1,7 @@
 // == App Layout == //
 import { Link, Outlet } from "react-router-dom";
 import { useNavigationContext } from "../contexts/NavigationContext";
+import { AuthControls } from "../auth/AuthControls";
 
 export function Layout() {
   const { resetAll } = useNavigationContext();
@@ -37,6 +38,7 @@ export function Layout() {
         >
           System Lab
         </Link>
+        <AuthControls />
       </nav>
 
       {/* == Route Content == */}

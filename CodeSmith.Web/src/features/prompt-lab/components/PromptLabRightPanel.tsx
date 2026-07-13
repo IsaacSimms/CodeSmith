@@ -73,7 +73,11 @@ export function PromptLabRightPanel({
             )}
             <div className="flex flex-col gap-3">
               {chatMessages.map((msg, i) => (
-                <MessageBubble key={i} role={msg.role} content={msg.content} />
+                <MessageBubble
+                  key={i}
+                  role={msg.role === "user" ? "User" : "Assistant"}
+                  content={msg.content}
+                />
               ))}
               <div ref={messagesEndRef} />
             </div>

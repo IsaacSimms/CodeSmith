@@ -88,6 +88,36 @@ If token acquisition fails:
 
 ---
 
+## Phase 3b — Register SPA Client (`CodeSmith.Web`) for MSAL
+
+The hosted React app uses a separate SPA registration (not the API app, not Thunder Client).
+
+1. **New registration:**
+   - **Name:** `CodeSmith.Web`
+   - **Supported account types:** single tenant (this CIAM directory)
+   - **Redirect URI:** Platform = **Single-page application (SPA)**
+     - `https://localhost:5173`
+     - `https://<your-swa-hostname>` (e.g. `https://yellow-sand-….azurestaticapps.net`)
+2. Copy **Application (client) ID** → GitHub Variable / local `.env.local` as `VITE_AAD_CLIENT_ID`.
+3. **API permissions** → **My APIs** → `CodeSmith.Api` → delegated `access` → **Grant admin consent**.
+4. No client secret (PKCE public client).
+
+### Frontend / SWA env (build-time `VITE_*`)
+
+| Variable | Value |
+|----------|--------|
+| `VITE_API_BASE_URL` | Container App URL (empty locally so Vite proxy applies) |
+| `VITE_AAD_CLIENT_ID` | SPA app client ID |
+| `VITE_AAD_TENANT_ID` | CIAM tenant GUID |
+| `VITE_AAD_INSTANCE` | `https://{tenant}.ciamlogin.com/` |
+| `VITE_AAD_API_SCOPE` | `api://{api-client-id}/access` |
+
+Deploy: GitHub Action **Deploy Static Web App** (`workflow_dispatch`) with secret `AZURE_STATIC_WEB_APPS_API_TOKEN`.
+
+Local: copy `CodeSmith.Web/.env.example` → `.env.local` and fill SPA values; leave `VITE_API_BASE_URL` unset.
+
+---
+
 ## Phase 4 — Create a Test User
 
 1. In CIAM tenant: **External Identities** → **Users** (or **All users**) → **New user**.
