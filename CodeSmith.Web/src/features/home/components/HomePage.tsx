@@ -10,18 +10,24 @@ const providerLabels: Record<AiProvider, string> = {
   Xai:       "xAI",
 };
 
+// Display order is a UI concern — independent of enum / API list order.
+const providerDisplayOrder: AiProvider[] = ["Anthropic", "Xai", "OpenAi"];
+
 export function HomePage() {
   const { data: providersData } = useProviders();
   const { provider, setProvider } = useProviderPreference(providersData?.activeProvider);
 
-  const availableProviders = (providersData?.availableProviders ?? ["Anthropic"]) as AiProvider[];
+  const available = new Set(
+    (providersData?.availableProviders ?? ["Anthropic"]) as AiProvider[]
+  );
+  const availableProviders = providerDisplayOrder.filter((p) => available.has(p));
 
   return (
     <div className="flex h-full flex-col items-center justify-center p-6">
       <section className="max-w-2xl text-center">
-        <h1 className="mb-4 text-5xl font-bold text-white">Practice. Learn. Level up.</h1>
+        <h1 className="mb-4 text-5xl font-bold text-white">Forge the skill. Then prove it.</h1>
         <p className="mb-10 text-lg text-gray-300">
-          Three ways to sharpen your skills with AI.
+          Multiple disciplines. One habit: deliberate practice.
         </p>
 
         <div className="flex flex-col gap-4 sm:flex-row sm:justify-center">

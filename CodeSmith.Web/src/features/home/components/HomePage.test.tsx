@@ -5,12 +5,18 @@ import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HomePage } from "./HomePage";
 
+// API returns enum declaration order (Anthropic, OpenAi, Xai); UI reorders for display.
 vi.mock("../../chat/hooks/useProviders", () => ({
-  useProviders: () => ({ data: { activeProvider: "Anthropic", availableProviders: ["Anthropic"] } }),
+  useProviders: () => ({
+    data: {
+      activeProvider: "Xai",
+      availableProviders: ["Anthropic", "OpenAi", "Xai"],
+    },
+  }),
 }));
 
 vi.mock("../../../hooks/useProviderPreference", () => ({
-  useProviderPreference: () => ({ provider: "Anthropic", setProvider: vi.fn() }),
+  useProviderPreference: () => ({ provider: "Xai", setProvider: vi.fn() }),
 }));
 
 function renderHomePage() {
@@ -28,9 +34,17 @@ describe("HomePage", () => {
   it("renders the hero heading", () => {
     renderHomePage();
     expect(
-      screen.getByRole("heading", { name: /practice\. learn\. level up\./i })
+      screen.getByRole("heading", { name: /forge the skill\. then prove it\./i })
     ).toBeInTheDocument();
   });
+
+  it("renders the hero subtext", () => {
+    renderHomePage();
+    expect(
+      screen.getByText(/multiple disciplines\. one habit: deliberate practice\./i)
+    ).toBeInTheDocument();
+  });
+
 
   it("renders a CTA link pointing to /pairedprogrammer", () => {
     renderHomePage();
@@ -48,5 +62,11 @@ describe("HomePage", () => {
     renderHomePage();
     const link = screen.getByRole("link", { name: /system lab/i });
     expect(link).toHaveAttribute("href", "/system-lab");
+  });
+
+  it("renders provider buttons as Anthropic, xAI, OpenAI regardless of API order", () => {
+    renderHomePage();
+    const buttons = screen.getAllByRole("button");
+    expect(buttons.map((b) => b.textContent)).toEqual(["Anthropic", "xAI", "OpenAI"]);
   });
 });
