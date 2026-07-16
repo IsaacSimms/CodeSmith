@@ -1,7 +1,10 @@
 // == Usage Enforcing Decorator for ILlmService == //
+using System.Diagnostics;
 using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
+using CodeSmith.Core.Models.Usage;
+using CodeSmith.Infrastructure.Diagnostics;
 
 namespace CodeSmith.Infrastructure.Services.Usage.Decorators;
 
@@ -41,18 +44,40 @@ internal sealed class UsageEnforcingLlmService : ILlmService
         var objectId = RequireObjectId();
         var clientIp = _currentUser.ClientIp;
 
+        // One root span per Completion; reserve / call / settle children split enforcement time
+        // from provider time in traces, which is the whole point of instrumenting this path.
+        using var completion = CodeSmithDiagnostics.Source.StartActivity("llm.completion");
+        completion?.SetTag("codesmith.provider", _provider.ToString());
+        completion?.SetTag("codesmith.tier", request.Tier.ToString());
+        completion?.SetTag("codesmith.feature", request.Feature);
+
         var estInput = EstimateInputTokens(request);
-        var reservation = await _enforcer.ReserveAsync(objectId, clientIp, _provider, estInput, request.MaxTokens, ct);
+
+        UsageReservation reservation;
+        using (CodeSmithDiagnostics.Source.StartActivity("usage.reserve"))
+        {
+            reservation = await _enforcer.ReserveAsync(objectId, clientIp, _provider, estInput, request.MaxTokens, ct);
+        }
 
         LlmResponse response;
         try
         {
+            using var call = CodeSmithDiagnostics.Source.StartActivity("llm.call");
             response = await _inner.CompleteAsync(EffectiveRequest(request, reservation.UsedFree), ct);
+            call?.SetTag("codesmith.model", response.Model);
+            call?.SetTag("codesmith.tokens.input", response.InputTokensUsed);
+            call?.SetTag("codesmith.tokens.output", response.OutputTokensUsed);
+            call?.SetTag("codesmith.was_truncated", response.WasTruncated);
         }
-        catch
+        catch (Exception ex)
         {
+            completion?.SetStatus(ActivityStatusCode.Error, ex.Message);
+
             // The call produced nothing billable — refund the hold so it consumes no quota, then propagate.
-            await _enforcer.ReleaseAsync(reservation, ct);
+            using (CodeSmithDiagnostics.Source.StartActivity("usage.release"))
+            {
+                await _enforcer.ReleaseAsync(reservation, ct);
+            }
             throw;
         }
 
@@ -62,7 +87,10 @@ internal sealed class UsageEnforcingLlmService : ILlmService
 
         // Settle reconciles the upper-bound hold to actual usage; if settling itself fails after a real
         // spend, the conservative hold simply stands (we do not refund a call that happened).
-        await _enforcer.SettleAsync(reservation, response.Model, response.InputTokensUsed, response.OutputTokensUsed, charge, providerCost, request.Feature, ct);
+        using (CodeSmithDiagnostics.Source.StartActivity("usage.settle"))
+        {
+            await _enforcer.SettleAsync(reservation, response.Model, response.InputTokensUsed, response.OutputTokensUsed, charge, providerCost, request.Feature, ct);
+        }
 
         return response;
     }

@@ -39,16 +39,20 @@ public static class ServiceCollectionExtensions
         // == Usage / Data Layer (SaaS cost protection) ==
         services.Configure<UsageOptions>(configuration.GetSection(UsageOptions.SectionName ?? "Usage"));
         services.Configure<StripeOptions>(configuration.GetSection(StripeOptions.SectionName));
-        services.AddDbContext<CodeSmithDbContext>(opts =>
-        {
-            var conn = configuration.GetConnectionString("CodeSmithDb");
-            if (!string.IsNullOrWhiteSpace(conn))
-                opts.UseSqlServer(conn);
-        });
+        // Pooled contexts skip per-request DbContext construction/disposal — meaningful when every
+        // LLM completion opens a scope. The unpooled fallback keeps composition valid without a DB
+        // (tests / dev without a connection string), where a pool cannot be configured.
+        var connectionString = configuration.GetConnectionString("CodeSmithDb");
+        if (!string.IsNullOrWhiteSpace(connectionString))
+            services.AddDbContextPool<CodeSmithDbContext>(opts => opts.UseSqlServer(connectionString));
+        else
+            services.AddDbContext<CodeSmithDbContext>(_ => { });
 
+        // Enforcement storage crosses the deep IUsageStore seam (snapshot read + one-save persist);
+        // the per-entity repositories below remain for billing's read/top-up paths only.
+        services.AddScoped<CodeSmith.Core.Interfaces.IUsageStore, CodeSmith.Infrastructure.Persistence.Repositories.EfUsageStore>();
         services.AddScoped<CodeSmith.Core.Interfaces.ICreditBalanceRepository, CodeSmith.Infrastructure.Persistence.Repositories.EfCreditBalanceRepository>();
         services.AddScoped<CodeSmith.Core.Interfaces.IUsageLedgerRepository, CodeSmith.Infrastructure.Persistence.Repositories.EfUsageLedgerRepository>();
-        services.AddScoped<CodeSmith.Core.Interfaces.IIpFreeUsageRepository, CodeSmith.Infrastructure.Persistence.Repositories.EfIpFreeUsageRepository>();
         services.AddScoped<CodeSmith.Core.Interfaces.IStripeCreditStore, CodeSmith.Infrastructure.Persistence.Repositories.EfStripeCreditStore>();
 
         // == Billing (Stripe prepaid credits) — writes credits only; never debits ==
@@ -81,7 +85,8 @@ public static class ServiceCollectionExtensions
             var o = sp.GetRequiredService<IOptions<OpenAiOptions>>().Value;
             return new OpenAiCompatibleLlmService(
                 AiProvider.OpenAi, o.ApiKey, o.AccurateModel, o.FastModel, o.ContextWindow,
-                endpoint: null, sp.GetRequiredService<ILogger<OpenAiCompatibleLlmService>>());
+                endpoint: null, sp.GetRequiredService<ILogger<OpenAiCompatibleLlmService>>(),
+                timeoutSeconds: o.TimeoutSeconds);
         });
 
         services.AddKeyedSingleton<ILlmService>(RawKey(AiProvider.Xai), (sp, _) =>
@@ -89,7 +94,8 @@ public static class ServiceCollectionExtensions
             var o = sp.GetRequiredService<IOptions<XaiOptions>>().Value;
             return new OpenAiCompatibleLlmService(
                 AiProvider.Xai, o.ApiKey, o.AccurateModel, o.FastModel, o.ContextWindow,
-                endpoint: xaiEndpoint, sp.GetRequiredService<ILogger<OpenAiCompatibleLlmService>>());
+                endpoint: xaiEndpoint, sp.GetRequiredService<ILogger<OpenAiCompatibleLlmService>>(),
+                timeoutSeconds: o.TimeoutSeconds);
         });
 
         foreach (var provider in Enum.GetValues<AiProvider>())
@@ -160,10 +166,6 @@ public static class ServiceCollectionExtensions
             throw new InvalidOperationException(
                 $"Unknown CodeExecution:Backend value '{backend}'. Expected 'Piston' or 'LocalProcess'.");
         }
-
-        // Register a named HttpClient with resilience for any direct HTTP needs
-        services.AddHttpClient("Anthropic")
-            .AddStandardResilienceHandler();
 
         // Provide a default ICurrentUser so decorator registration succeeds.
         // The real implementation (HttpCurrentUser with header bypass + Entra) is registered in Api layer and will override.

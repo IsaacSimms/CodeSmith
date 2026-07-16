@@ -2,7 +2,7 @@
 
 CodeSmith is an AI-powered practice tool for technical interviews. It hosts three independent practice surfaces — **Tutoring** (coding problems with a Socratic pair-programmer), **Prompt Lab** (prompt-engineering challenges scored against a rubric), and **System Lab** (system-design justification scenarios) — over a shared, provider-agnostic LLM layer. Every LLM call is metered against a per-user free quota and paid credit balance so the SaaS cannot be run at a loss.
 
-This document is the ground-truth architectural reference. It reflects the repo as of 2026-06-29 (reviewed 2026-06-29). Keep the Seams table, API Reference, subsystem sections, and the [Ubiquitous Language](#ubiquitous-language) glossary updated as the architecture evolves.
+This document is the ground-truth architectural reference. It reflects the repo as of 2026-07-15 (reviewed 2026-07-15). Keep the Seams table, API Reference, subsystem sections, and the [Ubiquitous Language](#ubiquitous-language) glossary updated as the architecture evolves.
 
 > **Vocabulary note.** This project uses a deliberate architecture vocabulary — **Module, Interface, Implementation, Depth, Seam, Adapter, Leverage, Locality**. Definitions are in the [Ubiquitous Language](#ubiquitous-language) section at the end. Use these terms exactly; do not substitute "component / service / boundary."
 
@@ -16,6 +16,7 @@ This document is the ground-truth architectural reference. It reflects the repo 
 | LLM providers  | Anthropic SDK; OpenAI SDK (also drives xAI/Grok via OpenAI-compatible endpoint) |
 | Persistence    | EF Core + SQL Server (usage/credits); in-memory session stores |
 | Code execution | Piston (Docker sandbox, default) or LocalProcess (dev fallback) |
+| Telemetry      | OpenTelemetry → Azure Monitor / Application Insights (active only when `APPLICATIONINSIGHTS_CONNECTION_STRING` is set) |
 | Frontend       | React 19, TypeScript, Vite 6                    |
 | Styling        | Tailwind CSS v4 (VS Code Dark Modern palette)   |
 | Data fetching  | TanStack Query v5                               |
@@ -95,8 +96,9 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 | Code execution | `ICodeExecutionService` | `PistonCodeExecutionService` (default) or `LocalProcessCodeExecutionService` (config-selected) |
 | Piston runtime mapping | `IPistonRuntimeResolver` | `PistonRuntimeResolver` |
 | Usage enforcement | `IUsageEnforcer` | `UsageEnforcer` (reserve → settle / release; free-then-paid deduction) |
+| Enforcement storage | `IUsageStore` | `EfUsageStore` — one snapshot read (balance + IP aggregate) and ONE single-SaveChanges persist per enforcement phase |
 | Pricing | `ILlmPricing` | `LlmPricing` (markup over `LlmPricingCatalog` — the single model↔rate source, also used by startup validation) |
-| Credit / ledger / IP-aggregate storage | `ICreditBalanceRepository`, `IUsageLedgerRepository`, `IIpFreeUsageRepository` | EF repositories (credit balance, usage ledger, per-IP free-token aggregate) |
+| Billing-read storage | `ICreditBalanceRepository`, `IUsageLedgerRepository` | EF repositories — **billing paths only**; enforcement no longer touches them (the former `IIpFreeUsageRepository` is deleted, its behaviour absorbed by `IUsageStore`) |
 | Current user identity | `ICurrentUser` | `HttpCurrentUser` (Api), `NoopCurrentUser` (Infra default) |
 | Exception → HTTP | declarative mapping table inside `AppExceptionHandler` | *(not a Seam — one row per domain exception, see below)* |
 
@@ -109,7 +111,7 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 ### Service lifetimes
 
 - **Singleton:** all LLM provider Adapters and their keyed decorators (stateless), session stores (thread-safe `ConcurrentDictionary`), `ITutoringPromptTemplates`, `IProblemResponseParser`, `ILlmPricing`, `IPistonRuntimeResolver`, named `HttpClient`s.
-- **Scoped:** `ILlmServiceFactory`, `IProblemGenerator`, all three `I*Service` orchestrators, all Prompt Lab / System Lab phase modules, EF repositories, `IUsageEnforcer`, `ICurrentUser`, `CodeSmithDbContext`, `ICodeExecutionService`.
+- **Scoped:** `ILlmServiceFactory`, `IProblemGenerator`, all three `I*Service` orchestrators, all Prompt Lab / System Lab phase modules, EF repositories + `IUsageStore`, `IUsageEnforcer`, `ICurrentUser`, `CodeSmithDbContext` (**pooled** via `AddDbContextPool` when a connection string exists — pooled instances are recycled, not rebuilt, per scope), `ICodeExecutionService`.
 - Rule of thumb: stateless or pure-config → singleton; anything depending on the scoped factory, the per-request user, or the DbContext → scoped.
 
 ### Middleware pipeline *(order matters)*
@@ -120,7 +122,7 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 4. `UseForwardedHeaders()` — honours `X-Forwarded-For` / `X-Forwarded-Proto` (config clears `KnownNetworks`/`KnownProxies`) so `RemoteIpAddress` is the real client IP. **Load-bearing for spend control:** both the rate limiter and the per-IP free-token cap partition on client IP.
 5. `UseHttpsRedirection()`
 6. `UseRateLimiter()` — fixed window, **60 requests / minute per client IP**, `QueueLimit = 0`, rejects with **429**
-7. `UseCors()` — origins from `AllowedCorsOrigins` config (defaults to the HTTPS/HTTP API origins)
+7. `UseCors()` — origins from `AllowedCorsOrigins` config (defaults to the HTTPS/HTTP API origins); preflight verdicts are browser-cacheable for 1h (`SetPreflightMaxAge`) so cross-origin POSTs from the SPA don't pay an OPTIONS round-trip per request
 8. `UseAuthentication()` / `UseAuthorization()`
 9. `MapControllers()`
 
@@ -210,6 +212,7 @@ All routes are under `/api`. Enums serialize as strings (`JsonStringEnumConverte
 | `ProcessedStripeEvent` | `EventId` (PK, Stripe event id), `ProcessedUtc` — webhook dedup marker; insert-collision = already-processed |
 | `IpFreeUsage` | `Ip`, `FreeTokensIssued`, `FirstSeenUtc` — per-IP aggregate of free tokens granted across all objectIds; backs the 60k-per-IP cap |
 | `UsageReservation` | `ObjectId`, `ClientIp`, `Provider`, `ReservedFreeTokens`, `ReservedPaidUsd`, `UsedFree` — the upper-bound hold `ReserveAsync` returns and `SettleAsync`/`ReleaseAsync` reconcile |
+| `UsageSnapshot` | `Balance?` (null = objectId never persisted), `IpFreeTokensIssued` — the full decision state one enforcement phase reads in a single `IUsageStore` call |
 
 **Enums:** `Difficulty {Easy, Medium, Hard}`; `Language {CSharp, Cpp, Go, Rust, Python, Java, TypeScript}`; `AiProvider {Anthropic, OpenAi, Xai}`; `EvaluationMode {SingleAnswer, TradeoffReasoning, OpenJudgment}`; `LedgerEntryType {Spend=0, TopUp}`; plus `GuidanceMode`, `ChallengeCategory`, `SystemLabCategory`, `PromptFieldType`, `MessageRole`.
 
@@ -240,16 +243,25 @@ OpenAI/xAI map the same Fast/Accurate tiers to their own model names in `OpenAiO
 
 All three surfaces hold mutable session state (chat history, attempts) in singleton in-memory stores, so concurrent requests for the **same** session must be serialized or they corrupt that shared state — e.g. two guidance turns interleaving their appends break the required user/assistant alternation and the provider rejects the next call (400). `ISessionStore<T>.WithSessionLockAsync(sessionId, action, ct)` runs `action` under a per-session lock (a `SemaphoreSlim` per id, owned by `InMemorySessionStore<T>` so callers cannot leak a held lock); different sessions run concurrently. Each orchestrator wraps its mutating operations in it: Tutoring around `GetGuidanceAsync`; Prompt Lab around `SubmitAttemptAsync` **and** `ChatAsync`; System Lab around `SubmitAttemptAsync` **and** `ChatAsync`. The lock is broader than a single turn (it also covers attempt submission), so it lives in the orchestrators, not in `IGuidanceConversation`. (Per-session locks, like the sessions themselves, are not yet evicted — a noted unbounded-growth follow-up.)
 
+### Telemetry (OpenTelemetry → Application Insights)
+
+Wired in `Program.cs` via the Azure Monitor distro **only when `APPLICATIONINSIGHTS_CONNECTION_STRING` is present** (set it on the Container App; local dev without it runs telemetry-off at zero cost — unlistened `StartActivity` returns null). The distro auto-instruments inbound requests, outbound HTTP (provider calls), and SqlClient (enforcement round-trips). Custom spans come from the single `CodeSmithDiagnostics.Source` (`"CodeSmith"`, Infrastructure `Diagnostics/`):
+
+- `llm.completion` — one per Completion, tagged `codesmith.provider` / `codesmith.tier` / `codesmith.feature`; status `Error` on failure. Children: `usage.reserve`, `llm.call` (tagged `codesmith.model`, `codesmith.tokens.input/output`, `codesmith.was_truncated`), then `usage.settle` (success) or `usage.release` (failure) — so provider time vs enforcement time is separable per request.
+- `problem.generation.attempt` — one per generation attempt, tagged `codesmith.attempt` / `codesmith.truncated` / `codesmith.parse_complete`, making silent retries visible.
+
+Tests assert spans with an `ActivityListener` (`ActivityCapture` helper); span-emitting test classes share the `CodeSmithTelemetry` xUnit collection because listeners are process-global.
+
 ### Tutoring (coding problems)
 
-`SessionController` → `ITutoringService`. Problem creation delegates to `IProblemGenerator`, which builds a prompt from `ITutoringPromptTemplates`, calls the accurate model, and parses the `DESCRIPTION:` / `STARTER_CODE:` markers via `IProblemResponseParser`. It retries up to 2 times on truncation (`LlmResponse.WasTruncated`) or incomplete parse. Guidance is multi-turn: the service rebuilds the system prompt each turn (injecting the current editor contents) and hands the turn to the shared `IGuidanceConversation`, which owns the append/trim/call/persist/rollback mechanics; the service projects the returned completion into a `ChatResponse`. `RunCodeAsync` validates the session exists, then delegates to `ICodeExecutionService`.
+`SessionController` → `ITutoringService`. Problem creation delegates to `IProblemGenerator`, which builds a prompt from `ITutoringPromptTemplates`, calls the accurate model (MaxTokens 4000 — headroom so truncation retries rarely fire; the reserve holds against it but settle refunds to actuals), and parses the `DESCRIPTION:` / `STARTER_CODE:` markers via `IProblemResponseParser`. It retries up to 2 times on truncation (`LlmResponse.WasTruncated`) or incomplete parse; each attempt emits a `problem.generation.attempt` span. Guidance is multi-turn: the service rebuilds the system prompt each turn (injecting the current editor contents) and hands the turn to the shared `IGuidanceConversation`, which owns the append/trim/call/persist/rollback mechanics; the service projects the returned completion into a `ChatResponse`. `RunCodeAsync` validates the session exists, then delegates to `ICodeExecutionService`.
 
 ### Prompt Lab (prompt engineering)
 
-`PromptLabController` → `IPromptLabService`, which orchestrates three internal Seams:
+`PromptLabController` → `IPromptLabService`, which orchestrates three internal Seams. Submit is **pipelined per input**: each test input's simulate→evaluate chain is one task and all chains run in parallel, so wall clock is the slowest single chain rather than slowest-simulate + slowest-evaluate (the phase Interfaces are per-input; the orchestrator owns the fan-out):
 - **`ITestInputGenerator`** — generates 4 test inputs (server pre-decides a 50/50 standard/edge split) at session start; falls back to the challenge's static inputs on failure (`DynamicInputsGenerated` records which).
-- **`IPromptSimulator`** — runs the student's prompt against every test input **in parallel** (fast model), combining locked + adversarial + user prompt content. Effective system prompt = `[LockedSystemPrompt] + [HiddenAdversarialPrompt] + [UserSystemPromptEdits]`; the adversarial segment is invisible to the user and cannot be overridden (anti-gaming).
-- **`IPromptEvaluator`** — scores each output against the rubric **in parallel** (accurate model), returning JSON parsed into `CriterionScore`s.
+- **`IPromptSimulator.SimulateOneAsync`** — runs the student's prompt against one test input (fast model), combining locked + adversarial + user prompt content into a `SimulatedInput`. Effective system prompt = `[LockedSystemPrompt] + [HiddenAdversarialPrompt] + [UserSystemPromptEdits]`; the adversarial segment is invisible to the user and cannot be overridden (anti-gaming).
+- **`IPromptEvaluator.EvaluateOneAsync`** — scores one output against the rubric in isolation (accurate model), returning JSON parsed into `CriterionScore`s; `AssembleAttempt` is the pure aggregation of the per-input results into the scored `ChallengeAttempt` (totals + overall feedback).
 
 All three phases parse model output through the shared **`LlmJson`** Module (fence-stripping, one failure mode: `EvaluationParseException`, rubric-integrity walk — see [Ubiquitous Language](#ubiquitous-language)); the `{input}` placeholder substitution both simulate and evaluate apply to the student's template lives in **`TestInputMessage`**, so the output scored is always the output generated.
 
@@ -264,7 +276,7 @@ Chat is Socratic guidance delegated to the shared `IGuidanceConversation` (20-me
 Every keyed LLM registration wraps the provider Adapter in a usage-enforcing decorator that runs **reserve → call → settle** (or **release** on failure) around each call. Two free axes plus a paid balance gate every Completion:
 
 - **Per-objectId free window** — `CreditBalance.FreeQuotaMax` tokens (default 20,000) available only during the **48 hours** after `FirstSeenUtc` (first sighting of the objectId). There is **no monthly reset**; once the window closes, free quota is zero.
-- **Per-IP free aggregate** — a **60,000-token** total cap on free tokens issued from one client IP across *all* objectIds (`IpFreeUsage` / `IIpFreeUsageRepository`), so many fresh objectIds behind one IP cannot farm unlimited free usage.
+- **Per-IP free aggregate** — a **60,000-token** total cap on free tokens issued from one client IP across *all* objectIds (`IpFreeUsage`, read/written through `IUsageStore`), so many fresh objectIds behind one IP cannot farm unlimited free usage.
 - **Paid credits** — `PaidCreditsBalance`, debited in USD-equivalent when free coverage is exhausted.
 
 **Pricing (`ILlmPricing` + `LlmPricingCatalog`).** `LlmPricingCatalog` is the **single source of truth** binding `(provider, model)` to **raw provider cost** per 1k tokens. A config markup (`UsageOptions.PaidMarkupMultiplier`, default `2.0`) turns raw cost into the **customer charge**; `ComputeCostUsd` vs `ComputeChargeUsd` are kept separate so the ledger records both — `UsageLedgerEntry.CostUsd` (charge) and `ProviderCostUsd` (raw) — keeping margin reportable. **Drift is prevented at startup:** each provider's configured `AccurateModel`/`FastModel` is validated against the catalog via `Options.Validate(...).ValidateOnStart()` — an unpriced model **fails the app boot** with a message naming the provider + tier (see `AddValidatedProviderOptions` in the composition root). The runtime "unknown model → global highest rate" fallback in `ComputeCostUsd` is therefore unreachable for configured models (adapters stamp `LlmResponse.Model` with the configured name); if it ever fires it **logs a warning** and over-charges-safe rather than failing the live request.
@@ -276,6 +288,8 @@ The seam is `IUsageEnforcer`, a reserve → settle / release lifecycle (`UsageRe
 3. **Release** (`ReleaseAsync`): reverses the hold with no ledger entry — used by the decorator when the LLM call throws, so a failed call consumes no quota.
 
 All three run under a **per-user lock** (`IUserUsageLock`); IP-aggregate adjustments take an additional `ip:{ip}` lock, so neither the shared scoped DbContext nor the 60k cap loses an update.
+
+**Storage crosses the deep `IUsageStore` seam** (`UsageSnapshot` = balance + IP-issued total in one read; `PersistAsync` lands the phase outcome — balance write, IP delta, optional ledger row — in ONE `SaveChangesAsync`). Each phase therefore costs ~3 serialized DB round-trips instead of the 4–7 the old three-repository composition produced (~6 per Completion, down from ~9–13); the single-save invariant is pinned by `EfUsageStoreTests` with a SaveChanges-counting interceptor. A missing balance row is materialized via `CreditBalance.CreateNew` in the enforcer (Reserve/Settle) but **never in Release** — reversing a paid hold onto a fresh row would mint credits.
 
 > **Reservation honesty — closed in-process (was the headline cost gap).** Because the hold is now *persisted at reserve time*, concurrent completions for one user (a Prompt Lab submit fans out to up to 2N parallel Completions — N simulate + N evaluate, both `Task.WhenAll`) serialize on the per-user lock and each sees the prior holds; they can no longer all pass a gate that only had budget for one. **Still open:** the in-process `UserUsageLock` makes this correct on a single instance only. For a multi-instance deployment, `CreditBalance.RowVersion` would be the cross-process guard for the enforcer — the enforcer does not yet use it (relying on the in-process lock), though the billing store already does (see below). Deferred for enforcement.
 
@@ -344,6 +358,10 @@ public enum ModelTier { Fast, Accurate }   // two tiers today; extend here if a 
 - The three usage decorators collapse to **one** decorator over `ILlmService` that reads `request.Feature`.
 - Keyed registrations drop from 9 to one-per-provider.
 - Test surface drops from 7 methods × 3 providers to `CompleteAsync` (a single-turn + a multi-turn assertion) × 2 Adapters; every caller test mocks the same `ILlmService.CompleteAsync → LlmResponse` idiom.
+
+### Adapter transport configuration
+
+Both Adapters run with an **explicit 120s per-call timeout** (`TimeoutSeconds` on each provider's options — the Anthropic SDK otherwise defaults to 10 minutes) and **zero transport auto-retry** (`Anthropic:MaxRetries` default 0; the OpenAI pipeline gets `ClientRetryPolicy(maxRetries: 0)`). Auto-retry is deliberately off: a transport-level retry re-runs a *metered* Completion — invisible provider cost and multiplied worst-case latency. Retryable failures surface as `AiServiceException` (502) and the reservation is released, so the user retries explicitly. Both are pinned by adapter tests (`CallCount == 1` on a 503; timeout via the internal client view).
 
 ### Adapter test seam & cancellation semantics
 

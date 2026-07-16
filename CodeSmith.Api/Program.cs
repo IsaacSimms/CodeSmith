@@ -1,17 +1,34 @@
 // == CodeSmith API Entry Point == //
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using CodeSmith.Api.Middleware;
 using CodeSmith.Api.Services;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Infrastructure.DependencyInjection;
+using CodeSmith.Infrastructure.Diagnostics;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Identity.Web;
+using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// == Telemetry (OpenTelemetry → Application Insights) == //
+// The Azure Monitor distro auto-instruments ASP.NET Core requests, outbound HTTP (the LLM
+// provider calls), and SqlClient (the usage-enforcement round-trips), so traces split provider
+// time from enforcement time per request. Custom CodeSmith spans (llm.completion + phases,
+// problem.generation.attempt) ride the same pipeline via AddSource. Active only when the
+// APPLICATIONINSIGHTS_CONNECTION_STRING env var is set (the Container App carries it);
+// local dev without it runs with telemetry off.
+if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
+{
+    builder.Services.AddOpenTelemetry()
+        .UseAzureMonitor()
+        .WithTracing(tracing => tracing.AddSource(CodeSmithDiagnostics.SourceName));
+}
 
 // == Service Registration == //
 
@@ -97,7 +114,10 @@ builder.Services.AddCors(options =>
 
         policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
-              .AllowAnyMethod();
+              .AllowAnyMethod()
+              // The SPA calls this API cross-origin, so every POST otherwise pays a preflight
+              // OPTIONS round-trip; letting browsers cache the preflight verdict removes it.
+              .SetPreflightMaxAge(TimeSpan.FromHours(1));
     });
 });
 

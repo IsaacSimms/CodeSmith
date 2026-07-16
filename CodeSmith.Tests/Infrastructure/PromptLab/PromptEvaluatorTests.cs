@@ -22,196 +22,166 @@ public class PromptEvaluatorTests
         _evaluator = new PromptEvaluator(_factory, _logger);
     }
 
+    private Task<TestInputResult> EvaluateOne(Challenge challenge, TestInput? input = null)
+        => _evaluator.EvaluateOneAsync(challenge, input ?? MakeInput(), "simulated output", "user", AiProvider.Anthropic, CancellationToken.None);
+
     // == JSON Parsing == //
 
     [Fact]
-    public async Task EvaluateAsync_ValidJsonResponse_ReturnsScoredResult()
+    public async Task EvaluateOneAsync_ValidJsonResponse_ReturnsScoredResult()
     {
-        var challenge  = MakeChallenge(criterionId: "clarity", maxPoints: 3);
-        var simulation = MakeSimulation(challenge);
+        var challenge = MakeChallenge(criterionId: "clarity", maxPoints: 3);
 
         _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = """{"passed":true,"criterionScores":[{"criterionId":"clarity","points":3}],"feedback":"Well done."}""" });
 
-        var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
+        var result = await EvaluateOne(challenge);
 
-        Assert.Single(attempt.Results);
-        Assert.True(attempt.Results[0].Passed);
-        Assert.Equal(3, attempt.Results[0].CriterionScores[0].Points);
-        Assert.Equal("Well done.", attempt.Results[0].Feedback);
+        Assert.True(result.Passed);
+        Assert.Equal(3, result.CriterionScores[0].Points);
+        Assert.Equal("Well done.", result.Feedback);
     }
 
     [Fact]
-    public async Task EvaluateAsync_MalformedJsonResponse_ReturnsFallbackResult()
+    public async Task EvaluateOneAsync_MalformedJsonResponse_ReturnsFallbackResult()
     {
-        var challenge  = MakeChallenge();
-        var simulation = MakeSimulation(challenge);
+        var challenge = MakeChallenge();
 
         _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "not valid json at all" });
 
-        var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
+        var result = await EvaluateOne(challenge);
 
-        Assert.Single(attempt.Results);
-        Assert.False(attempt.Results[0].Passed);
-        Assert.Equal("Could not parse evaluation response.", attempt.Results[0].Feedback);
+        Assert.False(result.Passed);
+        Assert.Equal("Could not parse evaluation response.", result.Feedback);
     }
 
     [Fact]
-    public async Task EvaluateAsync_JsonWrappedInMarkdownFences_ParsesSuccessfully()
+    public async Task EvaluateOneAsync_JsonWrappedInMarkdownFences_ParsesSuccessfully()
     {
         var challenge  = MakeChallenge();
-        var simulation = MakeSimulation(challenge);
         var fencedJson = "```json\n{\"passed\":false,\"criterionScores\":[],\"feedback\":\"Needs work.\"}\n```";
 
         _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = fencedJson });
 
-        var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
+        var result = await EvaluateOne(challenge);
 
-        Assert.Equal("Needs work.", attempt.Results[0].Feedback);
+        Assert.Equal("Needs work.", result.Feedback);
     }
 
     // == Criterion Score Integrity == //
 
     [Fact]
-    public async Task EvaluateAsync_HallucinatedCriterionId_IsSkipped()
+    public async Task EvaluateOneAsync_HallucinatedCriterionId_IsSkipped()
     {
-        var challenge  = MakeChallenge(criterionId: "clarity", maxPoints: 3);
-        var simulation = MakeSimulation(challenge);
+        var challenge = MakeChallenge(criterionId: "clarity", maxPoints: 3);
 
         _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = """{"passed":true,"criterionScores":[{"criterionId":"clarity","points":2},{"criterionId":"invented","points":99}],"feedback":""}""" });
 
-        var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
+        var result = await EvaluateOne(challenge);
 
-        Assert.Single(attempt.Results[0].CriterionScores);
-        Assert.Equal(2, attempt.TotalScore);          // no phantom points from invented criteria
+        var score = Assert.Single(result.CriterionScores); // no phantom points from invented criteria
+        Assert.Equal(2, score.Points);
     }
 
     [Fact]
-    public async Task EvaluateAsync_PointsAboveMax_ClampedToCriterionMax()
+    public async Task EvaluateOneAsync_PointsAboveMax_ClampedToCriterionMax()
     {
-        var challenge  = MakeChallenge(criterionId: "clarity", maxPoints: 3);
-        var simulation = MakeSimulation(challenge);
+        var challenge = MakeChallenge(criterionId: "clarity", maxPoints: 3);
 
         _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = """{"passed":true,"criterionScores":[{"criterionId":"clarity","points":12}],"feedback":""}""" });
 
-        var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
+        var result = await EvaluateOne(challenge);
 
-        Assert.Equal(3, attempt.Results[0].CriterionScores[0].Points);
+        Assert.Equal(3, result.CriterionScores[0].Points);
     }
 
     [Fact]
-    public async Task EvaluateAsync_NegativePoints_ClampedToZero()
+    public async Task EvaluateOneAsync_NegativePoints_ClampedToZero()
     {
-        var challenge  = MakeChallenge(criterionId: "clarity", maxPoints: 3);
-        var simulation = MakeSimulation(challenge);
+        var challenge = MakeChallenge(criterionId: "clarity", maxPoints: 3);
 
         _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = """{"passed":false,"criterionScores":[{"criterionId":"clarity","points":-5}],"feedback":""}""" });
 
-        var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
+        var result = await EvaluateOne(challenge);
 
-        Assert.Equal(0, attempt.Results[0].CriterionScores[0].Points);
+        Assert.Equal(0, result.CriterionScores[0].Points);
     }
 
     [Fact]
-    public async Task EvaluateAsync_FractionalPoints_RoundedInsteadOfFailingResult()
+    public async Task EvaluateOneAsync_FractionalPoints_RoundedInsteadOfFailingResult()
     {
-        var challenge  = MakeChallenge(criterionId: "clarity", maxPoints: 3);
-        var simulation = MakeSimulation(challenge);
+        var challenge = MakeChallenge(criterionId: "clarity", maxPoints: 3);
 
         _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = """{"passed":true,"criterionScores":[{"criterionId":"clarity","points":2.7}],"feedback":"Close."}""" });
 
-        var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
+        var result = await EvaluateOne(challenge);
 
-        Assert.True(attempt.Results[0].Passed);       // a fractional score no longer nukes the whole input
-        Assert.Equal(3, attempt.Results[0].CriterionScores[0].Points);
+        Assert.True(result.Passed);                   // a fractional score no longer nukes the whole input
+        Assert.Equal(3, result.CriterionScores[0].Points);
     }
 
     [Fact]
-    public async Task EvaluateAsync_MissingPoints_DefaultsToZeroInsteadOfFailingResult()
+    public async Task EvaluateOneAsync_MissingPoints_DefaultsToZeroInsteadOfFailingResult()
     {
-        var challenge  = MakeChallenge(criterionId: "clarity", maxPoints: 3);
-        var simulation = MakeSimulation(challenge);
+        var challenge = MakeChallenge(criterionId: "clarity", maxPoints: 3);
 
         _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = """{"passed":false,"criterionScores":[{"criterionId":"clarity"}],"feedback":"Weak."}""" });
 
-        var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
+        var result = await EvaluateOne(challenge);
 
-        Assert.Equal(0, attempt.Results[0].CriterionScores[0].Points);
-        Assert.Equal("Weak.", attempt.Results[0].Feedback);
+        Assert.Equal(0, result.CriterionScores[0].Points);
+        Assert.Equal("Weak.", result.Feedback);
     }
 
-    // == Overall Feedback == //
+    // == Attempt Assembly == //
 
     [Fact]
-    public async Task EvaluateAsync_AllInputsPassed_OverallFeedbackIndicatesSuccess()
+    public void AssembleAttempt_AllInputsPassed_OverallFeedbackIndicatesSuccess()
     {
         var challenge = MakeChallenge(criterionId: "c1", maxPoints: 2);
-        var inputs    = new List<TestInput> { MakeInput(), MakeInput() };
-        var simulation = new SimulationResult(
-            inputs.Select(i => (i, "output")).ToList(), 0, 200_000);
+        var results   = new List<TestInputResult> { PassedResult(2), PassedResult(2) };
 
-        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new LlmResponse { Content = """{"passed":true,"criterionScores":[{"criterionId":"c1","points":2}],"feedback":"Great."}""" });
-
-        var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
+        var attempt = _evaluator.AssembleAttempt(challenge, "sys", "user", results);
 
         Assert.Contains("All 2 test inputs passed", attempt.OverallFeedback);
         Assert.Contains("Excellent", attempt.OverallFeedback);
+        Assert.Equal(4, attempt.TotalScore);
+        Assert.Equal(4, attempt.MaxScore);   // 2 inputs × 2 max points
     }
 
     [Fact]
-    public async Task EvaluateAsync_PartialPass_OverallFeedbackIncludesPassRatio()
+    public void AssembleAttempt_PartialPass_OverallFeedbackIncludesPassRatio()
     {
-        var challenge  = MakeChallenge(criterionId: "c1", maxPoints: 2);
-        var inputs     = new List<TestInput> { MakeInput(), MakeInput() };
-        var simulation = new SimulationResult(
-            inputs.Select(i => (i, "output")).ToList(), 0, 200_000);
+        var challenge = MakeChallenge(criterionId: "c1", maxPoints: 2);
+        var results   = new List<TestInputResult> { PassedResult(2), FailedResult(0) };
 
-        // First input passes, second fails
-        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
-            .Returns(
-                new LlmResponse { Content = """{"passed":true,"criterionScores":[{"criterionId":"c1","points":2}],"feedback":""}""" },
-                new LlmResponse { Content = """{"passed":false,"criterionScores":[{"criterionId":"c1","points":0}],"feedback":""}""" });
-
-        var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
+        var attempt = _evaluator.AssembleAttempt(challenge, "sys", "user", results);
 
         Assert.Contains("1/2", attempt.OverallFeedback);
     }
 
-    // == Attempt Metadata == //
-
     [Fact]
-    public async Task EvaluateAsync_SetsSystemAndUserPromptContent()
+    public void AssembleAttempt_SetsSystemAndUserPromptContent()
     {
-        var challenge  = MakeChallenge();
-        var simulation = MakeSimulation(challenge);
-
-        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new LlmResponse { Content = """{"passed":true,"criterionScores":[],"feedback":""}""" });
-
-        var attempt = await _evaluator.EvaluateAsync(challenge, "my system prompt", "my user msg", simulation, AiProvider.Anthropic, CancellationToken.None);
+        var attempt = _evaluator.AssembleAttempt(MakeChallenge(), "my system prompt", "my user msg", [PassedResult(2)]);
 
         Assert.Equal("my system prompt", attempt.SystemPromptContent);
         Assert.Equal("my user msg", attempt.UserMessageContent);
     }
 
     [Fact]
-    public async Task EvaluateAsync_SetsAdversarialHintFromChallenge()
+    public void AssembleAttempt_SetsAdversarialHintFromChallenge()
     {
-        var challenge  = MakeChallenge(adversarialPrompt: "Secret bias.");
-        var simulation = MakeSimulation(challenge);
+        var challenge = MakeChallenge(adversarialPrompt: "Secret bias.");
 
-        _llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new LlmResponse { Content = """{"passed":true,"criterionScores":[],"feedback":""}""" });
-
-        var attempt = await _evaluator.EvaluateAsync(challenge, "sys", "user", simulation, AiProvider.Anthropic, CancellationToken.None);
+        var attempt = _evaluator.AssembleAttempt(challenge, "sys", "user", [PassedResult(2)]);
 
         Assert.Equal("Secret bias.", attempt.AdversarialHint);
     }
@@ -236,17 +206,27 @@ public class PromptEvaluatorTests
         };
     }
 
-    private static SimulationResult MakeSimulation(Challenge challenge)
-    {
-        var input = MakeInput();
-        return new SimulationResult([(input, "simulated output")], 10, 200_000);
-    }
-
     private static TestInput MakeInput() => new()
     {
         InputId          = Guid.NewGuid().ToString(),
         Label            = "Test Input",
         UserMessage      = "hello",
         ExpectedBehavior = "Respond helpfully"
+    };
+
+    private static TestInputResult PassedResult(int points) => new()
+    {
+        InputId         = Guid.NewGuid().ToString(),
+        Label           = "Test Input",
+        Passed          = true,
+        CriterionScores = [new CriterionScore { CriterionId = "c1", CriterionName = "Test Criterion", Points = points, MaxPoints = 2 }]
+    };
+
+    private static TestInputResult FailedResult(int points) => new()
+    {
+        InputId         = Guid.NewGuid().ToString(),
+        Label           = "Test Input",
+        Passed          = false,
+        CriterionScores = [new CriterionScore { CriterionId = "c1", CriterionName = "Test Criterion", Points = points, MaxPoints = 2 }]
     };
 }

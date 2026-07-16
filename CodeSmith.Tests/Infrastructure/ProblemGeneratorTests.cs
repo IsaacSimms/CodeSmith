@@ -9,6 +9,7 @@ using NSubstitute;
 
 namespace CodeSmith.Tests.Infrastructure;
 
+[Collection("CodeSmithTelemetry")] // span capture is process-global — see ActivityCapture
 public class ProblemGeneratorTests
 {
     // == Helpers == //
@@ -193,5 +194,58 @@ public class ProblemGeneratorTests
 
         // 3 attempts total: attempt 0, 1, 2 (MaxParseRetries = 2)
         await llmService.Received(3).CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>());
+    }
+
+    // == Token Budget Pin == //
+
+    [Fact]
+    public async Task GenerateAsync_RequestsFourThousandMaxTokens()
+    {
+        var (llmService, factory) = LlmReturning("raw");
+
+        var parser = Substitute.For<IProblemResponseParser>();
+        parser.Parse(Arg.Any<string>()).Returns(("Description.", "def solve(): pass"));
+
+        var generator = BuildGenerator(templates: TemplatesReturning(), factory: factory, parser: parser);
+
+        await generator.GenerateAsync(Difficulty.Hard, Language.Python, AiProvider.Anthropic, CancellationToken.None);
+
+        // 4000 keeps truncation retries rare; reserve estimates against it but settle refunds to actuals
+        await llmService.Received(1).CompleteAsync(Arg.Is<CompletionRequest>(r => r.MaxTokens == 4000), Arg.Any<CancellationToken>());
+    }
+
+    // == Telemetry Span Tests == //
+
+    [Fact]
+    public async Task GenerateAsync_EmitsOneAttemptSpanPerAttempt_TaggedWithOutcome()
+    {
+        using var capture = new ActivityCapture();
+
+        var llmService = Substitute.For<ILlmService>();
+        var factory    = Substitute.For<ILlmServiceFactory>();
+        factory.Get(Arg.Any<AiProvider>()).Returns(llmService);
+
+        // First attempt truncated, second succeeds — the silent retry must be visible in traces
+        llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(
+                new LlmResponse { Content = "",    WasTruncated = true,  InputTokensUsed = 5,  ContextWindowSize = 200_000 },
+                new LlmResponse { Content = "raw", WasTruncated = false, InputTokensUsed = 10, ContextWindowSize = 200_000 });
+
+        var parser = Substitute.For<IProblemResponseParser>();
+        parser.Parse("raw").Returns(("A complete description.", "def solve(): pass"));
+
+        var generator = BuildGenerator(templates: TemplatesReturning(), factory: factory, parser: parser);
+
+        await generator.GenerateAsync(Difficulty.Easy, Language.Python, AiProvider.Anthropic, CancellationToken.None);
+
+        var attempts = capture.All("problem.generation.attempt");
+        Assert.Equal(2, attempts.Count);
+
+        Assert.Equal(1,      attempts[0].GetTagItem("codesmith.attempt"));
+        Assert.Equal(true,   attempts[0].GetTagItem("codesmith.truncated"));
+
+        Assert.Equal(2,      attempts[1].GetTagItem("codesmith.attempt"));
+        Assert.Equal(false,  attempts[1].GetTagItem("codesmith.truncated"));
+        Assert.Equal(true,   attempts[1].GetTagItem("codesmith.parse_complete"));
     }
 }

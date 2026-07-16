@@ -98,11 +98,23 @@ public class PromptLabService : IPromptLabService
 
             try
             {
-                var simulation = await _simulator.SimulateAsync(challenge, testInputs, systemPromptContent, userMessageContent, session.Provider, ct);
-                var attempt    = await _evaluator.EvaluateAsync(challenge, systemPromptContent, userMessageContent, simulation, session.Provider, ct);
+                // Pipeline per input: each test input's simulate→evaluate chain is one task and all
+                // chains run in parallel, so wall clock is the slowest single chain rather than
+                // slowest-simulate + slowest-evaluate (the old sequential phases).
+                var chains = testInputs.Select(async input =>
+                {
+                    var simulated = await _simulator.SimulateOneAsync(challenge, input, systemPromptContent, userMessageContent, session.Provider, ct);
+                    var result    = await _evaluator.EvaluateOneAsync(challenge, input, simulated.Output, userMessageContent, session.Provider, ct);
+                    return (Simulated: simulated, Result: result);
+                }).ToList();
 
-                attempt.PromptTokensUsed  = simulation.PromptTokens;
-                attempt.ContextWindowSize = simulation.ContextWindowSize;
+                var evaluated = await Task.WhenAll(chains);
+
+                var attempt = _evaluator.AssembleAttempt(challenge, systemPromptContent, userMessageContent, [.. evaluated.Select(e => e.Result)]);
+
+                // All simulation calls share the same prompt — first chain's token count is representative
+                attempt.PromptTokensUsed  = evaluated.Length > 0 ? evaluated[0].Simulated.PromptTokens      : 0;
+                attempt.ContextWindowSize = evaluated.Length > 0 ? evaluated[0].Simulated.ContextWindowSize : 0;
 
                 session.Attempts.Add(attempt);
                 _sessionStore.Set(session);

@@ -1,4 +1,5 @@
 // == Usage Enforcing Decorator Tests == //
+using System.Diagnostics;
 using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
@@ -9,6 +10,7 @@ using NSubstitute.ExceptionExtensions;
 
 namespace CodeSmith.Tests.Infrastructure.Usage;
 
+[Collection("CodeSmithTelemetry")] // span capture is process-global — see ActivityCapture
 public class UsageEnforcingLlmServiceTests
 {
     private const string ObjectId = "user-1";
@@ -74,5 +76,52 @@ public class UsageEnforcingLlmServiceTests
         await enforcer.DidNotReceive().SettleAsync(
             Arg.Any<UsageReservation>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<int>(),
             Arg.Any<decimal>(), Arg.Any<decimal>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    // == Telemetry Span Tests == //
+
+    [Fact]
+    public async Task CompleteAsync_OnSuccess_EmitsCompletionSpanWithPhaseChildren()
+    {
+        using var capture = new ActivityCapture();
+        var (sut, inner, _) = Build(SampleReservation());
+
+        inner.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmResponse { Content = "hi", Model = "claude-haiku-4-5-20251001", InputTokensUsed = 5, OutputTokensUsed = 3 });
+
+        await sut.CompleteAsync(Request());
+
+        // Root span carries the caller intent
+        var completion = capture.Single("llm.completion");
+        Assert.Equal("Anthropic",         completion.GetTagItem("codesmith.provider")?.ToString());
+        Assert.Equal("Fast",              completion.GetTagItem("codesmith.tier")?.ToString());
+        Assert.Equal("Tutoring:Guidance", completion.GetTagItem("codesmith.feature")?.ToString());
+
+        // Each lifecycle phase is a child span so provider time vs enforcement time is separable
+        var call = capture.Single("llm.call");
+        Assert.Equal(completion.SpanId, call.ParentSpanId);
+        Assert.Equal("claude-haiku-4-5-20251001", call.GetTagItem("codesmith.model")?.ToString());
+        Assert.Equal(5, call.GetTagItem("codesmith.tokens.input"));
+        Assert.Equal(3, call.GetTagItem("codesmith.tokens.output"));
+
+        Assert.Equal(completion.SpanId, capture.Single("usage.reserve").ParentSpanId);
+        Assert.Equal(completion.SpanId, capture.Single("usage.settle").ParentSpanId);
+        Assert.Empty(capture.All("usage.release"));
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenInnerCallFails_EmitsReleaseSpanAndErrorStatus()
+    {
+        using var capture = new ActivityCapture();
+        var (sut, inner, _) = Build(SampleReservation());
+
+        inner.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Throws(new InvalidOperationException("provider exploded"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => sut.CompleteAsync(Request()));
+
+        Assert.Equal(ActivityStatusCode.Error, capture.Single("llm.completion").Status);
+        Assert.Single(capture.All("usage.release"));
+        Assert.Empty(capture.All("usage.settle"));
     }
 }

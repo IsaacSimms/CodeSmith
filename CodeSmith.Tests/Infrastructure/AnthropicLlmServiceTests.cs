@@ -183,4 +183,29 @@ public class AnthropicLlmServiceTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => CreateService(handler).CompleteAsync(SingleTurn(), cts.Token));
     }
+
+    // == Transport config: no auto-retry, explicit timeout == //
+
+    [Fact]
+    public async Task CompleteAsync_OnRetryableServerError_SendsExactlyOneRequest()
+    {
+        // A transport-level retry re-runs a metered completion — it burns real provider cost
+        // invisibly and multiplies worst-case latency, so the SDK's auto-retry must stay off.
+        var handler = new CapturingHttpHandler(HttpStatusCode.ServiceUnavailable,
+            """{"type":"error","error":{"type":"overloaded_error","message":"overloaded"}}""");
+
+        await Assert.ThrowsAsync<AiServiceException>(
+            () => CreateService(handler).CompleteAsync(SingleTurn()));
+
+        Assert.Equal(1, handler.CallCount);
+    }
+
+    [Fact]
+    public void Ctor_SetsExplicitTimeoutFromOptions()
+    {
+        // The SDK defaults to a 10-minute timeout; a hung provider call must fail well before that.
+        var service = CreateService(OkHandler());
+
+        Assert.Equal(TimeSpan.FromSeconds(120), service.Client.Timeout);
+    }
 }

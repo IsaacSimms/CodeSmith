@@ -163,9 +163,6 @@ public class PromptLabServiceTests
 
         _sessionStore.Get(session.SessionId.ToString()).Returns(session);
 
-        var simulationResult = new SimulationResult(
-            challenge.TestInputs.Select(i => (i, "output")).ToList(), 10, 200_000);
-
         var expectedAttempt = new ChallengeAttempt
         {
             SystemPromptContent = "be concise",
@@ -175,10 +172,9 @@ public class PromptLabServiceTests
             OverallFeedback     = "0/1 test inputs passed (50% of available points)."
         };
 
-        _simulator.SimulateAsync(Arg.Any<Challenge>(), Arg.Any<List<TestInput>>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
-            .Returns(simulationResult);
-
-        _evaluator.EvaluateAsync(Arg.Any<Challenge>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SimulationResult>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
+        MockSimulateOne();
+        MockEvaluateOne();
+        _evaluator.AssembleAttempt(Arg.Any<Challenge>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<TestInputResult>>())
             .Returns(expectedAttempt);
 
         var attempt = await _service.SubmitAttemptAsync(session.SessionId, "be concise", "list planets", CancellationToken.None);
@@ -196,10 +192,9 @@ public class PromptLabServiceTests
 
         _sessionStore.Get(session.SessionId.ToString()).Returns(session);
 
-        _simulator.SimulateAsync(Arg.Any<Challenge>(), Arg.Any<List<TestInput>>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
-            .Returns(new SimulationResult(challenge.TestInputs.Select(i => (i, "out")).ToList(), PromptTokens: 77, ContextWindowSize: 180_000));
-
-        _evaluator.EvaluateAsync(Arg.Any<Challenge>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SimulationResult>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
+        MockSimulateOne(promptTokens: 77, contextWindow: 180_000);
+        MockEvaluateOne();
+        _evaluator.AssembleAttempt(Arg.Any<Challenge>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<TestInputResult>>())
             .Returns(new ChallengeAttempt());
 
         var attempt = await _service.SubmitAttemptAsync(session.SessionId, "sys", "user", CancellationToken.None);
@@ -207,6 +202,85 @@ public class PromptLabServiceTests
         Assert.Equal(77,      attempt.PromptTokensUsed);
         Assert.Equal(180_000, attempt.ContextWindowSize);
     }
+
+    [Fact]
+    public async Task SubmitAttemptAsync_EvaluatesEveryTestInput_AndAssemblesThoseResults()
+    {
+        var challengeId = _service.GetChallenges()[0].ChallengeId;
+        var inputs      = new List<TestInput>
+        {
+            new() { InputId = "i1", Label = "One", UserMessage = "a" },
+            new() { InputId = "i2", Label = "Two", UserMessage = "b" },
+            new() { InputId = "i3", Label = "Three", UserMessage = "c" }
+        };
+        var session = new PromptLabSession { ChallengeId = challengeId, Provider = AiProvider.Anthropic, TestInputs = inputs };
+
+        _sessionStore.Get(session.SessionId.ToString()).Returns(session);
+
+        MockSimulateOne();
+        MockEvaluateOne();
+        _evaluator.AssembleAttempt(Arg.Any<Challenge>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<TestInputResult>>())
+            .Returns(new ChallengeAttempt());
+
+        await _service.SubmitAttemptAsync(session.SessionId, "sys", "user", CancellationToken.None);
+
+        await _simulator.Received(3).SimulateOneAsync(Arg.Any<Challenge>(), Arg.Any<TestInput>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>());
+        await _evaluator.Received(3).EvaluateOneAsync(Arg.Any<Challenge>(), Arg.Any<TestInput>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>());
+        _evaluator.Received(1).AssembleAttempt(Arg.Any<Challenge>(), "sys", "user", Arg.Is<IReadOnlyList<TestInputResult>>(r => r.Count == 3));
+    }
+
+    [Fact]
+    public async Task SubmitAttemptAsync_PipelinesPerInput_EvaluationStartsBeforeAllSimulationsFinish()
+    {
+        // Input ONE's simulation completes only after input TWO's evaluation has STARTED. Under the
+        // old sequential phases (all simulations, then all evaluations) this deadlocks; it can only
+        // complete when each input's simulate→evaluate chain runs independently.
+        var challengeId = _service.GetChallenges()[0].ChallengeId;
+        var inputOne    = new TestInput { InputId = "i1", Label = "One", UserMessage = "a" };
+        var inputTwo    = new TestInput { InputId = "i2", Label = "Two", UserMessage = "b" };
+        var session     = new PromptLabSession { ChallengeId = challengeId, Provider = AiProvider.Anthropic, TestInputs = [inputOne, inputTwo] };
+
+        _sessionStore.Get(session.SessionId.ToString()).Returns(session);
+
+        var evalTwoStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _simulator.SimulateOneAsync(Arg.Any<Challenge>(), inputOne, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
+            .Returns(async _ =>
+            {
+                await evalTwoStarted.Task;   // gate: released only once input TWO reaches evaluation
+                return new SimulatedInput(inputOne, "out-1", 10, 200_000);
+            });
+        _simulator.SimulateOneAsync(Arg.Any<Challenge>(), inputTwo, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
+            .Returns(new SimulatedInput(inputTwo, "out-2", 10, 200_000));
+
+        _evaluator.EvaluateOneAsync(Arg.Any<Challenge>(), Arg.Any<TestInput>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
+            .Returns(ci =>
+            {
+                if (ci.Arg<TestInput>().InputId == "i2")
+                    evalTwoStarted.TrySetResult();
+                return new TestInputResult { InputId = ci.Arg<TestInput>().InputId, Label = "r" };
+            });
+
+        _evaluator.AssembleAttempt(Arg.Any<Challenge>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IReadOnlyList<TestInputResult>>())
+            .Returns(new ChallengeAttempt());
+
+        var submit = _service.SubmitAttemptAsync(session.SessionId, "sys", "user", CancellationToken.None);
+
+        // A generous timeout so a regression to sequential phases fails fast instead of hanging the run
+        var completed = await Task.WhenAny(submit, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.Same(submit, completed);
+        await submit;
+    }
+
+    // == Submit Mock Helpers == //
+
+    private void MockSimulateOne(int promptTokens = 10, int contextWindow = 200_000)
+        => _simulator.SimulateOneAsync(Arg.Any<Challenge>(), Arg.Any<TestInput>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
+            .Returns(ci => new SimulatedInput(ci.Arg<TestInput>(), "output", promptTokens, contextWindow));
+
+    private void MockEvaluateOne()
+        => _evaluator.EvaluateOneAsync(Arg.Any<Challenge>(), Arg.Any<TestInput>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
+            .Returns(ci => new TestInputResult { InputId = ci.Arg<TestInput>().InputId, Label = "r" });
 
     // == ChatAsync Tests == //
 

@@ -12,4 +12,5 @@ public class OpenAiOptions
     public string AccurateModel { get; set; } = "gpt-4.1";            // Used for generation, evaluation, and test input creation
     public string FastModel     { get; set; } = "gpt-4.1-mini";       // Used for guidance and simulation — fast and cheap
     public int    ContextWindow { get; set; } = 1_047_576;             // Token limit for GPT-4.1 / GPT-4.1-mini
+    public int    TimeoutSeconds { get; set; } = 120;                  // Per-call network timeout — a hung provider call must fail well before SDK defaults
 }

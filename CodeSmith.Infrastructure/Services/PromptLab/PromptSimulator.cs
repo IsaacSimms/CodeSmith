@@ -8,16 +8,20 @@ using Microsoft.Extensions.Logging;
 
 namespace CodeSmith.Infrastructure.Services.PromptLab;
 
-public record SimulationResult(
-    List<(TestInput Input, string Output)> Outputs,
+// One test input's simulated output plus the token metadata the attempt surfaces to the UI
+public record SimulatedInput(
+    TestInput Input,
+    string Output,
     int PromptTokens,
     int ContextWindowSize);
 
 public interface IPromptSimulator
 {
-    Task<SimulationResult> SimulateAsync(
+    // Per-input so the orchestrator can pipeline each input's simulate→evaluate chain —
+    // wall clock becomes the slowest single chain instead of slowest-simulate + slowest-evaluate
+    Task<SimulatedInput> SimulateOneAsync(
         Challenge challenge,
-        List<TestInput> testInputs,
+        TestInput input,
         string systemPromptContent,
         string userMessageContent,
         AiProvider provider,
@@ -37,52 +41,28 @@ public sealed class PromptSimulator : IPromptSimulator
         _logger  = logger;
     }
 
-    // == SimulateAsync == //
+    // == SimulateOneAsync == //
 
-    public async Task<SimulationResult> SimulateAsync(
+    public async Task<SimulatedInput> SimulateOneAsync(
         Challenge challenge,
-        List<TestInput> testInputs,
+        TestInput input,
         string systemPromptContent,
         string userMessageContent,
         AiProvider provider,
         CancellationToken ct)
     {
-        var effectiveSystemPrompt  = BuildSimulationSystemPrompt(challenge, systemPromptContent);
-        var userMessageIsEditable  = challenge.EditableFields.Any(f => f.FieldType == PromptFieldType.UserMessage);
+        var effectiveSystemPrompt = BuildSimulationSystemPrompt(challenge, systemPromptContent);
+        var userMessageIsEditable = challenge.EditableFields.Any(f => f.FieldType == PromptFieldType.UserMessage);
 
-        // Launch all test input simulations in parallel to minimise latency
-        var tasks = testInputs.Select(input =>
-        {
-            var message = userMessageIsEditable
-                ? TestInputMessage.Build(userMessageContent, input.UserMessage)
-                : input.UserMessage;
-            return SimulateOneAsync(input, effectiveSystemPrompt, message, provider, ct);
-        });
+        var message = userMessageIsEditable
+            ? TestInputMessage.Build(userMessageContent, input.UserMessage)
+            : input.UserMessage;
 
-        var results = await Task.WhenAll(tasks);
-
-        // All simulation calls share the same prompt — first result's token count is representative
-        var promptTokens      = results.Length > 0 ? results[0].InputTokens      : 0;
-        var contextWindowSize = results.Length > 0 ? results[0].ContextWindowSize : 0;
-
-        return new SimulationResult(
-            results.Select(r => (r.Input, r.Output)).ToList(),
-            promptTokens,
-            contextWindowSize);
-    }
-
-    private async Task<(TestInput Input, string Output, int InputTokens, int ContextWindowSize)> SimulateOneAsync(
-        TestInput input,
-        string systemPrompt,
-        string userMessage,
-        AiProvider provider,
-        CancellationToken ct)
-    {
         var response = await _factory.Get(provider).CompleteAsync(
-            CompletionRequest.SingleTurn(systemPrompt, userMessage, ModelTier.Fast, SimulationMaxTokens, "PromptLab:Simulate"), ct);
+            CompletionRequest.SingleTurn(effectiveSystemPrompt, message, ModelTier.Fast, SimulationMaxTokens, "PromptLab:Simulate"), ct);
 
         _logger.LogDebug("Simulation output for input {InputId}: {Output}", input.InputId, response.Content);
-        return (input, response.Content, response.InputTokensUsed, response.ContextWindowSize);
+        return new SimulatedInput(input, response.Content, response.InputTokensUsed, response.ContextWindowSize);
     }
 
     // == Prompt Builders == //

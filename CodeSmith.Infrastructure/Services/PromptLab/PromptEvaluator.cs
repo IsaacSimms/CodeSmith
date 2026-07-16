@@ -11,13 +11,22 @@ namespace CodeSmith.Infrastructure.Services.PromptLab;
 
 public interface IPromptEvaluator
 {
-    Task<ChallengeAttempt> EvaluateAsync(
+    // Per-input so the orchestrator can pipeline each input's simulate→evaluate chain; inputs are
+    // still scored in isolation so outputs cannot contaminate each other's scores
+    Task<TestInputResult> EvaluateOneAsync(
+        Challenge challenge,
+        TestInput input,
+        string simulationOutput,
+        string userMessageContent,
+        AiProvider provider,
+        CancellationToken ct);
+
+    // Pure aggregation of the per-input results into the scored attempt (totals + overall feedback)
+    ChallengeAttempt AssembleAttempt(
         Challenge challenge,
         string systemPromptContent,
         string userMessageContent,
-        SimulationResult simulation,
-        AiProvider provider,
-        CancellationToken ct);
+        IReadOnlyList<TestInputResult> results);
 }
 
 public sealed class PromptEvaluator : IPromptEvaluator
@@ -33,51 +42,23 @@ public sealed class PromptEvaluator : IPromptEvaluator
         _logger  = logger;
     }
 
-    // == EvaluateAsync == //
+    // == EvaluateOneAsync == //
 
-    public async Task<ChallengeAttempt> EvaluateAsync(
-        Challenge challenge,
-        string systemPromptContent,
-        string userMessageContent,
-        SimulationResult simulation,
-        AiProvider provider,
-        CancellationToken ct)
-    {
-        var userMessageIsEditable = challenge.EditableFields.Any(f => f.FieldType == PromptFieldType.UserMessage);
-
-        // Evaluate each test input in isolation (parallel) so outputs cannot contaminate each other's scores
-        var resultTasks = simulation.Outputs.Select(pair =>
-        {
-            var computedUserMessage = userMessageIsEditable
-                ? TestInputMessage.Build(userMessageContent, pair.Input.UserMessage)
-                : pair.Input.UserMessage;
-            return EvaluateOneAsync(challenge, pair.Input, pair.Output, computedUserMessage, provider, ct);
-        });
-
-        var inputResults = await Task.WhenAll(resultTasks);
-
-        var attempt = new ChallengeAttempt
-        {
-            SystemPromptContent = systemPromptContent,
-            UserMessageContent  = userMessageContent,
-            MaxScore            = simulation.Outputs.Count * challenge.Rubric.Sum(r => r.MaxPoints),
-            Results             = [.. inputResults],
-            AdversarialHint     = challenge.HiddenAdversarialPrompt ?? "",
-        };
-
-        attempt.TotalScore      = attempt.Results.Sum(r => r.CriterionScores.Sum(s => s.Points));
-        attempt.OverallFeedback = BuildOverallFeedback(attempt);
-        return attempt;
-    }
-
-    private async Task<TestInputResult> EvaluateOneAsync(
+    public async Task<TestInputResult> EvaluateOneAsync(
         Challenge challenge,
         TestInput input,
         string simulationOutput,
-        string computedUserMessage,
+        string userMessageContent,
         AiProvider provider,
         CancellationToken ct)
     {
+        // Recompute the effective user message the same way simulation did (shared TestInputMessage),
+        // so the result records exactly what the scored output was generated from.
+        var userMessageIsEditable = challenge.EditableFields.Any(f => f.FieldType == PromptFieldType.UserMessage);
+        var computedUserMessage   = userMessageIsEditable
+            ? TestInputMessage.Build(userMessageContent, input.UserMessage)
+            : input.UserMessage;
+
         var systemPrompt = """
             You are an expert prompt engineering evaluator. Score this single model output against the rubric.
             You MUST respond with ONLY valid JSON matching this exact schema — no preamble, no explanation:
@@ -93,6 +74,28 @@ public sealed class PromptEvaluator : IPromptEvaluator
             CompletionRequest.SingleTurn(systemPrompt, prompt, ModelTier.Accurate, EvaluationMaxTokens, "PromptLab:Evaluate"), ct);
 
         return ParseResult(challenge, input, simulationOutput, computedUserMessage, response.Content);
+    }
+
+    // == AssembleAttempt == //
+
+    public ChallengeAttempt AssembleAttempt(
+        Challenge challenge,
+        string systemPromptContent,
+        string userMessageContent,
+        IReadOnlyList<TestInputResult> results)
+    {
+        var attempt = new ChallengeAttempt
+        {
+            SystemPromptContent = systemPromptContent,
+            UserMessageContent  = userMessageContent,
+            MaxScore            = results.Count * challenge.Rubric.Sum(r => r.MaxPoints),
+            Results             = [.. results],
+            AdversarialHint     = challenge.HiddenAdversarialPrompt ?? "",
+        };
+
+        attempt.TotalScore      = attempt.Results.Sum(r => r.CriterionScores.Sum(s => s.Points));
+        attempt.OverallFeedback = BuildOverallFeedback(attempt);
+        return attempt;
     }
 
     // == Prompt Builders == //

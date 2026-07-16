@@ -18,13 +18,13 @@ namespace CodeSmith.Infrastructure.Services.Usage;
 /// serialization via <see cref="IUserUsageLock"/> guards the read-modify-write of the shared scoped
 /// DbContext, and an additional <c>ip:</c> lock guards the per-IP aggregate. <see cref="SettleAsync"/>
 /// reverses the hold and applies the real cost (plus the ledger entry); <see cref="ReleaseAsync"/>
-/// refunds the hold when the call produced nothing billable.
+/// refunds the hold when the call produced nothing billable. Storage crosses the deep
+/// <see cref="IUsageStore"/> seam: one snapshot read plus ONE persisted unit of work per phase, so the
+/// serialized time under the per-user lock is a handful of round-trips, not a dozen.
 /// </summary>
 public class UsageEnforcer : IUsageEnforcer
 {
-    private readonly ICreditBalanceRepository _balanceRepo;
-    private readonly IUsageLedgerRepository _ledgerRepo;
-    private readonly IIpFreeUsageRepository _ipRepo;
+    private readonly IUsageStore _store;
     private readonly ILlmPricing _pricing;
     private readonly IUserUsageLock _locks;
     private readonly UsageOptions _options;
@@ -33,17 +33,13 @@ public class UsageEnforcer : IUsageEnforcer
     private const long IpFreeTokenCap = 60_000; // Aggregate free-token cap per client IP across all objectIds
 
     public UsageEnforcer(
-        ICreditBalanceRepository balanceRepo,
-        IUsageLedgerRepository ledgerRepo,
-        IIpFreeUsageRepository ipRepo,
+        IUsageStore store,
         ILlmPricing pricing,
         IUserUsageLock locks,
         IOptions<UsageOptions> options,
         ILogger<UsageEnforcer> logger)
     {
-        _balanceRepo = balanceRepo;
-        _ledgerRepo = ledgerRepo;
-        _ipRepo = ipRepo;
+        _store = store;
         _pricing = pricing;
         _locks = locks;
         _options = options.Value;
@@ -70,13 +66,13 @@ public class UsageEnforcer : IUsageEnforcer
             ipGate = _locks.GetLock($"ip:{normalizedIp}");
             await ipGate.WaitAsync(ct);
 
-            var balance = await GetOrCreateBalanceAsync(objectId, ct);
+            var snapshot = await _store.GetSnapshotAsync(objectId, normalizedIp, ct);
+            var balance  = snapshot.Balance ?? CreditBalance.CreateNew(objectId, _options.FreeMonthlyTokenQuota);
 
             var windowActive = WindowActive(balance);
             var objectFreeRem = windowActive ? (balance.FreeQuotaMax - balance.FreeTokensUsedInWindow) : 0L;
 
-            var ipIssued = await _ipRepo.GetIssuedAsync(normalizedIp, ct);
-            var ipRem = IpFreeTokenCap - ipIssued;
+            var ipRem = IpFreeTokenCap - snapshot.IpFreeTokensIssued;
 
             var hasFreeStrict = windowActive && objectFreeRem >= estTotalTokens && ipRem >= estTotalTokens;
             var hasPaid = balance.PaidCreditsBalance >= estCost;
@@ -121,16 +117,14 @@ public class UsageEnforcer : IUsageEnforcer
                 reservedPaid = overflowCost;
             }
 
-            // Persist the hold so concurrent reservations for this user see the reduced balance.
+            // Persist the hold so concurrent reservations for this user see the reduced balance —
+            // balance mutation and IP grant land together as ONE unit of work.
             if (reservedFree > 0)
                 balance.FreeTokensUsedInWindow += reservedFree;
             if (reservedPaid > 0)
                 balance.PaidCreditsBalance -= reservedPaid;
 
-            await _balanceRepo.SaveAsync(balance, ct);
-
-            if (reservedFree > 0)
-                await _ipRepo.AddIssuedAsync(normalizedIp, reservedFree, ct);
+            await _store.PersistAsync(balance, normalizedIp, ipIssuedDelta: reservedFree, ledgerEntry: null, ct);
 
             _logger.LogInformation(
                 "Reserved for {ObjectId}: free {Free} tokens, paid {Paid} (est {Est} tokens) via {Provider}",
@@ -171,7 +165,8 @@ public class UsageEnforcer : IUsageEnforcer
             ipGate = _locks.GetLock($"ip:{normalizedIp}");
             await ipGate.WaitAsync(ct);
 
-            var balance = await GetOrCreateBalanceAsync(objectId, ct);
+            var snapshot = await _store.GetSnapshotAsync(objectId, normalizedIp, ct);
+            var balance  = snapshot.Balance ?? CreditBalance.CreateNew(objectId, _options.FreeMonthlyTokenQuota);
 
             // 1) Reverse the hold taken at reserve time.
             ReverseHold(balance, reservation);
@@ -181,8 +176,7 @@ public class UsageEnforcer : IUsageEnforcer
             var windowActive = WindowActive(balance);
             var freeRem = windowActive ? (balance.FreeQuotaMax - balance.FreeTokensUsedInWindow) : 0L;
 
-            var ipIssued = await _ipRepo.GetIssuedAsync(normalizedIp, ct);
-            var ipIssuedAfterReverse = Math.Max(0, ipIssued - reservation.ReservedFreeTokens); // the hold is being reconciled
+            var ipIssuedAfterReverse = Math.Max(0, snapshot.IpFreeTokensIssued - reservation.ReservedFreeTokens); // the hold is being reconciled
             var ipRem = IpFreeTokenCap - ipIssuedAfterReverse;
 
             var freeUsedThisCall = ComputeFreeCover(windowActive, freeRem, ipRem, actualTokens);
@@ -206,13 +200,10 @@ public class UsageEnforcer : IUsageEnforcer
                 TimestampUtc = DateTime.UtcNow
             };
 
-            await _ledgerRepo.AppendAsync(entry, ct);
-            await _balanceRepo.SaveAsync(balance, ct);
-
-            // Net IP change: remove the reserved hold, add back the actual free portion.
+            // Net IP change: remove the reserved hold, add back the actual free portion. Balance
+            // reconcile, IP delta, and the ledger row land together as ONE unit of work.
             var netIp = freeUsedThisCall - reservation.ReservedFreeTokens;
-            if (netIp != 0)
-                await _ipRepo.AddIssuedAsync(normalizedIp, netIp, ct);
+            await _store.PersistAsync(balance, normalizedIp, ipIssuedDelta: netIp, ledgerEntry: entry, ct);
 
             _logger.LogInformation(
                 "Settled usage for {ObjectId}: {In}+{Out} tokens, charge {Charge} (cost {Cost}) via {Provider}/{Model} (free:{Free})",
@@ -244,15 +235,17 @@ public class UsageEnforcer : IUsageEnforcer
             ipGate = _locks.GetLock($"ip:{normalizedIp}");
             await ipGate.WaitAsync(ct);
 
-            var balance = await _balanceRepo.GetAsync(objectId, ct);
-            if (balance is not null)
-            {
-                ReverseHold(balance, reservation);
-                await _balanceRepo.SaveAsync(balance, ct);
-            }
+            var snapshot = await _store.GetSnapshotAsync(objectId, normalizedIp, ct);
 
-            if (reservation.ReservedFreeTokens > 0)
-                await _ipRepo.AddIssuedAsync(normalizedIp, -reservation.ReservedFreeTokens, ct);
+            // Reverse the balance hold only if a balance row exists — creating one here would mint
+            // the refunded paid hold as fresh credits. The IP grant is refunded either way.
+            var balance = snapshot.Balance;
+            if (balance is not null)
+                ReverseHold(balance, reservation);
+
+            var ipDelta = reservation.ReservedFreeTokens > 0 ? -reservation.ReservedFreeTokens : 0;
+            if (balance is not null || ipDelta != 0)
+                await _store.PersistAsync(balance, normalizedIp, ipIssuedDelta: ipDelta, ledgerEntry: null, ct);
 
             _logger.LogInformation("Released reservation for {ObjectId}: free {Free}, paid {Paid}", objectId, reservation.ReservedFreeTokens, reservation.ReservedPaidUsd);
         }
@@ -264,9 +257,6 @@ public class UsageEnforcer : IUsageEnforcer
     }
 
     // == Balance helpers == //
-
-    private async Task<CreditBalance> GetOrCreateBalanceAsync(string objectId, CancellationToken ct)
-        => await _balanceRepo.GetOrCreateAsync(objectId, _options.FreeMonthlyTokenQuota, ct);
 
     // 48h window per objectId (global first sighting). No monthly reset.
     private static bool WindowActive(CreditBalance balance)

@@ -36,15 +36,23 @@ public class OpenAiCompatibleLlmService : ILlmService
         int contextWindow,
         string? endpoint,
         ILogger logger,
-        HttpClient? httpClient = null)
+        HttpClient? httpClient = null,
+        int timeoutSeconds = 120)
     {
         _provider      = provider;
         _accurateModel = accurateModel;
         _fastModel     = fastModel;
         _contextWindow = contextWindow;
         _logger        = logger;
+        NetworkTimeout = TimeSpan.FromSeconds(timeoutSeconds);
 
-        var clientOptions = new OpenAIClientOptions();
+        // Explicit timeout and no pipeline auto-retry — a retried metered completion burns
+        // provider cost invisibly and multiplies worst-case latency.
+        var clientOptions = new OpenAIClientOptions
+        {
+            NetworkTimeout = NetworkTimeout,
+            RetryPolicy    = new ClientRetryPolicy(maxRetries: 0)
+        };
         if (!string.IsNullOrWhiteSpace(endpoint))
             clientOptions.Endpoint = new Uri(endpoint);
         if (httpClient is not null)
@@ -52,6 +60,8 @@ public class OpenAiCompatibleLlmService : ILlmService
 
         _client = new OpenAIClient(new ApiKeyCredential(apiKey), clientOptions);
     }
+
+    internal TimeSpan NetworkTimeout { get; }   // Test-only view of the configured pipeline timeout
 
     // == CompleteAsync == //
 

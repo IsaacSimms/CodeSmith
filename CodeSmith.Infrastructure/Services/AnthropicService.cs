@@ -28,11 +28,18 @@ public class AnthropicLlmService : ILlmService
         HttpClient? httpClient = null)
     {
         _options = options.Value;
-        _client  = httpClient is null
-            ? new AnthropicClient { ApiKey = _options.ApiKey }
-            : new AnthropicClient { ApiKey = _options.ApiKey, HttpClient = httpClient };
+
+        // Explicit timeout (SDK default is 10 minutes) and no transport auto-retry — a retried
+        // metered completion burns provider cost invisibly and multiplies worst-case latency.
+        var timeout = TimeSpan.FromSeconds(_options.TimeoutSeconds);
+        _client = httpClient is null
+            ? new AnthropicClient { ApiKey = _options.ApiKey, Timeout = timeout, MaxRetries = _options.MaxRetries }
+            : new AnthropicClient { ApiKey = _options.ApiKey, Timeout = timeout, MaxRetries = _options.MaxRetries, HttpClient = httpClient };
+
         _logger  = logger;
     }
+
+    internal AnthropicClient Client => _client;   // Test-only view of the configured SDK client
 
     // == CompleteAsync == //
 
