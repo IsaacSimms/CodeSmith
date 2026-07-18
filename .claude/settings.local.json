@@ -54,7 +54,9 @@
       "PowerShell(Remove-Item *)",
       "PowerShell(git checkout *)",
       "PowerShell(dotnet run *)",
-      "Bash(git credential *)"
+      "Bash(git credential *)",
+      "Bash(git add *)",
+      "Bash(git commit -q -m ' *)"
     ]
   }
 }

@@ -43,6 +43,28 @@ public class ProblemGeneratorTests
         return templates;
     }
 
+    // Wires an ILlmService whose StreamAsync pushes the given delta sequences (one per attempt) and
+    // returns the concatenated content, with per-attempt truncation flags.
+    private static (ILlmService, ILlmServiceFactory) LlmStreaming(params (string[] Deltas, bool WasTruncated)[] attempts)
+    {
+        var llmService = Substitute.For<ILlmService>();
+        var factory    = Substitute.For<ILlmServiceFactory>();
+        factory.Get(Arg.Any<AiProvider>()).Returns(llmService);
+
+        var attempt = 0;
+        llmService.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<Func<string, CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(async callInfo =>
+            {
+                var (deltas, wasTruncated) = attempts[Math.Min(attempt++, attempts.Length - 1)];
+                var onDelta = callInfo.Arg<Func<string, CancellationToken, Task>>();
+                foreach (var delta in deltas)
+                    await onDelta(delta, CancellationToken.None);
+                return new LlmResponse { Content = string.Concat(deltas), WasTruncated = wasTruncated, InputTokensUsed = 10, ContextWindowSize = 200_000 };
+            });
+
+        return (llmService, factory);
+    }
+
     // == Happy Path == //
 
     [Fact]
@@ -247,5 +269,53 @@ public class ProblemGeneratorTests
         Assert.Equal(2,      attempts[1].GetTagItem("codesmith.attempt"));
         Assert.Equal(false,  attempts[1].GetTagItem("codesmith.truncated"));
         Assert.Equal(true,   attempts[1].GetTagItem("codesmith.parse_complete"));
+    }
+
+    // == Streaming Generation == //
+
+    [Fact]
+    public async Task StreamGenerateAsync_StreamsOnlyDescriptionText_EvenWithMarkersSplitAcrossDeltas()
+    {
+        // Both markers arrive split across delta boundaries; only the text between them may stream,
+        // and the starter code must never reach the description callback.
+        var (_, factory) = LlmStreaming((["DESCRI", "PTION: Two ", "Sum problem\nSTARTER", "_CODE: def x():"], false));
+        var generator = BuildGenerator(templates: TemplatesReturning(), factory: factory, parser: new ProblemResponseParser());
+
+        var streamed = new List<string>();
+        var (description, starterCode) = await generator.StreamGenerateAsync(
+            Difficulty.Easy, Language.Python, AiProvider.Xai,
+            (text, _) => { streamed.Add(text); return Task.CompletedTask; },
+            _ => Task.CompletedTask);
+
+        Assert.Equal("Two Sum problem", string.Concat(streamed).Trim());
+        Assert.DoesNotContain(streamed, s => s.Contains("def x()"));
+        Assert.DoesNotContain(streamed, s => s.Contains("DESCRIPTION", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal("Two Sum problem", description);
+        Assert.Equal("def x():", starterCode);
+    }
+
+    [Fact]
+    public async Task StreamGenerateAsync_OnTruncatedFirstAttempt_SignalsResetThenRestreams()
+    {
+        // Attempt 1 truncates after streaming visible text; the consumer must get a reset before
+        // attempt 2's text so stale attempt-1 description can be cleared (the locked retry UX).
+        var (_, factory) = LlmStreaming(
+            (["DESCRIPTION: half a prob"], true),
+            (["DESCRIPTION: Whole problem\nSTARTER_CODE: def y():"], false));
+        var generator = BuildGenerator(templates: TemplatesReturning(), factory: factory, parser: new ProblemResponseParser());
+
+        var events = new List<string>();   // interleaved log proves reset lands between the attempts
+        var (description, starterCode) = await generator.StreamGenerateAsync(
+            Difficulty.Easy, Language.Python, AiProvider.Xai,
+            (text, _) => { events.Add("delta:" + text); return Task.CompletedTask; },
+            _ => { events.Add("reset"); return Task.CompletedTask; });
+
+        Assert.Equal("Whole problem", description);
+        Assert.Equal("def y():", starterCode);
+
+        var resetIndex = events.IndexOf("reset");
+        Assert.True(resetIndex > 0, "reset must come after attempt 1's deltas");
+        Assert.Contains(events[..resetIndex],  e => e.Contains("half a prob"));
+        Assert.Contains(events[(resetIndex + 1)..], e => e.Contains("Whole problem"));
     }
 }
