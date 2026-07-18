@@ -124,4 +124,88 @@ public class UsageEnforcingLlmServiceTests
         Assert.Single(capture.All("usage.release"));
         Assert.Empty(capture.All("usage.settle"));
     }
+
+    // == Streaming: same lifecycle, deltas pass through, settle on final actuals == //
+
+    // Wires the inner fake to emit the given deltas through the caller's onDelta, then return the response
+    private static void InnerStreams(ILlmService inner, LlmResponse response, params string[] deltas)
+    {
+        inner.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<Func<string, CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(async callInfo =>
+            {
+                var onDelta = callInfo.Arg<Func<string, CancellationToken, Task>>();
+                foreach (var delta in deltas)
+                    await onDelta(delta, CancellationToken.None);
+                return response;
+            });
+    }
+
+    [Fact]
+    public async Task StreamAsync_OnSuccess_PassesDeltasThroughAndSettlesOnFinalActuals()
+    {
+        var reservation = SampleReservation();
+        var (sut, inner, enforcer) = Build(reservation);
+        InnerStreams(inner, new LlmResponse { Content = "Hello!", Model = "claude-haiku-4-5-20251001", InputTokensUsed = 5, OutputTokensUsed = 3 }, "Hel", "lo!");
+
+        var deltas = new List<string>();
+        var response = await sut.StreamAsync(Request(), (text, _) =>
+        {
+            deltas.Add(text);
+            return Task.CompletedTask;
+        });
+
+        Assert.Equal(["Hel", "lo!"], deltas);
+        Assert.Equal("Hello!", response.Content);
+        await enforcer.Received(1).SettleAsync(reservation, "claude-haiku-4-5-20251001", 5, 3, Arg.Any<decimal>(), Arg.Any<decimal>(), "Tutoring:Guidance", Arg.Any<CancellationToken>());
+        await enforcer.DidNotReceive().ReleaseAsync(Arg.Any<UsageReservation>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StreamAsync_WhenStreamDiesMidReply_ReleasesReservation_AndDoesNotSettle()
+    {
+        // Deltas were produced but the stream died before final usage arrived: the hold is refunded
+        // (user pays nothing for an undelivered turn) — the locked mid-stream billing decision.
+        var reservation = SampleReservation();
+        var (sut, inner, enforcer) = Build(reservation);
+
+        // Explicitly typed so the throwing async lambda still infers Task<LlmResponse> for NSubstitute
+        async Task<LlmResponse> DieAfterOneDelta(NSubstitute.Core.CallInfo callInfo)
+        {
+            var onDelta = callInfo.Arg<Func<string, CancellationToken, Task>>();
+            await onDelta("partial", CancellationToken.None);
+            throw new InvalidOperationException("stream died");
+        }
+
+        inner.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<Func<string, CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(DieAfterOneDelta);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => sut.StreamAsync(Request(), (_, _) => Task.CompletedTask));
+
+        await enforcer.Received(1).ReleaseAsync(reservation, Arg.Any<CancellationToken>());
+        await enforcer.DidNotReceive().SettleAsync(
+            Arg.Any<UsageReservation>(), Arg.Any<string>(), Arg.Any<int>(), Arg.Any<int>(),
+            Arg.Any<decimal>(), Arg.Any<decimal>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StreamAsync_EmitsPhaseSpans_WithTimeToFirstTokenOnCall()
+    {
+        using var capture = new ActivityCapture();
+        var (sut, inner, _) = Build(SampleReservation());
+        InnerStreams(inner, new LlmResponse { Content = "hi", Model = "claude-haiku-4-5-20251001", InputTokensUsed = 5, OutputTokensUsed = 3 }, "hi");
+
+        await sut.StreamAsync(Request(), (_, _) => Task.CompletedTask);
+
+        var completion = capture.Single("llm.completion");
+        var call       = capture.Single("llm.call");
+        Assert.Equal(completion.SpanId, call.ParentSpanId);
+        Assert.Equal(completion.SpanId, capture.Single("usage.reserve").ParentSpanId);
+        Assert.Equal(completion.SpanId, capture.Single("usage.settle").ParentSpanId);
+
+        // The instrumentation was built partly for this: streaming stamps time-to-first-token
+        var ttft = call.GetTagItem("codesmith.time_to_first_token_ms");
+        Assert.NotNull(ttft);
+        Assert.True(Convert.ToInt64(ttft) >= 0);
+    }
 }
