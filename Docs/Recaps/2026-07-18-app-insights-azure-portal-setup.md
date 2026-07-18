@@ -6,7 +6,7 @@
 
 ## TL;DR
 
-Walked the user through Azure-side Application Insights setup in the portal (not CLI), using the existing handoff runbook. Resources and Container App secret/env wiring were completed with screenshot checkpoints. **End-to-end telemetry verification is ASSUMED successful** unless a later thread reopens `Docs/Handoffs.User/2026-07-15-app-insights-azure-setup.md` and points at this recap for failure follow-up.
+Walked the user through Azure-side Application Insights setup in the portal (not CLI), using the existing handoff runbook. Resources and Container App secret/env wiring were completed with screenshot checkpoints. **End-to-end telemetry verification is ASSUMED successful** unless a later thread reopens `Docs/Handoffs.User/2026-07-15-app-insights-azure-setup.md` and points it at this recap for failure follow-up.
 
 ## Context & Goal
 
