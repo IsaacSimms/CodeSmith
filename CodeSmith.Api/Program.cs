@@ -144,6 +144,22 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+// == TEMPORARY: Streaming Walking-Skeleton Probe — delete when token streaming ships == //
+// Proves the hosted path (Container Apps ingress + cross-origin fetch) delivers response chunks
+// incrementally instead of buffering, before the real streaming seam is built. Anonymous by
+// design: it exposes nothing and takes no input. Emits 20 NDJSON lines, one every 250ms, each
+// carrying the server-side write time so a client can compare write time against arrival time.
+app.MapGet("/api/dev/stream-probe", async context =>
+{
+    context.Response.ContentType = "application/x-ndjson";
+    for (var i = 0; i < 20; i++)
+    {
+        await context.Response.WriteAsync($"{{\"seq\":{i},\"serverMs\":{Environment.TickCount64}}}\n", context.RequestAborted);
+        await context.Response.Body.FlushAsync(context.RequestAborted);
+        await Task.Delay(250, context.RequestAborted);
+    }
+});
+
 app.Run();
 
 // Make Program class accessible for integration tests
