@@ -11,6 +11,7 @@ import { useResizableSplit } from "../../chat/hooks/useResizableSplit";
 import { useResizableVerticalSplit } from "../../chat/hooks/useResizableVerticalSplit";
 import { ChallengeSelector } from "./ChallengeSelector";
 import { PromptLabRightPanel } from "./PromptLabRightPanel";
+import type { FailedTurn } from "../../chat/components/StreamingChatTail";
 import { PromptEditors } from "./PromptEditors";
 import { ResultsPanel } from "./ResultsPanel";
 import { TokenUsageBar } from "../../../components/TokenUsageBar";
@@ -22,6 +23,8 @@ export function PromptLabWindow() {
   const [userMessageContent, setUserContent]    = useState("");
   const [lastResult, setLastResult]             = useState<AttemptResult | null>(null);
   const [chatMessages, setChatMessages]         = useState<PromptLabChatMessage[]>([]);
+  const [failedChatTurn, setFailedChatTurn]     = useState<FailedTurn | null>(null);
+  const [chatDraft, setChatDraft]               = useState<{ text: string } | null>(null);
 
   const getChallenges  = useGetChallenges();
   const startChallenge = useStartChallenge();
@@ -130,6 +133,8 @@ export function PromptLabWindow() {
       .join("\n\n") || undefined;
 
     // Optimistically append user message
+    setFailedChatTurn(null);
+    setChatDraft(null);
     setChatMessages((prev) => [...prev, { role: "user", content: message }]);
 
     sendChat.mutate(
@@ -138,9 +143,12 @@ export function PromptLabWindow() {
         onSuccess: (data) => {
           setChatMessages((prev) => [...prev, { role: "assistant", content: data.response }]);
         },
-        onError: () => {
-          // Remove the optimistically added user message on failure
+        onError: (error) => {
+          // The server rolled the turn back — mirror it: drop the optimistic user bubble, keep
+          // the partial reply visible as a failed turn, and put the message back in the input.
           setChatMessages((prev) => prev.slice(0, -1));
+          setFailedChatTurn({ partial: sendChat.getStreamedText(), message: error.message });
+          setChatDraft({ text: message });
         },
       }
     );
@@ -257,6 +265,9 @@ export function PromptLabWindow() {
             chatMessages={chatMessages}
             onSendMessage={handleSendChat}
             isSendingChat={sendChat.isPending}
+            streamingText={sendChat.streamingText}
+            failedTurn={failedChatTurn}
+            draft={chatDraft}
           />
         </div>
       </div>

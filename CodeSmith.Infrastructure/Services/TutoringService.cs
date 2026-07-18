@@ -41,9 +41,23 @@ public class TutoringService : ITutoringService
 
     // == Problem Generation == //
 
-    public async Task<ProblemSession> GenerateProblemAsync(Difficulty difficulty, Language language, AiProvider provider, CancellationToken ct = default)
+    public Task<ProblemSession> GenerateProblemAsync(Difficulty difficulty, Language language, AiProvider provider, CancellationToken ct = default)
+        => CreateSessionFromGenerationAsync(difficulty, language, provider,
+            () => _problemGenerator.GenerateAsync(difficulty, language, provider, ct));
+
+    public Task<ProblemSession> StreamGenerateProblemAsync(
+        Difficulty difficulty, Language language, AiProvider provider,
+        Func<string, CancellationToken, Task> onDescriptionDelta,
+        Func<CancellationToken, Task> onReset,
+        CancellationToken ct = default)
+        => CreateSessionFromGenerationAsync(difficulty, language, provider,
+            () => _problemGenerator.StreamGenerateAsync(difficulty, language, provider, onDescriptionDelta, onReset, ct));
+
+    private async Task<ProblemSession> CreateSessionFromGenerationAsync(
+        Difficulty difficulty, Language language, AiProvider provider,
+        Func<Task<(string Description, string StarterCode)>> generate)
     {
-        var (description, starterCode) = await _problemGenerator.GenerateAsync(difficulty, language, provider, ct);
+        var (description, starterCode) = await generate();
 
         var session = new ProblemSession
         {
@@ -71,7 +85,20 @@ public class TutoringService : ITutoringService
 
     // == Guidance == //
 
-    public async Task<ChatResponse> GetGuidanceAsync(Guid sessionId, string userMessage, string? editorContent = null, GuidanceMode guidanceMode = GuidanceMode.Guidance, CancellationToken ct = default)
+    public Task<ChatResponse> GetGuidanceAsync(Guid sessionId, string userMessage, string? editorContent = null, GuidanceMode guidanceMode = GuidanceMode.Guidance, CancellationToken ct = default)
+        => ExecuteGuidanceAsync(sessionId, userMessage, editorContent, guidanceMode, onDelta: null, ct);
+
+    public Task<ChatResponse> StreamGuidanceAsync(
+        Guid sessionId, string userMessage, string? editorContent, GuidanceMode guidanceMode,
+        Func<string, CancellationToken, Task> onDelta,
+        CancellationToken ct = default)
+        => ExecuteGuidanceAsync(sessionId, userMessage, editorContent, guidanceMode, onDelta, ct);
+
+    // A streaming turn holds the same per-session lock for its whole duration as a blocking one —
+    // partial turns are never persisted, so nothing else may interleave while the stream is open.
+    private async Task<ChatResponse> ExecuteGuidanceAsync(
+        Guid sessionId, string userMessage, string? editorContent, GuidanceMode guidanceMode,
+        Func<string, CancellationToken, Task>? onDelta, CancellationToken ct)
     {
         // Serialize per session: a Guidance Turn mutates the shared Messages list, so concurrent turns
         // on the same session must not interleave (which would corrupt the user/assistant alternation).
@@ -83,14 +110,18 @@ public class TutoringService : ITutoringService
             _logger.LogInformation("Processing guidance request for session {SessionId}", sessionId);
 
             var systemPrompt = _templates.GuidanceSystemPrompt(session.Language, session.ProblemDescription, session.StarterCode, editorContent, guidanceMode);
-            var llmResponse  = await _guidance.RunTurnAsync(session.Provider, session.Messages, new GuidanceTurnRequest
+            var turnRequest  = new GuidanceTurnRequest
             {
                 SystemPrompt = systemPrompt,
                 UserMessage  = userMessage,
                 MaxTokens    = GuidanceMaxTokens,
                 MaxTurns     = GuidanceHistoryWindow,
                 Feature      = "Tutoring:Guidance"
-            }, () => _sessionStore.Set(session), ct);
+            };
+
+            var llmResponse = onDelta is null
+                ? await _guidance.RunTurnAsync(session.Provider, session.Messages, turnRequest, () => _sessionStore.Set(session), ct)
+                : await _guidance.StreamTurnAsync(session.Provider, session.Messages, turnRequest, onDelta, () => _sessionStore.Set(session), ct);
 
             return new ChatResponse
             {

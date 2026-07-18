@@ -27,12 +27,16 @@ public class OpenAiCompatibleLlmServiceTests
     // == Helpers == //
 
     private static OpenAiCompatibleLlmService CreateService(
-        CapturingHttpHandler handler,
+        HttpMessageHandler handler,
         AiProvider provider = AiProvider.OpenAi,
-        string? endpoint = null)
+        string? endpoint = null,
+        int streamIdleTimeoutSeconds = 30,
+        int streamTotalTimeoutSeconds = 300)
         => new(provider, "test-key", AccurateModel, FastModel, 1_047_576, endpoint,
                Substitute.For<ILogger<OpenAiCompatibleLlmService>>(),
-               new HttpClient(handler));
+               new HttpClient(handler),
+               streamIdleTimeoutSeconds: streamIdleTimeoutSeconds,
+               streamTotalTimeoutSeconds: streamTotalTimeoutSeconds);
 
     private static CompletionRequest SingleTurn(ModelTier tier = ModelTier.Fast)
         => CompletionRequest.SingleTurn(SystemPrompt, "Hello", tier, 512, Feature);
@@ -217,5 +221,147 @@ public class OpenAiCompatibleLlmServiceTests
         var service = CreateService(OkHandler());
 
         Assert.Equal(TimeSpan.FromSeconds(120), service.NetworkTimeout);
+    }
+
+    // == Streaming fixtures == //
+
+    // One chat.completion.chunk SSE line. "model" is again a never-configured name so the stamping
+    // invariant is pinned on the streaming path too.
+    private static string Chunk(string deltaJson, string finishReason = "null")
+        => $$"""data: {"id":"c1","object":"chat.completion.chunk","created":1700000000,"model":"served-model-name","choices":[{"index":0,"delta":{{deltaJson}},"finish_reason":{{finishReason}} }]}""" + "\n\n";
+
+    // Usage arrives on a trailing chunk with an empty choices array (stream_options.include_usage)
+    private static string UsageChunk(int promptTokens = 10, int completionTokens = 4)
+        => $$"""data: {"id":"c1","object":"chat.completion.chunk","created":1700000000,"model":"served-model-name","choices":[],"usage":{"prompt_tokens":{{promptTokens}},"completion_tokens":{{completionTokens}},"total_tokens":{{promptTokens + completionTokens}} } }""" + "\n\n";
+
+    private static string StreamBody(string finishReason = "stop")
+        => Chunk("""{"role":"assistant","content":""}""")
+         + Chunk("""{"content":"Hel"}""")
+         + Chunk("""{"content":"lo!"}""")
+         + Chunk("{}", $"\"{finishReason}\"")
+         + UsageChunk()
+         + "data: [DONE]\n\n";
+
+    private static CapturingHttpHandler SseHandler(string? body = null)
+        => new(HttpStatusCode.OK, body ?? StreamBody(), "text/event-stream");
+
+    // == Streaming: outgoing request == //
+
+    [Fact]
+    public async Task StreamAsync_SendsStreamTrueWithUsageIncluded()
+    {
+        // include_usage is load-bearing: settle-on-actuals needs the final usage chunk, and xAI
+        // (like OpenAI) only sends it when stream_options asks for it.
+        var handler = SseHandler();
+
+        await CreateService(handler).StreamAsync(SingleTurn(), (_, _) => Task.CompletedTask);
+
+        using var body = JsonDocument.Parse(handler.LastRequestBody!);
+        Assert.True(body.RootElement.GetProperty("stream").GetBoolean());
+        Assert.True(body.RootElement.GetProperty("stream_options").GetProperty("include_usage").GetBoolean());
+    }
+
+    // == Streaming: delta delivery + final response == //
+
+    [Fact]
+    public async Task StreamAsync_DeliversDeltasInOrderAndReturnsFullContent()
+    {
+        var handler = SseHandler();
+        var deltas  = new List<string>();
+
+        var result = await CreateService(handler).StreamAsync(SingleTurn(), (text, _) =>
+        {
+            deltas.Add(text);
+            return Task.CompletedTask;
+        });
+
+        Assert.Equal(["Hel", "lo!"], deltas);
+        Assert.Equal("Hello!", result.Content);
+    }
+
+    [Fact]
+    public async Task StreamAsync_MapsFinalUsageAndStampsConfiguredModel()
+    {
+        var handler = SseHandler();   // wire chunks say "served-model-name"
+
+        var result = await CreateService(handler).StreamAsync(SingleTurn(ModelTier.Accurate), (_, _) => Task.CompletedTask);
+
+        Assert.Equal(AccurateModel, result.Model);   // configured name, never the served one — pricing keys off this
+        Assert.Equal(10, result.InputTokensUsed);
+        Assert.Equal(4,  result.OutputTokensUsed);
+        Assert.Equal(1_047_576, result.ContextWindowSize);
+        Assert.False(result.WasTruncated);
+    }
+
+    [Fact]
+    public async Task StreamAsync_FinishReasonLength_SetsWasTruncated()
+    {
+        var handler = SseHandler(StreamBody(finishReason: "length"));
+
+        var result = await CreateService(handler).StreamAsync(SingleTurn(), (_, _) => Task.CompletedTask);
+
+        Assert.True(result.WasTruncated);
+    }
+
+    // == Streaming: error modes == //
+
+    [Fact]
+    public async Task StreamAsync_ApiFailure_WrapsAiServiceExceptionNamingProviderAndFeature()
+    {
+        var handler = new CapturingHttpHandler(HttpStatusCode.BadRequest,
+            """{"error":{"message":"bad request","type":"invalid_request_error"}}""");
+
+        var ex = await Assert.ThrowsAsync<AiServiceException>(
+            () => CreateService(handler, AiProvider.Xai, XaiEndpoint).StreamAsync(SingleTurn(), (_, _) => Task.CompletedTask));
+
+        Assert.Contains("Xai", ex.Message);
+        Assert.Contains(Feature, ex.Message);
+    }
+
+    [Fact]
+    public async Task StreamAsync_CancelledToken_SurfacesOperationCanceledException()
+    {
+        var handler = SseHandler();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => CreateService(handler).StreamAsync(SingleTurn(), (_, _) => Task.CompletedTask, cts.Token));
+    }
+
+    // == Streaming: idle + total timeouts == //
+
+    [Fact]
+    public async Task StreamAsync_StalledStream_FailsOnIdleTimeout()
+    {
+        // One delta arrives, then the provider goes silent: the idle timeout must surface a wrapped
+        // failure (not caller cancellation) well before the stall's 10s safety valve.
+        var handler = new DrippingSseHandler(
+            [(0, Chunk("""{"content":"Hel"}"""))],
+            stallMs: 10_000);
+
+        var deltas = new List<string>();
+        await Assert.ThrowsAsync<AiServiceException>(
+            () => CreateService(handler, streamIdleTimeoutSeconds: 1).StreamAsync(SingleTurn(), (text, _) =>
+            {
+                deltas.Add(text);
+                return Task.CompletedTask;
+            }));
+
+        Assert.Equal(["Hel"], deltas);
+    }
+
+    [Fact]
+    public async Task StreamAsync_SlowDrip_FailsOnTotalTimeout()
+    {
+        // Every chunk beats the idle timeout, but the stream as a whole exceeds the total cap.
+        var script = Enumerable.Range(0, 20)
+            .Select(_ => (400, Chunk("""{"content":"x"}""")))
+            .ToList();
+        var handler = new DrippingSseHandler(script, stallMs: 10_000);
+
+        await Assert.ThrowsAsync<AiServiceException>(
+            () => CreateService(handler, streamIdleTimeoutSeconds: 30, streamTotalTimeoutSeconds: 2)
+                .StreamAsync(SingleTurn(), (_, _) => Task.CompletedTask));
     }
 }

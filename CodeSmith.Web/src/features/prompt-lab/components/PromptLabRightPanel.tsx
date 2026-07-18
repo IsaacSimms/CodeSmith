@@ -7,6 +7,7 @@ import type { ChallengeResponse, AttemptResult, TestInputSummary, PromptLabChatM
 import { useResizableVerticalSplit } from "../../chat/hooks/useResizableVerticalSplit";
 import { MessageBubble } from "../../chat/components/MessageBubble";
 import { ChatInput } from "../../chat/components/ChatInput";
+import { StreamingChatTail, type FailedTurn } from "../../chat/components/StreamingChatTail";
 import { ChallengePanel } from "./ChallengePanel";
 
 interface PromptLabRightPanelProps {
@@ -19,6 +20,9 @@ interface PromptLabRightPanelProps {
   chatMessages: PromptLabChatMessage[];
   onSendMessage: (message: string) => void;
   isSendingChat: boolean;
+  streamingText: string;           // in-flight assistant reply, accumulating while isSendingChat
+  failedTurn: FailedTurn | null;   // last turn died mid-stream — partial kept visible, dimmed
+  draft: { text: string } | null;  // failed turn's user message, restored to the input
 }
 
 export function PromptLabRightPanel({
@@ -31,13 +35,16 @@ export function PromptLabRightPanel({
   chatMessages,
   onSendMessage,
   isSendingChat,
+  streamingText,
+  failedTurn,
+  draft,
 }: PromptLabRightPanelProps) {
   const messagesEndRef                             = useRef<HTMLDivElement>(null);
   const { topPercent, dividerProps, containerRef } = useResizableVerticalSplit(55, 25, 80);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages]);
+  }, [chatMessages, streamingText, failedTurn]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -79,11 +86,12 @@ export function PromptLabRightPanel({
                   content={msg.content}
                 />
               ))}
+              <StreamingChatTail isStreaming={isSendingChat} streamingText={streamingText} failedTurn={failedTurn} />
               <div ref={messagesEndRef} />
             </div>
           </div>
 
-          <ChatInput onSend={onSendMessage} isLoading={isSendingChat} />
+          <ChatInput onSend={onSendMessage} isLoading={isSendingChat} draft={draft} />
         </div>
 
       </div>

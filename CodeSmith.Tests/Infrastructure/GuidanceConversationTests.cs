@@ -174,4 +174,81 @@ public class GuidanceConversationTests
 
         Assert.Empty(history); // cancellation must not leave a dangling user turn, and must not become a 502
     }
+
+    // == Streaming Turn: same invariant, deltas pass through == //
+
+    [Fact]
+    public async Task StreamTurnAsync_OnSuccess_DeliversDeltasAppendsBothTurnsAndPersistsOnce()
+    {
+        var history     = new List<ChatMessage>();
+        var persistHits = 0;
+        _llm.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<Func<string, CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(async callInfo =>
+            {
+                var onDelta = callInfo.Arg<Func<string, CancellationToken, Task>>();
+                await onDelta("What have ", CancellationToken.None);
+                await onDelta("you tried?", CancellationToken.None);
+                return new LlmResponse { Content = "What have you tried?" };
+            });
+
+        var deltas = new List<string>();
+        var response = await _conversation.StreamTurnAsync(
+            AiProvider.Anthropic, history, Request(user: "I'm stuck"),
+            (text, _) => { deltas.Add(text); return Task.CompletedTask; },
+            () => persistHits++);
+
+        Assert.Equal(["What have ", "you tried?"], deltas);
+        Assert.Equal("What have you tried?", response.Content);
+        Assert.Equal(1, persistHits);
+        Assert.Equal(2, history.Count);
+        Assert.Equal(MessageRole.User, history[0].Role);
+        Assert.Equal("I'm stuck", history[0].Content);
+        Assert.Equal(MessageRole.Assistant, history[1].Role);
+        Assert.Equal("What have you tried?", history[1].Content);
+    }
+
+    [Fact]
+    public async Task StreamTurnAsync_WhenStreamDiesMidReply_RollsBackUserTurnAndPersistsNothing()
+    {
+        // Deltas already reached the client, but history must never contain a partial assistant
+        // message (providers reject malformed alternation) — the turn rolls back whole.
+        var history = new List<ChatMessage>
+        {
+            new() { Role = MessageRole.User,      Content = "earlier" },
+            new() { Role = MessageRole.Assistant, Content = "reply" },
+        };
+        var persistHits = 0;
+
+        async Task<LlmResponse> DieAfterOneDelta(NSubstitute.Core.CallInfo callInfo)
+        {
+            var onDelta = callInfo.Arg<Func<string, CancellationToken, Task>>();
+            await onDelta("partial hint", CancellationToken.None);
+            throw new InvalidOperationException("stream died");
+        }
+
+        _llm.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<Func<string, CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(DieAfterOneDelta);
+
+        await Assert.ThrowsAsync<AiServiceException>(
+            () => _conversation.StreamTurnAsync(AiProvider.Anthropic, history, Request(user: "new"),
+                (_, _) => Task.CompletedTask, () => persistHits++));
+
+        Assert.Equal(2, history.Count);       // optimistic user turn removed, no partial assistant turn
+        Assert.Equal("reply", history[^1].Content);
+        Assert.Equal(0, persistHits);
+    }
+
+    [Fact]
+    public async Task StreamTurnAsync_WhenCancelled_PropagatesCancellationAndRollsBack()
+    {
+        var history = new List<ChatMessage>();
+        _llm.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<Func<string, CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns<LlmResponse>(_ => throw new OperationCanceledException());
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => _conversation.StreamTurnAsync(AiProvider.Anthropic, history, Request(),
+                (_, _) => Task.CompletedTask, () => { }));
+
+        Assert.Empty(history); // cancellation must not leave a dangling user turn, and must not become a 502
+    }
 }

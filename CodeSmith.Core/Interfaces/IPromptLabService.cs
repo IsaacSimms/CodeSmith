@@ -27,4 +27,8 @@ public interface IPromptLabService
 
     // Sends a chat message to the guidance AI with optional editor context; throws SessionNotFoundException if invalid
     Task<string> ChatAsync(Guid sessionId, string message, string? editorContent, CancellationToken ct = default);
+
+    // Streaming sibling of ChatAsync: the reply streams through onDelta; the full text is still returned
+    Task<string> StreamChatAsync(Guid sessionId, string message, string? editorContent,
+        Func<string, CancellationToken, Task> onDelta, CancellationToken ct = default);
 }

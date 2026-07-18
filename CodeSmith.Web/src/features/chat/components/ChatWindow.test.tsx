@@ -7,7 +7,7 @@ import { MemoryRouter } from "react-router-dom";
 import { ChatWindow } from "./ChatWindow";
 import * as apiClient from "../../../lib/apiClient";
 import { NavigationProvider } from "../../../contexts/NavigationContext";
-import type { ProblemSession } from "../types";
+import type { ChatResponse, ProblemSession } from "../types";
 
 vi.mock("../../../lib/apiClient");
 vi.mock("../../../hooks/useProviderPreference", () => ({
@@ -23,6 +23,8 @@ const mockSession: ProblemSession = {
   messages: [],
   createdAt: "2026-03-31T00:00:00Z",
 };
+
+const mockChatResponse: ChatResponse = { response: "Try a for loop", contextTokensUsed: 100, contextWindowSize: 200_000 };
 
 function renderChatWindow() {
   const queryClient = new QueryClient({
@@ -63,9 +65,9 @@ describe("ChatWindow", () => {
   });
 
   describe("creating a session", () => {
-    it("calls createSession and shows the problem after selecting difficulty", async () => {
+    it("calls streamCreateSession and shows the problem after selecting difficulty", async () => {
       const user = userEvent.setup();
-      vi.mocked(apiClient.createSession).mockResolvedValue(mockSession);
+      vi.mocked(apiClient.streamCreateSession).mockResolvedValue(mockSession);
 
       renderChatWindow();
       await user.click(screen.getByRole("button", { name: "Easy" }));
@@ -74,12 +76,36 @@ describe("ChatWindow", () => {
         expect(screen.getByText("Write a function that adds two numbers.")).toBeInTheDocument();
       });
 
-      expect(vi.mocked(apiClient.createSession).mock.calls[0]?.[0]).toEqual({ difficulty: "Easy", language: "CSharp", provider: "Anthropic" });
+      expect(vi.mocked(apiClient.streamCreateSession).mock.calls[0]?.[0]).toEqual({ difficulty: "Easy", language: "CSharp", provider: "Anthropic" });
+    });
+
+    it("shows the description streaming while the problem is being written", async () => {
+      const user = userEvent.setup();
+      let resolveFinal!: (session: ProblemSession) => void;
+      vi.mocked(apiClient.streamCreateSession).mockImplementation((_body, callbacks) => {
+        callbacks.onDelta("Write a function");
+        return new Promise<ProblemSession>((resolve) => {
+          resolveFinal = resolve;
+        });
+      });
+
+      renderChatWindow();
+      await user.click(screen.getByRole("button", { name: "Easy" }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("streaming-description")).toBeInTheDocument();
+      });
+      expect(screen.getByText("Write a function")).toBeInTheDocument();
+
+      resolveFinal(mockSession);
+      await waitFor(() => {
+        expect(screen.getByText("Write a function that adds two numbers.")).toBeInTheDocument();
+      });
     });
 
     it("displays the starter code after session creation", async () => {
       const user = userEvent.setup();
-      vi.mocked(apiClient.createSession).mockResolvedValue(mockSession);
+      vi.mocked(apiClient.streamCreateSession).mockResolvedValue(mockSession);
 
       renderChatWindow();
       await user.click(screen.getByRole("button", { name: "Easy" }));
@@ -91,7 +117,7 @@ describe("ChatWindow", () => {
 
     it("shows error message when session creation fails", async () => {
       const user = userEvent.setup();
-      vi.mocked(apiClient.createSession).mockRejectedValue(new Error("API unavailable"));
+      vi.mocked(apiClient.streamCreateSession).mockRejectedValue(new Error("API unavailable"));
 
       renderChatWindow();
       await user.click(screen.getByRole("button", { name: "Easy" }));
@@ -105,7 +131,7 @@ describe("ChatWindow", () => {
   describe("after session is created", () => {
     async function renderWithSession() {
       const user = userEvent.setup();
-      vi.mocked(apiClient.createSession).mockResolvedValue(mockSession);
+      vi.mocked(apiClient.streamCreateSession).mockResolvedValue(mockSession);
 
       renderChatWindow();
       await user.click(screen.getByRole("button", { name: "Easy" }));
@@ -138,7 +164,7 @@ describe("ChatWindow", () => {
     });
 
     it("shows user message immediately after sending", async () => {
-      vi.mocked(apiClient.sendMessage).mockResolvedValue({ response: "Try a for loop", contextTokensUsed: 100, contextWindowSize: 200_000 });
+      vi.mocked(apiClient.streamChat).mockResolvedValue(mockChatResponse);
       const user = await renderWithSession();
 
       const input = screen.getByPlaceholderText("Ask for guidance...");
@@ -148,7 +174,7 @@ describe("ChatWindow", () => {
     });
 
     it("shows assistant response after sending a message", async () => {
-      vi.mocked(apiClient.sendMessage).mockResolvedValue({ response: "Try a for loop", contextTokensUsed: 100, contextWindowSize: 200_000 });
+      vi.mocked(apiClient.streamChat).mockResolvedValue(mockChatResponse);
       const user = await renderWithSession();
 
       const input = screen.getByPlaceholderText("Ask for guidance...");
@@ -158,9 +184,50 @@ describe("ChatWindow", () => {
         expect(screen.getByText("Try a for loop")).toBeInTheDocument();
       });
 
-      const sendCall = vi.mocked(apiClient.sendMessage).mock.calls[0];
+      const sendCall = vi.mocked(apiClient.streamChat).mock.calls[0];
       expect(sendCall?.[0]).toBe("test-session-id");
       expect(sendCall?.[1]).toEqual({ message: "How do I start?", editorContent: "public int Add(int a, int b) {}", guidanceMode: "Guidance" });
+    });
+
+    it("renders the reply as it streams, before the final response arrives", async () => {
+      let resolveFinal!: (response: ChatResponse) => void;
+      vi.mocked(apiClient.streamChat).mockImplementation((_id, _body, callbacks) => {
+        callbacks.onDelta("Try a ");
+        callbacks.onDelta("for loop");
+        return new Promise<ChatResponse>((resolve) => {
+          resolveFinal = resolve;
+        });
+      });
+      const user = await renderWithSession();
+
+      await user.type(screen.getByPlaceholderText("Ask for guidance..."), "How do I start?{Enter}");
+
+      await waitFor(() => {
+        expect(screen.getByText("Try a for loop")).toBeInTheDocument();
+      });
+
+      resolveFinal(mockChatResponse);
+      await waitFor(() => {
+        expect(screen.getByText("Try a for loop")).toBeInTheDocument();
+      });
+    });
+
+    it("keeps the partial reply with an error and restores the message when the stream dies", async () => {
+      vi.mocked(apiClient.streamChat).mockImplementation(async (_id, _body, callbacks) => {
+        callbacks.onDelta("half a hint");
+        throw new Error("AI service error");
+      });
+      const user = await renderWithSession();
+
+      const input = screen.getByPlaceholderText("Ask for guidance...");
+      await user.type(input, "How do I start?{Enter}");
+
+      await waitFor(() => {
+        expect(screen.getByTestId("failed-turn")).toBeInTheDocument();
+      });
+      expect(screen.getByText("half a hint")).toBeInTheDocument();          // partial stays visible, dimmed
+      expect(input).toHaveValue("How do I start?");                          // message restored for resend
+      expect(screen.queryByText("How do I start?")).not.toBeInTheDocument(); // user bubble rolled back
     });
   });
 });

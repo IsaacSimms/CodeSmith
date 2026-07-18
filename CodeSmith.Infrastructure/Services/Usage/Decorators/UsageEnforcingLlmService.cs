@@ -39,7 +39,37 @@ internal sealed class UsageEnforcingLlmService : ILlmService
         _provider = provider;
     }
 
-    public async Task<LlmResponse> CompleteAsync(CompletionRequest request, CancellationToken ct = default)
+    public Task<LlmResponse> CompleteAsync(CompletionRequest request, CancellationToken ct = default)
+        => ExecuteMeteredAsync(request, (effective, _, token) => _inner.CompleteAsync(effective, token), ct);
+
+    // == StreamAsync == //
+
+    public Task<LlmResponse> StreamAsync(CompletionRequest request, Func<string, CancellationToken, Task> onDelta, CancellationToken ct = default)
+        => ExecuteMeteredAsync(request, (effective, call, token) =>
+        {
+            // Stamp time-to-first-token on the llm.call span once, when the first delta lands —
+            // the perceived-latency number this whole feature exists to improve.
+            var startedAt  = Stopwatch.GetTimestamp();
+            var firstDelta = true;
+            return _inner.StreamAsync(effective, (text, deltaToken) =>
+            {
+                if (firstDelta)
+                {
+                    firstDelta = false;
+                    call?.SetTag("codesmith.time_to_first_token_ms", (long)Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+                }
+                return onDelta(text, deltaToken);
+            }, token);
+        }, ct);
+
+    // == Metered Lifecycle Core == //
+
+    // One implementation of reserve → call → settle/release shared by both operation shapes, so the
+    // enforcement invariant cannot drift between the blocking and streaming paths.
+    private async Task<LlmResponse> ExecuteMeteredAsync(
+        CompletionRequest request,
+        Func<CompletionRequest, Activity?, CancellationToken, Task<LlmResponse>> invoke,
+        CancellationToken ct)
     {
         var objectId = RequireObjectId();
         var clientIp = _currentUser.ClientIp;
@@ -63,7 +93,7 @@ internal sealed class UsageEnforcingLlmService : ILlmService
         try
         {
             using var call = CodeSmithDiagnostics.Source.StartActivity("llm.call");
-            response = await _inner.CompleteAsync(EffectiveRequest(request, reservation.UsedFree), ct);
+            response = await invoke(EffectiveRequest(request, reservation.UsedFree), call, ct);
             call?.SetTag("codesmith.model", response.Model);
             call?.SetTag("codesmith.tokens.input", response.InputTokensUsed);
             call?.SetTag("codesmith.tokens.output", response.OutputTokensUsed);
@@ -73,7 +103,9 @@ internal sealed class UsageEnforcingLlmService : ILlmService
         {
             completion?.SetStatus(ActivityStatusCode.Error, ex.Message);
 
-            // The call produced nothing billable — refund the hold so it consumes no quota, then propagate.
+            // The call produced nothing billable — refund the hold so it consumes no quota, then
+            // propagate. A stream that died mid-reply lands here too: its final usage counts never
+            // arrived, so the hold is released and the user pays nothing for the undelivered turn.
             using (CodeSmithDiagnostics.Source.StartActivity("usage.release"))
             {
                 await _enforcer.ReleaseAsync(reservation, ct);

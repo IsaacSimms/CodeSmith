@@ -12,6 +12,7 @@ import { useResizableSplit } from "../hooks/useResizableSplit";
 import { DifficultySelector } from "./DifficultySelector";
 import { CodePanel } from "./CodePanel";
 import { ChatPanel } from "./ChatPanel";
+import type { FailedTurn } from "./StreamingChatTail";
 
 export function ChatWindow() {
   const [searchParams] = useSearchParams();
@@ -21,6 +22,8 @@ export function ChatWindow() {
   const [executionResult, setExecutionResult] = useState<RunCodeResponse | null>(null);
   const [contextTokensUsed, setContextTokensUsed] = useState<number | null>(null);
   const [contextWindowSize, setContextWindowSize] = useState(200_000);
+  const [failedTurn, setFailedTurn] = useState<FailedTurn | null>(null);
+  const [draft, setDraft] = useState<{ text: string } | null>(null);
 
   const createSession = useCreateSession();
   const sendMessage = useSendMessage();
@@ -83,6 +86,8 @@ export function ChatWindow() {
       content: message,
       timestamp: new Date().toISOString(),
     };
+    setFailedTurn(null);
+    setDraft(null);
     setMessages((prev) => [...prev, userMessage]);
 
     sendMessage.mutate(
@@ -97,6 +102,13 @@ export function ChatWindow() {
           setMessages((prev) => [...prev, assistantMessage]);
           setContextTokensUsed(data.contextTokensUsed);
           setContextWindowSize(data.contextWindowSize);
+        },
+        onError: (error) => {
+          // The server rolled the turn back — mirror it: drop the optimistic user bubble, keep
+          // the partial reply visible as a failed turn, and put the message back in the input.
+          setMessages((prev) => prev.slice(0, -1));
+          setFailedTurn({ partial: sendMessage.getStreamedText(), message: error.message });
+          setDraft({ text: message });
         },
       }
     );
@@ -131,18 +143,32 @@ export function ChatWindow() {
   }
 
   if (!session) {
+    // Once description text starts streaming (or a retry reset arrives), swap the selector for a
+    // live view of the problem being written; the editor fills only when generation completes.
+    const showStreamingDescription =
+      createSession.isPending && (createSession.streamingDescription.length > 0 || createSession.isRetrying);
+
     return (
       <div className="flex h-full items-center justify-center">
-        <div>
-          <DifficultySelector
-            onSelect={handleStart}
-            isLoading={createSession.isPending}
-            initialLanguage={initialLanguage}
-          />
-          {createSession.isError && (
-            <p className="mt-4 text-center text-red-400">{createSession.error.message}</p>
-          )}
-        </div>
+        {showStreamingDescription ? (
+          <div className="w-full max-w-2xl overflow-y-auto px-6 py-8" data-testid="streaming-description">
+            <h2 className="mb-2 text-sm font-semibold text-gray-400">
+              {createSession.isRetrying ? "Taking another pass at your problem…" : "Writing your problem…"}
+            </h2>
+            <p className="whitespace-pre-wrap text-sm text-gray-300">{createSession.streamingDescription}</p>
+          </div>
+        ) : (
+          <div>
+            <DifficultySelector
+              onSelect={handleStart}
+              isLoading={createSession.isPending}
+              initialLanguage={initialLanguage}
+            />
+            {createSession.isError && (
+              <p className="mt-4 text-center text-red-400">{createSession.error.message}</p>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -188,6 +214,9 @@ export function ChatWindow() {
             messages={messages}
             onSendMessage={handleSendMessage}
             isSending={sendMessage.isPending}
+            streamingText={sendMessage.streamingText}
+            failedTurn={failedTurn}
+            draft={draft}
             contextTokensUsed={contextTokensUsed}
             contextWindowSize={contextWindowSize}
           />

@@ -14,4 +14,6 @@ public class AnthropicOptions
     public int    ContextWindow { get; set; } = 200_000;                     // Token limit shared by all Claude models used here
     public int    TimeoutSeconds { get; set; } = 120;                        // Per-call HTTP timeout — SDK default is 10 minutes, far too long for a live request
     public int    MaxRetries     { get; set; } = 0;                          // Transport auto-retry re-runs a metered completion (invisible provider cost + latency) — keep off
+    public int    StreamIdleTimeoutSeconds  { get; set; } = 30;              // Max silence between stream events (covers time-to-first-token) — a stalled provider fails fast
+    public int    StreamTotalTimeoutSeconds { get; set; } = 300;             // Backstop for pathological slow-drip streams; healthy streams are bounded by MaxTokens well before this
 }

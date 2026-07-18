@@ -2,7 +2,7 @@
 
 CodeSmith is an AI-powered practice tool for technical interviews. It hosts three independent practice surfaces — **Tutoring** (coding problems with a Socratic pair-programmer), **Prompt Lab** (prompt-engineering challenges scored against a rubric), and **System Lab** (system-design justification scenarios) — over a shared, provider-agnostic LLM layer. Every LLM call is metered against a per-user free quota and paid credit balance so the SaaS cannot be run at a loss.
 
-This document is the ground-truth architectural reference. It reflects the repo as of 2026-07-15 (reviewed 2026-07-15). Keep the Seams table, API Reference, subsystem sections, and the [Ubiquitous Language](#ubiquitous-language) glossary updated as the architecture evolves.
+This document is the ground-truth architectural reference. It reflects the repo as of 2026-07-18 (token streaming shipped). Keep the Seams table, API Reference, subsystem sections, and the [Ubiquitous Language](#ubiquitous-language) glossary updated as the architecture evolves.
 
 > **Vocabulary note.** This project uses a deliberate architecture vocabulary — **Module, Interface, Implementation, Depth, Seam, Adapter, Leverage, Locality**. Definitions are in the [Ubiquitous Language](#ubiquitous-language) section at the end. Use these terms exactly; do not substitute "component / service / boundary."
 
@@ -80,12 +80,12 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 
 | Seam (concern) | Interface | Implementations / Adapters |
 |----------------|-----------|----------------------------|
-| LLM completion (all surfaces) | `ILlmService` | `AnthropicLlmService`, `OpenAiCompatibleLlmService` (OpenAI + xAI), each wrapped by `UsageEnforcingLlmService` |
+| LLM completion (all surfaces) | `ILlmService` — two operation shapes: `CompleteAsync` (blocking) and `StreamAsync` (deltas via `onDelta`, same final `LlmResponse`) | `AnthropicLlmService`, `OpenAiCompatibleLlmService` (OpenAI + xAI), each wrapped by `UsageEnforcingLlmService`; stream timeouts via the shared internal `StreamGuard` |
 | Provider routing | `ILlmServiceFactory` | `LlmServiceFactory` (keyed DI by `AiProvider`) |
 | Per-user usage lock | `IUserUsageLock` | `UserUsageLock` (singleton SemaphoreSlim registry) |
-| Guidance turn (shared chat) | `IGuidanceConversation` | `GuidanceConversation` (append/trim/call/persist/rollback for all three surfaces) |
+| Guidance turn (shared chat) | `IGuidanceConversation` — `RunTurnAsync` + streaming sibling `StreamTurnAsync` | `GuidanceConversation` (append/trim/call/persist/rollback for all three surfaces, one shared core for both shapes) |
 | Tutoring orchestration | `ITutoringService` | `TutoringService` |
-| Problem generation | `IProblemGenerator` | `ProblemGenerator` (retry-on-truncation loop) |
+| Problem generation | `IProblemGenerator` — `GenerateAsync` + streaming sibling `StreamGenerateAsync` (description deltas + retry resets) | `ProblemGenerator` (retry-on-truncation loop; stateful `DescriptionStreamFilter` marker scanner on the streaming shape) |
 | Problem parsing | `IProblemResponseParser` | `ProblemResponseParser` (DESCRIPTION/STARTER_CODE format) |
 | Tutoring prompts | `ITutoringPromptTemplates` | `TutoringPromptTemplates` |
 | Prompt Lab orchestration | `IPromptLabService` | `PromptLabService` |
@@ -173,6 +173,10 @@ All routes are under `/api`. Enums serialize as strings (`JsonStringEnumConverte
 | POST | `/api/session` 🔒 | `CreateSessionRequest { difficulty, language, provider }` | `ProblemSession` | 201 / 400 |
 | POST | `/api/session/{sessionId}/chat` 🔒 | `ChatRequest { message, editorContent?, guidanceMode? }` | `ChatResponse` | 200 / 400 / 404 |
 | POST | `/api/session/{sessionId}/run` | `RunCodeRequest { language, code }` | `RunCodeResponse { stdout, stderr, exitCode, timedOut }` | 200 / 400 / 404 |
+| POST | `/api/session/stream` 🔒 | `CreateSessionRequest` | **NDJSON stream** → final `data: ProblemSession` | streaming sibling of `POST /api/session`; description deltas + retry resets |
+| POST | `/api/session/{sessionId}/chat/stream` 🔒 | `ChatRequest` | **NDJSON stream** → final `data: ChatResponse` | streaming sibling of chat |
+| POST | `/api/prompt-lab/sessions/{sessionId}/chat/stream` 🔒 | `PromptLabChatRequest` | **NDJSON stream** → final `data: PromptLabChatResponse` | streaming sibling of chat |
+| POST | `/api/system-lab/sessions/{sessionId}/chat/stream` 🔒 | `SystemLabChatRequest` | **NDJSON stream** → final `data: SystemLabChatResponse` | streaming sibling of chat |
 | GET | `/api/prompt-lab/challenges` | — | `ChallengeResponse[]` | hidden fields stripped |
 | GET | `/api/prompt-lab/challenges/{id}` | — | `ChallengeResponse` | 200 / 404 |
 | POST | `/api/prompt-lab/sessions` 🔒 | `StartChallengeRequest { challengeId, provider? }` | `PromptLabSessionResponse` | 201 / 400 / 404; generates dynamic test inputs |
@@ -187,6 +191,8 @@ All routes are under `/api`. Enums serialize as strings (`JsonStringEnumConverte
 | POST | `/api/billing/webhook` | *(raw body)* + `Stripe-Signature` header | `{ result }` | **anonymous, signature-verified**; 400 bad sig / 200 processed-dup-ignored / 500 transient |
 | GET | `/api/billing/balance` 🔒 | — | `BalanceResponse { paidCreditsUsd }` | 200 |
 | GET | `/api/billing/ledger?take=20` 🔒 | — | `LedgerEntryResponse[] { type, amountUsd, feature?, timestampUtc }` | 200; omits `ProviderCostUsd` (margin) |
+
+**NDJSON chunk contract (all `/stream` endpoints).** `Content-Type: application/x-ndjson`, one JSON event per line, flushed per event, written by the shared `NdjsonStreamWriter` (Api `Streaming/`). Event types: `{type:"delta", text}` (assistant/description text), `{type:"reset"}` (generation retry — clear shown text), `{type:"final", data}` (the same payload the blocking sibling returns), `{type:"error", code, message}` (mid-stream failure; `code` is the HTTP status the request would have had, mapped from the same `AppExceptionHandler` table). **Failures before the first delta keep real HTTP statuses** (402/404/429/502 — the endpoints write nothing before the first delta and let pre-stream exceptions reach `AppExceptionHandler`); once the response has started, the status line is frozen and failures ride the stream as `error` events. The blocking JSON endpoints remain unchanged (the CLI still consumes them); the SPA uses the `/stream` siblings.
 
 **Catalog response stripping is a security invariant:** `ChallengeResponse`/`ScenarioResponse` deliberately omit hidden fields (adversarial prompts, security pitfalls, hidden test-input expected behavior) so they never reach the client. Preserve this when editing DTO projections.
 
@@ -247,14 +253,14 @@ All three surfaces hold mutable session state (chat history, attempts) in single
 
 Wired in `Program.cs` via the Azure Monitor distro **only when `APPLICATIONINSIGHTS_CONNECTION_STRING` is present** (set it on the Container App; local dev without it runs telemetry-off at zero cost — unlistened `StartActivity` returns null). The distro auto-instruments inbound requests, outbound HTTP (provider calls), and SqlClient (enforcement round-trips). Custom spans come from the single `CodeSmithDiagnostics.Source` (`"CodeSmith"`, Infrastructure `Diagnostics/`):
 
-- `llm.completion` — one per Completion, tagged `codesmith.provider` / `codesmith.tier` / `codesmith.feature`; status `Error` on failure. Children: `usage.reserve`, `llm.call` (tagged `codesmith.model`, `codesmith.tokens.input/output`, `codesmith.was_truncated`), then `usage.settle` (success) or `usage.release` (failure) — so provider time vs enforcement time is separable per request.
+- `llm.completion` — one per Completion, tagged `codesmith.provider` / `codesmith.tier` / `codesmith.feature`; status `Error` on failure. Children: `usage.reserve`, `llm.call` (tagged `codesmith.model`, `codesmith.tokens.input/output`, `codesmith.was_truncated`; streaming Completions also stamp `codesmith.time_to_first_token_ms` at the first delta), then `usage.settle` (success) or `usage.release` (failure) — so provider time vs enforcement time is separable per request.
 - `problem.generation.attempt` — one per generation attempt, tagged `codesmith.attempt` / `codesmith.truncated` / `codesmith.parse_complete`, making silent retries visible.
 
 Tests assert spans with an `ActivityListener` (`ActivityCapture` helper); span-emitting test classes share the `CodeSmithTelemetry` xUnit collection because listeners are process-global.
 
 ### Tutoring (coding problems)
 
-`SessionController` → `ITutoringService`. Problem creation delegates to `IProblemGenerator`, which builds a prompt from `ITutoringPromptTemplates`, calls the accurate model (MaxTokens 4000 — headroom so truncation retries rarely fire; the reserve holds against it but settle refunds to actuals), and parses the `DESCRIPTION:` / `STARTER_CODE:` markers via `IProblemResponseParser`. It retries up to 2 times on truncation (`LlmResponse.WasTruncated`) or incomplete parse; each attempt emits a `problem.generation.attempt` span. Guidance is multi-turn: the service rebuilds the system prompt each turn (injecting the current editor contents) and hands the turn to the shared `IGuidanceConversation`, which owns the append/trim/call/persist/rollback mechanics; the service projects the returned completion into a `ChatResponse`. `RunCodeAsync` validates the session exists, then delegates to `ICodeExecutionService`.
+`SessionController` → `ITutoringService`. Problem creation delegates to `IProblemGenerator`, which builds a prompt from `ITutoringPromptTemplates`, calls the accurate model (MaxTokens 4000 — headroom so truncation retries rarely fire; the reserve holds against it but settle refunds to actuals), and parses the `DESCRIPTION:` / `STARTER_CODE:` markers via `IProblemResponseParser`. It retries up to 2 times on truncation (`LlmResponse.WasTruncated`) or incomplete parse; each attempt emits a `problem.generation.attempt` span. Guidance is multi-turn: the service rebuilds the system prompt each turn (injecting the current editor contents) and hands the turn to the shared `IGuidanceConversation`, which owns the append/trim/call/persist/rollback mechanics; the service projects the returned completion into a `ChatResponse`. Both operations have streaming siblings (`StreamGenerateProblemAsync`, `StreamGuidanceAsync`) sharing one core with the blocking shapes and feeding the `/stream` endpoints. `RunCodeAsync` validates the session exists, then delegates to `ICodeExecutionService`.
 
 ### Prompt Lab (prompt engineering)
 
@@ -318,12 +324,18 @@ The current Seam is shaped by **caller intent** (`GenerateProblemAsync`, `Simula
 
 ### Target shape (locked decisions)
 
-One Interface, one method:
+One Interface, two operation shapes over the same Completion:
 
 ```csharp
 public interface ILlmService
 {
     Task<LlmResponse> CompleteAsync(CompletionRequest request, CancellationToken ct = default);
+
+    // Streaming sibling (added 2026-07-18): deltas are pushed through onDelta as the provider
+    // produces them; the same final LlmResponse (real token counts, truncation flag) is still
+    // returned at stream end, so metering callers observe identical post-conditions on both shapes.
+    Task<LlmResponse> StreamAsync(CompletionRequest request,
+        Func<string, CancellationToken, Task> onDelta, CancellationToken ct = default);
 }
 ```
 
@@ -371,13 +383,23 @@ Each Adapter accepts an optional `HttpClient` (defaulting to the SDK's own trans
 
 Compile-time capability segregation (e.g. a System Lab caller could request any completion). This protection was illusory — the method bodies were identical — and the real invariants (tier, feature) become explicit data on the request.
 
+### Streaming shape (added 2026-07-18)
+
+`StreamAsync` is a **new operation shape alongside `CompleteAsync`, not a replacement** — the single-shot JSON-scored callers (Prompt Lab simulate/evaluate, test-input generation, System Lab evaluation) keep the blocking shape. The push (callback) form was chosen over `IAsyncEnumerable<T>` deliberately: keeping `Task<LlmResponse>` as the return lets the enforcing decorator, `GuidanceConversation`, and `ProblemGenerator` keep their existing try/catch/rollback structures verbatim (each pairs its two shapes through one shared private core, so no invariant can drift between them).
+
+- **Enforcement is unchanged in shape:** reserve before the stream opens, settle on the final actuals at stream end, release on failure. A stream that dies mid-reply releases the hold — the user pays nothing for an undelivered turn (bounded margin loss, accepted); `usage.release` fires exactly as for a failed blocking call.
+- **Timeouts are owned by the adapters, not the SDKs:** the internal `StreamGuard` combines caller cancellation with a per-event **idle timeout** (default 30s — covers time-to-first-token) and a **total backstop** (default 300s; `MaxTokens` bounds healthy streams well before it). Config: `Anthropic:StreamIdleTimeoutSeconds`/`StreamTotalTimeoutSeconds` and ctor parameters on the OpenAI-compatible Adapter. A guard timeout is an OCE with an un-cancelled caller token, so the existing wrap filter turns it into `AiServiceException` (502) — never a fake 499.
+- **Turn invariant under streaming:** `StreamTurnAsync` rolls the whole turn back on a mid-stream death, discarding the partial assistant text — history never contains a partial assistant message (providers reject malformed alternation), regardless of deltas already delivered to the client. The per-session lock is held for the stream's whole duration; partial turns are never persisted.
+- **Generation streaming:** only the DESCRIPTION portion streams (`DescriptionStreamFilter`, a stateful scanner tolerant of `DESCRIPTION:`/`STARTER_CODE:` markers split across delta boundaries); starter code arrives only at parse-complete. A retry attempt emits a **reset** first so consumers clear abandoned text, then re-streams through the same path.
+- **Usage counts on the wire:** the OpenAI-compatible path pins `stream_options.include_usage: true` in its adapter tests (usage rides the final chunk); the Anthropic path stitches input tokens from `message_start` with output tokens + stop reason from `message_delta`.
+
 ---
 
 ## Frontend Conventions
 
 - **Feature-based folders** under `src/features/{chat,prompt-lab,system-lab,home}`, each with `components/`, `hooks/`, and `types.ts`. Shared bits in `src/features/shared/`.
-- **API access** goes through `src/lib/apiClient.ts` only — native `fetch`, relative `/api` paths (Vite proxies to `http://localhost:5175`), a single `request<T>` helper that throws `ApiClientError` (carrying status + `ApiError` body) on non-2xx. API functions are plain exported functions, not class methods.
-- **All server calls are TanStack Query** mutations/queries in `hooks/` (`useCreateSession`, `useSendMessage`, `useStartChallenge`, `useSubmitAttempt`, `use*Chat`, etc.). No raw `useEffect` + `fetch`. `QueryClient` is configured in `App.tsx` (`retry: 1`, `refetchOnWindowFocus: false`).
+- **API access** goes through `src/lib/apiClient.ts` only — native `fetch`, relative `/api` paths (Vite proxies to `http://localhost:5175`), a single `request<T>` helper that throws `ApiClientError` (carrying status + `ApiError` body) on non-2xx, plus a single `streamRequest<T>` helper that consumes the NDJSON chunk contract (deltas via `StreamCallbacks.onDelta`, generation retries via `onReset`, `final.data` resolving the promise, `error` events rethrown as `ApiClientError` with the mapped code; events are reassembled across arbitrary network chunk splits). API functions are plain exported functions, not class methods.
+- **All server calls are TanStack Query** mutations/queries in `hooks/` (`useCreateSession`, `useSendMessage`, `useStartChallenge`, `useSubmitAttempt`, `use*Chat`, etc.). No raw `useEffect` + `fetch`. `QueryClient` is configured in `App.tsx` (`retry: 1`, `refetchOnWindowFocus: false`). **Streaming stays inside this convention:** the chat/create hooks' `mutationFn` calls the `stream*` apiClient function, so `isPending`/`data`/`error` behave exactly as before; deltas accumulate in `streamingText` via the shared `useStreamingText` hook (`src/hooks/`), whose ref mirror (`getStreamedText()`) lets `onError` snapshot the partial reply for the failed-turn UI. The shared `StreamingChatTail` component renders the live reply and the dimmed remains of a failed turn on all three surfaces; a failed turn also restores the user's message into `ChatInput` via its `draft` prop (mirroring the server-side whole-turn rollback).
 - The three surfaces currently duplicate a parallel hook/API/type structure (start / submit / chat per lab) — a candidate consolidation, lower priority than the backend LLM Seam.
 - State: component `useState` for UI ephemera; session data held in component state after mutation success; `NavigationContext` provides cross-component reset callbacks. No Redux.
 - TypeScript `strict: true`, no `any`, named exports. Enum-like values are string-literal unions with `is{Type}()` guards.
@@ -478,6 +500,12 @@ Shared vocabulary. Each word has an ordinary meaning too — these are the proje
 **LlmJson** — the shared Module owning defensive parsing of Completion content that is expected to be JSON: markdown-fence stripping (`ExtractJson`), document parsing and typed deserialization with a **single failure mode** (`EvaluationParseException`), and the one rubric-integrity walk (`ParseCriterionScores`: entries with missing or hallucinated criterion IDs are dropped, fractional points rounded, missing points default to 0, scores clamped to `[0, MaxPoints]`). A `static` class in Infrastructure, deliberately **not** a Seam — nothing varies behind it, and keeping it un-mockable forces evaluator tests through the real parse path. Consumers: `PromptEvaluator`, `SystemLabEvaluator`, `TestInputGenerator`.
 **TestInputMessage** — the Prompt Lab Module that builds the effective user message for a test input from the student's template: `{input}` placeholder substitution (case-insensitive), or appending the input when no placeholder exists. Shared by the simulate and evaluate phases so both operate on the same message.
 
+### Domain terms introduced by the Streaming shape
+**Streaming shape** — the second operation shape on the LLM Completion Seam (`StreamAsync` alongside `CompleteAsync`): the same Completion, with text deltas pushed through an `onDelta` callback while the identical final `LlmResponse` is still returned at stream end. Sibling streaming methods exist up the stack (`StreamTurnAsync`, `StreamGenerateAsync`, `Stream*` orchestrator methods, `/stream` endpoints), each sharing one core with its blocking twin.
+**Chunk contract** — the NDJSON event vocabulary every `/stream` endpoint speaks: **delta** (a piece of assistant/description text), **reset** (a generation retry abandoned already-streamed text — clear it), **final** (the blocking sibling's payload, ending the stream), **error** (a mid-stream failure carrying the status code the request would have had, since the real status line froze at the first delta).
+**Time-to-first-token** — the interval from `llm.call` start to the first delta, stamped as `codesmith.time_to_first_token_ms` on the `llm.call` span; the perceived-latency number the Streaming shape exists to improve.
+**StreamGuard** — the internal adapter helper combining caller cancellation with the idle-between-events timeout and the total stream backstop into one token; a guard timeout surfaces as 502 (`AiServiceException`), never as caller cancellation.
+
 ### Domain terms introduced by the Guidance Conversation Seam
 **Guidance Conversation** — the multi-turn Socratic exchange a student has with a surface's tutor (Tutoring, Prompt Lab, or System Lab). The deep Module that owns one round of it is `IGuidanceConversation`; each surface keeps its own system-prompt builder and supplies the result as data.
-**Guidance Turn** — a single round of a Guidance Conversation, the unit behind `IGuidanceConversation.RunTurnAsync(provider, history, GuidanceTurnRequest, persist, ct)`. It owns the full mutation/error invariant in one place: append the user message → trim history to a whole-turn window anchored on a User message → run one Fast-tier Completion → append the assistant reply → persist; on non-domain failure, roll the user turn back and surface `AiServiceException`. Replaces the three hand-copied chat flows in `TutoringService.GetGuidanceAsync`, `PromptLabService.ChatAsync`, and `SystemLabService.ChatAsync` (which diverged on rollback, error-wrapping, and trimming).
+**Guidance Turn** — a single round of a Guidance Conversation, the unit behind `IGuidanceConversation.RunTurnAsync(provider, history, GuidanceTurnRequest, persist, ct)` and its streaming sibling `StreamTurnAsync` (same invariant, reply deltas pushed through `onDelta`). It owns the full mutation/error invariant in one place: append the user message → trim history to a whole-turn window anchored on a User message → run one Fast-tier Completion → append the assistant reply → persist; on non-domain failure — including a stream dying mid-reply — roll the user turn back (discarding any partial assistant text; history never holds a partial assistant message) and surface `AiServiceException`. Replaces the three hand-copied chat flows in `TutoringService.GetGuidanceAsync`, `PromptLabService.ChatAsync`, and `SystemLabService.ChatAsync` (which diverged on rollback, error-wrapping, and trimming).

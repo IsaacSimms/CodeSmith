@@ -32,8 +32,8 @@ public class AnthropicLlmServiceTests
         ContextWindow = 200_000
     };
 
-    private static AnthropicLlmService CreateService(CapturingHttpHandler handler)
-        => new(Options.Create(DefaultOptions()),
+    private static AnthropicLlmService CreateService(HttpMessageHandler handler, AnthropicOptions? options = null)
+        => new(Options.Create(options ?? DefaultOptions()),
                Substitute.For<ILogger<AnthropicLlmService>>(),
                new HttpClient(handler));
 
@@ -207,5 +207,120 @@ public class AnthropicLlmServiceTests
         var service = CreateService(OkHandler());
 
         Assert.Equal(TimeSpan.FromSeconds(120), service.Client.Timeout);
+    }
+
+    // == Streaming fixtures == //
+
+    private static string SseEvent(string type, string dataJson)
+        => $"event: {type}\ndata: {dataJson}\n\n";
+
+    // Full happy-path stream: input tokens ride message_start, output tokens + stop reason ride
+    // message_delta — the adapter must stitch the two into one LlmResponse. "model" is again a
+    // never-configured name so the stamping invariant is pinned on the streaming path too.
+    private static string StreamBody(string stopReason = "end_turn")
+        => SseEvent("message_start", """{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"served-model-name","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":12,"output_tokens":1}}}""")
+         + SseEvent("content_block_start", """{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}""")
+         + SseEvent("content_block_delta", """{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hel"}}""")
+         + SseEvent("content_block_delta", """{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"lo!"}}""")
+         + SseEvent("content_block_stop", """{"type":"content_block_stop","index":0}""")
+         + SseEvent("message_delta", $$"""{"type":"message_delta","delta":{"stop_reason":"{{stopReason}}","stop_sequence":null},"usage":{"output_tokens":7} }""")
+         + SseEvent("message_stop", """{"type":"message_stop"}""");
+
+    private static CapturingHttpHandler SseHandler(string? body = null)
+        => new(HttpStatusCode.OK, body ?? StreamBody(), "text/event-stream");
+
+    // == Streaming: outgoing request == //
+
+    [Fact]
+    public async Task StreamAsync_SendsStreamTrue()
+    {
+        var handler = SseHandler();
+
+        await CreateService(handler).StreamAsync(SingleTurn(), (_, _) => Task.CompletedTask);
+
+        using var body = JsonDocument.Parse(handler.LastRequestBody!);
+        Assert.True(body.RootElement.GetProperty("stream").GetBoolean());
+    }
+
+    // == Streaming: delta delivery + final response == //
+
+    [Fact]
+    public async Task StreamAsync_DeliversDeltasInOrderAndReturnsFullContent()
+    {
+        var handler = SseHandler();
+        var deltas  = new List<string>();
+
+        var result = await CreateService(handler).StreamAsync(SingleTurn(), (text, _) =>
+        {
+            deltas.Add(text);
+            return Task.CompletedTask;
+        });
+
+        Assert.Equal(["Hel", "lo!"], deltas);
+        Assert.Equal("Hello!", result.Content);
+    }
+
+    [Fact]
+    public async Task StreamAsync_StitchesUsageFromStartAndDeltaEventsAndStampsConfiguredModel()
+    {
+        var handler = SseHandler();   // wire events say "served-model-name"
+
+        var result = await CreateService(handler).StreamAsync(SingleTurn(ModelTier.Fast), (_, _) => Task.CompletedTask);
+
+        Assert.Equal("claude-haiku-4-5-20251001", result.Model);   // configured name, never the served one — pricing keys off this
+        Assert.Equal(12, result.InputTokensUsed);
+        Assert.Equal(7,  result.OutputTokensUsed);
+        Assert.Equal(200_000, result.ContextWindowSize);
+        Assert.False(result.WasTruncated);
+    }
+
+    [Fact]
+    public async Task StreamAsync_StopReasonMaxTokens_SetsWasTruncated()
+    {
+        var handler = SseHandler(StreamBody(stopReason: "max_tokens"));
+
+        var result = await CreateService(handler).StreamAsync(SingleTurn(), (_, _) => Task.CompletedTask);
+
+        Assert.True(result.WasTruncated);
+    }
+
+    // == Streaming: error modes + timeout wiring == //
+
+    [Fact]
+    public async Task StreamAsync_ApiFailure_WrapsAiServiceExceptionNamingFeature()
+    {
+        var handler = new CapturingHttpHandler(HttpStatusCode.BadRequest,
+            """{"type":"error","error":{"type":"invalid_request_error","message":"bad request"}}""");
+
+        var ex = await Assert.ThrowsAsync<AiServiceException>(
+            () => CreateService(handler).StreamAsync(SingleTurn(), (_, _) => Task.CompletedTask));
+
+        Assert.Contains(Feature, ex.Message);
+    }
+
+    [Fact]
+    public async Task StreamAsync_CancelledToken_SurfacesOperationCanceledException()
+    {
+        var handler = SseHandler();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => CreateService(handler).StreamAsync(SingleTurn(), (_, _) => Task.CompletedTask, cts.Token));
+    }
+
+    [Fact]
+    public async Task StreamAsync_StalledStream_FailsOnIdleTimeout()
+    {
+        // The provider goes silent mid-stream: the options-configured idle timeout must surface a
+        // wrapped failure (not caller cancellation) well before the stall's 10s safety valve.
+        var handler = new DrippingSseHandler(
+            [(0, SseEvent("message_start", """{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"m","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":12,"output_tokens":1}}}"""))],
+            stallMs: 10_000);
+        var options = DefaultOptions();
+        options.StreamIdleTimeoutSeconds = 1;
+
+        await Assert.ThrowsAsync<AiServiceException>(
+            () => CreateService(handler, options).StreamAsync(SingleTurn(), (_, _) => Task.CompletedTask));
     }
 }

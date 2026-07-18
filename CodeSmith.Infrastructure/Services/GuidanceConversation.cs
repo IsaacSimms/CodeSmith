@@ -26,14 +26,38 @@ public sealed class GuidanceConversation : IGuidanceConversation
         _logger  = logger;
     }
 
-    // == RunTurnAsync == //
+    // == RunTurnAsync / StreamTurnAsync == //
 
-    public async Task<LlmResponse> RunTurnAsync(
+    public Task<LlmResponse> RunTurnAsync(
         AiProvider provider,
         List<ChatMessage> history,
         GuidanceTurnRequest request,
         Action persist,
         CancellationToken ct = default)
+        => ExecuteTurnAsync(provider, history, request, persist,
+            (llm, completion, token) => llm.CompleteAsync(completion, token), ct);
+
+    public Task<LlmResponse> StreamTurnAsync(
+        AiProvider provider,
+        List<ChatMessage> history,
+        GuidanceTurnRequest request,
+        Func<string, CancellationToken, Task> onDelta,
+        Action persist,
+        CancellationToken ct = default)
+        => ExecuteTurnAsync(provider, history, request, persist,
+            (llm, completion, token) => llm.StreamAsync(completion, onDelta, token), ct);
+
+    // == Turn Invariant Core == //
+
+    // One implementation of append → trim → complete → append → persist (with whole-turn rollback on
+    // failure) shared by both operation shapes, so the history invariant cannot drift between them.
+    private async Task<LlmResponse> ExecuteTurnAsync(
+        AiProvider provider,
+        List<ChatMessage> history,
+        GuidanceTurnRequest request,
+        Action persist,
+        Func<ILlmService, CompletionRequest, CancellationToken, Task<LlmResponse>> invoke,
+        CancellationToken ct)
     {
         // Append the user turn optimistically so the model sees the current message, then bound the window
         history.Add(new ChatMessage { Role = MessageRole.User, Content = request.UserMessage });
@@ -41,7 +65,7 @@ public sealed class GuidanceConversation : IGuidanceConversation
 
         try
         {
-            var response = await _factory.Get(provider).CompleteAsync(new CompletionRequest
+            var response = await invoke(_factory.Get(provider), new CompletionRequest
             {
                 SystemPrompt = request.SystemPrompt,
                 Messages     = history,
@@ -57,7 +81,9 @@ public sealed class GuidanceConversation : IGuidanceConversation
         }
         catch (Exception ex)
         {
-            // Roll back the optimistic user turn on any failure so history stays consistent
+            // Roll back the optimistic user turn on any failure so history stays consistent — for a
+            // stream that died mid-reply this discards the partial assistant text entirely: history
+            // must never contain a partial assistant message (providers reject malformed alternation).
             RollBackTrailingUserTurn(history);
 
             // AiServiceException is already the clean domain shape; cancellation must keep its own

@@ -50,7 +50,10 @@ public class AppExceptionHandler(
 
     // == Table lookup == //
 
-    private static (int Status, string Title, string Detail) Map(Exception exception)
+    // Internal so the NDJSON stream writer maps mid-stream failures to error events with the same
+    // table — a failure after headers are sent cannot change the status line, but its code should
+    // agree with what the status would have been.
+    internal static (int Status, string Title, string Detail) Map(Exception exception)
     {
         foreach (var (type, status, title, fixedDetail) in Mappings)
         {

@@ -57,7 +57,7 @@ export function resolveApiUrl(path: string): string {
   return path.startsWith("/") ? `${base}${path}` : `${base}/${path}`;
 }
 
-async function request<T>(path: string, options: RequestInit): Promise<T> {
+async function buildHeaders(options: RequestInit): Promise<Record<string, string>> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string> | undefined),
@@ -70,9 +70,13 @@ async function request<T>(path: string, options: RequestInit): Promise<T> {
     }
   }
 
+  return headers;
+}
+
+async function request<T>(path: string, options: RequestInit): Promise<T> {
   const response = await fetch(resolveApiUrl(path), {
     ...options,
-    headers,
+    headers: await buildHeaders(options),
   });
 
   if (!response.ok) {
@@ -81,6 +85,88 @@ async function request<T>(path: string, options: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+// == NDJSON Streaming Core == //
+
+// Callbacks for the incremental portion of a stream; the final payload is the returned promise
+export interface StreamCallbacks {
+  onDelta: (text: string) => void; // A chunk of assistant/description text arrived
+  onReset?: () => void;            // Server abandoned the attempt (generation retry) — clear shown text
+}
+
+type NdjsonEvent =
+  | { type: "delta"; text: string }
+  | { type: "reset" }
+  | { type: "final"; data: unknown }
+  | { type: "error"; code: number; message: string };
+
+// POSTs to a /stream endpoint and consumes its NDJSON body incrementally. Pre-stream failures
+// arrive as normal HTTP errors; mid-stream failures arrive as an error event and are rethrown as
+// ApiClientError with the status code the request would have had.
+async function streamRequest<T>(path: string, body: unknown, callbacks: StreamCallbacks): Promise<T> {
+  const response = await fetch(resolveApiUrl(path), {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: await buildHeaders({}),
+  });
+
+  if (!response.ok) {
+    const errorBody = (await response.json()) as ApiError;
+    throw new ApiClientError(response.status, errorBody);
+  }
+  if (!response.body) {
+    throw new ApiClientError(502, { title: "Streaming unavailable", detail: "The response had no readable body.", status: 502 });
+  }
+
+  let finalData: T | undefined;
+  let sawFinal = false;
+
+  const handleLine = (line: string): void => {
+    if (!line.trim()) return;
+    const event = JSON.parse(line) as NdjsonEvent;
+    switch (event.type) {
+      case "delta":
+        callbacks.onDelta(event.text);
+        break;
+      case "reset":
+        callbacks.onReset?.();
+        break;
+      case "final":
+        finalData = event.data as T;
+        sawFinal = true;
+        break;
+      case "error":
+        throw new ApiClientError(event.code, { title: "Stream failed", detail: event.message, status: event.code });
+    }
+  };
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let newlineIndex = buffer.indexOf("\n");
+      while (newlineIndex >= 0) {
+        handleLine(buffer.slice(0, newlineIndex));
+        buffer = buffer.slice(newlineIndex + 1);
+        newlineIndex = buffer.indexOf("\n");
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  if (buffer.trim()) handleLine(buffer);
+
+  if (!sawFinal) {
+    // Connection dropped mid-stream without a final or error event — nothing settled server-side
+    throw new ApiClientError(502, { title: "Stream interrupted", detail: "The stream ended before completing.", status: 502 });
+  }
+  return finalData as T;
 }
 
 export function getProviders(): Promise<ProvidersResponse> {
@@ -99,6 +185,24 @@ export function sendMessage(sessionId: string, body: ChatRequest): Promise<ChatR
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+// == Streaming Siblings == //
+
+export function streamCreateSession(body: CreateSessionRequest, callbacks: StreamCallbacks): Promise<ProblemSession> {
+  return streamRequest<ProblemSession>("/api/session/stream", body, callbacks);
+}
+
+export function streamChat(sessionId: string, body: ChatRequest, callbacks: StreamCallbacks): Promise<ChatResponse> {
+  return streamRequest<ChatResponse>(`/api/session/${sessionId}/chat/stream`, body, callbacks);
+}
+
+export function streamPromptLabChat(sessionId: string, body: PromptLabChatRequest, callbacks: StreamCallbacks): Promise<PromptLabChatResponse> {
+  return streamRequest<PromptLabChatResponse>(`/api/prompt-lab/sessions/${sessionId}/chat/stream`, body, callbacks);
+}
+
+export function streamSystemLabChat(sessionId: string, body: SystemLabChatRequest, callbacks: StreamCallbacks): Promise<SystemLabChatResponse> {
+  return streamRequest<SystemLabChatResponse>(`/api/system-lab/sessions/${sessionId}/chat/stream`, body, callbacks);
 }
 
 export function runCode(sessionId: string, body: RunCodeRequest): Promise<RunCodeResponse> {

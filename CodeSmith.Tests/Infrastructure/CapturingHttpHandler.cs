@@ -13,15 +13,18 @@ internal sealed class CapturingHttpHandler : HttpMessageHandler
 {
     private readonly HttpStatusCode _status;
     private readonly string _body;
+    private readonly string _contentType;
 
     public HttpRequestMessage? LastRequest     { get; private set; }   // Most recent request message (URI, headers)
     public string?            LastRequestBody { get; private set; }   // Most recent request body, read before the SDK disposes it
     public int                CallCount       { get; private set; }   // Total requests seen (surfaces unexpected SDK retries)
 
-    public CapturingHttpHandler(HttpStatusCode status, string body)
+    // contentType: "application/json" for regular completions, "text/event-stream" for SSE stream fixtures
+    public CapturingHttpHandler(HttpStatusCode status, string body, string contentType = "application/json")
     {
-        _status = status;
-        _body   = body;
+        _status      = status;
+        _body        = body;
+        _contentType = contentType;
     }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -34,7 +37,7 @@ internal sealed class CapturingHttpHandler : HttpMessageHandler
 
         return new HttpResponseMessage(_status)
         {
-            Content = new StringContent(_body, Encoding.UTF8, "application/json")
+            Content = new StringContent(_body, Encoding.UTF8, _contentType)
         };
     }
 }

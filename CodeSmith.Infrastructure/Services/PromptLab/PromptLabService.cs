@@ -130,25 +130,38 @@ public class PromptLabService : IPromptLabService
         }, ct);
     }
 
-    // == ChatAsync == //
+    // == ChatAsync / StreamChatAsync == //
 
-    public async Task<string> ChatAsync(Guid sessionId, string message, string? editorContent, CancellationToken ct = default)
+    public Task<string> ChatAsync(Guid sessionId, string message, string? editorContent, CancellationToken ct = default)
+        => ExecuteChatAsync(sessionId, message, editorContent, onDelta: null, ct);
+
+    public Task<string> StreamChatAsync(Guid sessionId, string message, string? editorContent,
+        Func<string, CancellationToken, Task> onDelta, CancellationToken ct = default)
+        => ExecuteChatAsync(sessionId, message, editorContent, onDelta, ct);
+
+    private async Task<string> ExecuteChatAsync(Guid sessionId, string message, string? editorContent,
+        Func<string, CancellationToken, Task>? onDelta, CancellationToken ct)
     {
-        // Serialize per session: a Guidance Turn mutates the shared ChatHistory list.
+        // Serialize per session: a Guidance Turn mutates the shared ChatHistory list. A streaming
+        // turn holds the lock for its whole duration — partial turns are never persisted.
         return await _sessionStore.WithSessionLockAsync(sessionId.ToString(), async () =>
         {
             var session   = _sessionStore.Get(sessionId.ToString()) ?? throw new SessionNotFoundException(sessionId);
             var challenge = GetChallenge(session.ChallengeId);
 
             var systemPrompt = BuildChatSystemPrompt(challenge, session, editorContent);
-            var response = await _guidance.RunTurnAsync(session.Provider, session.ChatHistory, new GuidanceTurnRequest
+            var turnRequest  = new GuidanceTurnRequest
             {
                 SystemPrompt = systemPrompt,
                 UserMessage  = message,
                 MaxTokens    = ChatMaxTokens,
                 MaxTurns     = ChatHistoryWindow,
                 Feature      = "PromptLab:Chat"
-            }, () => _sessionStore.Set(session), ct);
+            };
+
+            var response = onDelta is null
+                ? await _guidance.RunTurnAsync(session.Provider, session.ChatHistory, turnRequest, () => _sessionStore.Set(session), ct)
+                : await _guidance.StreamTurnAsync(session.Provider, session.ChatHistory, turnRequest, onDelta, () => _sessionStore.Set(session), ct);
 
             return response.Content;
         }, ct);

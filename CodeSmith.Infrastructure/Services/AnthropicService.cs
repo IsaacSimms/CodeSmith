@@ -83,6 +83,75 @@ public class AnthropicLlmService : ILlmService
         }
     }
 
+    // == StreamAsync == //
+
+    public async Task<LlmResponse> StreamAsync(CompletionRequest request, Func<string, CancellationToken, Task> onDelta, CancellationToken ct = default)
+    {
+        var model = request.Tier == ModelTier.Accurate ? _options.AccurateModel : _options.FastModel;
+
+        try
+        {
+            var messages = request.Messages.Select(m => new MessageParam
+            {
+                Role    = m.Role == MessageRole.User ? Role.User : Role.Assistant,
+                Content = m.Content
+            }).ToList();
+
+            using var guard = new StreamGuard(ct,
+                TimeSpan.FromSeconds(_options.StreamIdleTimeoutSeconds),
+                TimeSpan.FromSeconds(_options.StreamTotalTimeoutSeconds));
+
+            var content = new System.Text.StringBuilder();
+            var wasTruncated  = false;
+            long inputTokens  = 0;
+            long outputTokens = 0;
+
+            await foreach (var streamEvent in _client.Messages.CreateStreaming(new MessageCreateParams
+            {
+                Model     = model,
+                MaxTokens = request.MaxTokens,
+                System    = request.SystemPrompt,
+                Messages  = messages
+            }, guard.Token))
+            {
+                guard.Pulse();
+
+                if (streamEvent.TryPickContentBlockDelta(out var blockDelta) && blockDelta.Delta.TryPickText(out var textDelta))
+                {
+                    content.Append(textDelta.Text);
+                    await onDelta(textDelta.Text, ct);
+                }
+                else if (streamEvent.TryPickStart(out var start))
+                {
+                    inputTokens = start.Message.Usage.InputTokens;   // input side of usage rides message_start
+                }
+                else if (streamEvent.TryPickDelta(out var messageDelta))
+                {
+                    outputTokens = messageDelta.Usage.OutputTokens;  // output side + stop reason ride message_delta
+                    wasTruncated = messageDelta.Delta.StopReason is { } stopReason && (string)stopReason == "max_tokens";
+                }
+            }
+
+            return new LlmResponse
+            {
+                Content           = content.ToString(),
+                InputTokensUsed   = (int)inputTokens,
+                OutputTokensUsed  = (int)outputTokens,
+                Model             = model,
+                ContextWindowSize = _options.ContextWindow,
+                WasTruncated      = wasTruncated
+            };
+        }
+        // Same filter as CompleteAsync — but a StreamGuard timeout is an OCE with an un-cancelled
+        // caller token, so it wraps to AiServiceException instead of masquerading as a 499.
+        catch (Exception ex) when (ex is not AiServiceException
+                                   && !(ex is OperationCanceledException && ct.IsCancellationRequested))
+        {
+            _logger.LogError(ex, "Anthropic streaming call failed during {Feature}", request.Feature);
+            throw new AiServiceException($"Failed during {request.Feature}. Please try again.", ex);
+        }
+    }
+
     // == Helpers == //
 
     internal static string ExtractTextContent(Message response)  // Extracts concatenated text from all content blocks in an Anthropic response

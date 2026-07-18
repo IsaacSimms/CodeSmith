@@ -1,13 +1,24 @@
 // == Chat Input Component == //
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 
 interface ChatInputProps {
   onSend: (message: string) => void;
   isLoading: boolean;
+  // Wrapped in an object so restoring the same text twice (repeated failures) still re-applies
+  draft?: { text: string } | null;  // when set, replaces the textarea content (failed-turn restore)
 }
 
-export function ChatInput({ onSend, isLoading }: ChatInputProps) {
+export function ChatInput({ onSend, isLoading, draft }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // == Failed-turn draft restore == //
+  useEffect(() => {
+    if (!draft || !textareaRef.current) return;
+    const el = textareaRef.current;
+    el.value = draft.text;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [draft]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

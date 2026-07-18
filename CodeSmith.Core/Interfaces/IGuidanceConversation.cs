@@ -26,4 +26,15 @@ public interface IGuidanceConversation
         GuidanceTurnRequest request,
         Action persist,
         CancellationToken ct = default);
+
+    // Streaming sibling of RunTurnAsync: the assistant reply is pushed through onDelta as it is
+    // generated, under the same invariant — history gains the whole turn on success, or neither
+    // message on failure (never a partial assistant message), regardless of deltas already delivered.
+    Task<LlmResponse> StreamTurnAsync(
+        AiProvider provider,
+        List<ChatMessage> history,
+        GuidanceTurnRequest request,
+        Func<string, CancellationToken, Task> onDelta,
+        Action persist,
+        CancellationToken ct = default);
 }
