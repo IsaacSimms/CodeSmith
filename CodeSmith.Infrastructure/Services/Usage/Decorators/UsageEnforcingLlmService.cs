@@ -95,6 +95,11 @@ internal sealed class UsageEnforcingLlmService : ILlmService
         return response;
     }
 
+    // == StreamAsync == //
+
+    public Task<LlmResponse> StreamAsync(CompletionRequest request, Func<string, CancellationToken, Task> onDelta, CancellationToken ct = default)
+        => throw new NotImplementedException();
+
     private string RequireObjectId()
     {
         var id = _currentUser.ObjectId;

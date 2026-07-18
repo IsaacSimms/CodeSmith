@@ -291,5 +291,8 @@ public class TutoringServiceTests
             await Task.Delay(10, ct); // widen the interleave window between the user-append and the assistant-append
             return new LlmResponse { Content = "reply", Model = "m", InputTokensUsed = 1, OutputTokensUsed = 1, ContextWindowSize = 1000 };
         }
+
+        public Task<LlmResponse> StreamAsync(CompletionRequest request, Func<string, CancellationToken, Task> onDelta, CancellationToken ct = default)
+            => CompleteAsync(request, ct); // this fake exercises concurrency, not streaming — same delayed reply either way
     }
 }
