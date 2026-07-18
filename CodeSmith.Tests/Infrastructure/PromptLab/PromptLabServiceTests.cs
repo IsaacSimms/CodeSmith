@@ -316,4 +316,28 @@ public class PromptLabServiceTests
             Arg.Any<Action>(),
             Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public async Task StreamChatAsync_DelegatesToStreamingTurnWithCallerOnDelta()
+    {
+        var challengeId = _service.GetChallenges()[0].ChallengeId;
+        var session     = new PromptLabSession { ChallengeId = challengeId, Provider = AiProvider.Anthropic };
+        _sessionStore.Get(session.SessionId.ToString()).Returns(session);
+
+        Func<string, CancellationToken, Task> onDelta = (_, _) => Task.CompletedTask;
+        _guidance.StreamTurnAsync(Arg.Any<AiProvider>(), Arg.Any<List<ChatMessage>>(), Arg.Any<GuidanceTurnRequest>(),
+                Arg.Any<Func<string, CancellationToken, Task>>(), Arg.Any<Action>(), Arg.Any<CancellationToken>())
+            .Returns(new LlmResponse { Content = "Streamed reply" });
+
+        var response = await _service.StreamChatAsync(session.SessionId, "how do I improve?", null, onDelta, CancellationToken.None);
+
+        Assert.Equal("Streamed reply", response);
+        await _guidance.Received(1).StreamTurnAsync(
+            session.Provider,
+            session.ChatHistory,
+            Arg.Is<GuidanceTurnRequest>(r => r.Feature == "PromptLab:Chat"),
+            onDelta,   // the caller's callback reaches the turn unwrapped
+            Arg.Any<Action>(),
+            Arg.Any<CancellationToken>());
+    }
 }

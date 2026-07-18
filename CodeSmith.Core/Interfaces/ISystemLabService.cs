@@ -23,4 +23,8 @@ public interface ISystemLabService
 
     // Sends a chat message to the guidance AI with current draft context; throws SessionNotFoundException if invalid
     Task<string> ChatAsync(Guid sessionId, string message, string? currentJustification, CancellationToken ct = default);
+
+    // Streaming sibling of ChatAsync: the reply streams through onDelta; the full text is still returned
+    Task<string> StreamChatAsync(Guid sessionId, string message, string? currentJustification,
+        Func<string, CancellationToken, Task> onDelta, CancellationToken ct = default);
 }

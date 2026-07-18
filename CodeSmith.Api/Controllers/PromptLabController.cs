@@ -1,5 +1,6 @@
 // == Prompt Lab Controller == //
 using CodeSmith.Api.DTOs.PromptLab;
+using CodeSmith.Api.Streaming;
 using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models.PromptLab;
@@ -100,5 +101,39 @@ public class PromptLabController : ControllerBase
 
         var response = await _service.ChatAsync(sessionId, request.Message, request.EditorContent, ct);
         return Ok(new PromptLabChatResponse { Response = response });
+    }
+
+    // == Guidance Chat Stream Endpoint == //
+
+    [HttpPost("sessions/{sessionId:guid}/chat/stream")]  // NDJSON sibling of Chat: reply deltas stream, the full reply rides the final event
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ChatStream(
+        Guid sessionId,
+        [FromBody] PromptLabChatRequest request,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.Message))
+            return BadRequest(new { error = "Message is required." });
+
+        var writer = new NdjsonStreamWriter(Response);
+        try
+        {
+            var response = await _service.StreamChatAsync(sessionId, request.Message, request.EditorContent, writer.WriteDeltaAsync, ct);
+            await writer.WriteFinalAsync(new PromptLabChatResponse { Response = response }, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Client gone — nothing to write and nobody to receive it
+        }
+        catch (Exception ex) when (Response.HasStarted)
+        {
+            // Status line is frozen once deltas were written; the failure must ride the stream
+            await writer.WriteErrorAsync(ex);
+        }
+        // Pre-stream failures propagate to AppExceptionHandler while the status line is still writable
+        return new EmptyResult();
     }
 }

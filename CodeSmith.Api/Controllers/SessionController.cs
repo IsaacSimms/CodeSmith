@@ -1,5 +1,6 @@
 // == Session Controller == //
 using CodeSmith.Api.DTOs;
+using CodeSmith.Api.Streaming;
 using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
@@ -72,6 +73,48 @@ public class SessionController : ControllerBase
         return CreatedAtAction(nameof(CreateSession), new { sessionId = session.SessionId }, session);
     }
 
+    // == Create Session Stream Endpoint == //
+
+    [HttpPost("session/stream")]  // NDJSON sibling of CreateSession: description deltas stream, the full session rides the final event
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> CreateSessionStream(
+        [FromBody] CreateSessionRequest request,
+        CancellationToken ct)
+    {
+        // Same validations as the blocking sibling — these run before any write, so they keep real 400s
+        if (!Enum.IsDefined(typeof(Difficulty), request.Difficulty))
+            return BadRequest(new { error = "Invalid difficulty value. Use Easy, Medium, or Hard." });
+        if (!Enum.IsDefined(typeof(Language), request.Language))
+            return BadRequest(new { error = "Invalid language value. Use CSharp, Cpp, Go, Rust, Python, Java, or TypeScript." });
+        if (!Enum.IsDefined(typeof(AiProvider), request.Provider))
+            return BadRequest(new { error = "Invalid provider value. Use Anthropic, OpenAi, or Xai." });
+
+        var writer = new NdjsonStreamWriter(Response);
+        try
+        {
+            var session = await _tutoringService.StreamGenerateProblemAsync(
+                request.Difficulty, request.Language, request.Provider,
+                writer.WriteDeltaAsync,
+                writer.WriteResetAsync,
+                ct);
+            await writer.WriteFinalAsync(session, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Client gone — nothing to write and nobody to receive it
+        }
+        catch (Exception ex) when (Response.HasStarted)
+        {
+            // Status line is frozen once deltas were written; the failure must ride the stream
+            await writer.WriteErrorAsync(ex);
+        }
+        // Pre-stream failures (402 quota, 429, 502 before the first delta) propagate to
+        // AppExceptionHandler while the status line is still writable
+        return new EmptyResult();   // body was written directly; nothing for MVC to execute
+    }
+
     // == Chat Endpoint == //
 
     [HttpPost("session/{sessionId:guid}/chat")]  // Sends a message within an existing session and receives guided assistance
@@ -87,6 +130,40 @@ public class SessionController : ControllerBase
         var response = await _tutoringService.GetGuidanceAsync(sessionId, request.Message, request.EditorContent, request.GuidanceMode, ct);
 
         return Ok(response);
+    }
+
+    // == Chat Stream Endpoint == //
+
+    [HttpPost("session/{sessionId:guid}/chat/stream")]  // NDJSON sibling of Chat: reply deltas stream, ChatResponse metadata rides the final event
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ChatStream(
+        Guid sessionId,
+        [FromBody] ChatRequest request,
+        CancellationToken ct)
+    {
+        var writer = new NdjsonStreamWriter(Response);
+        try
+        {
+            var response = await _tutoringService.StreamGuidanceAsync(
+                sessionId, request.Message, request.EditorContent, request.GuidanceMode,
+                writer.WriteDeltaAsync, ct);
+            await writer.WriteFinalAsync(response, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Client gone — nothing to write and nobody to receive it
+        }
+        catch (Exception ex) when (Response.HasStarted)
+        {
+            // Status line is frozen once deltas were written; the failure must ride the stream
+            await writer.WriteErrorAsync(ex);
+        }
+        // Pre-stream failures (402 quota, 404 session, 429, 502 before the first delta) propagate
+        // to AppExceptionHandler while the status line is still writable
+        return new EmptyResult();
     }
 
     // == Run Code Endpoint == //
