@@ -3,6 +3,7 @@ import { useRef, useEffect } from "react";
 import type { ChatMessage } from "../types";
 import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
+import { StreamingChatTail, type FailedTurn } from "./StreamingChatTail";
 import { TokenUsageBar } from "../../../components/TokenUsageBar";
 import { useResizableVerticalSplit } from "../hooks/useResizableVerticalSplit";
 
@@ -11,17 +12,20 @@ interface ChatPanelProps {
   messages: ChatMessage[];
   onSendMessage: (message: string) => void;
   isSending: boolean;
+  streamingText: string;             // in-flight assistant reply, accumulating while isSending
+  failedTurn: FailedTurn | null;     // last turn died mid-stream — partial kept visible, dimmed
+  draft: { text: string } | null;    // failed turn's user message, restored to the input
   contextTokensUsed: number | null;  // null before first message is sent
   contextWindowSize: number;
 }
 
-export function ChatPanel({ problemDescription, messages, onSendMessage, isSending, contextTokensUsed, contextWindowSize }: ChatPanelProps) {
+export function ChatPanel({ problemDescription, messages, onSendMessage, isSending, streamingText, failedTurn, draft, contextTokensUsed, contextWindowSize }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { topPercent, dividerProps, containerRef } = useResizableVerticalSplit(30, 15, 70);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, streamingText, failedTurn]);
 
   return (
     <div className="flex h-full flex-col">
@@ -49,6 +53,7 @@ export function ChatPanel({ problemDescription, messages, onSendMessage, isSendi
             {messages.map((msg, i) => (
               <MessageBubble key={i} role={msg.role} content={msg.content} />
             ))}
+            <StreamingChatTail isStreaming={isSending} streamingText={streamingText} failedTurn={failedTurn} />
             <div ref={messagesEndRef} />
           </div>
         </div>
@@ -66,7 +71,7 @@ export function ChatPanel({ problemDescription, messages, onSendMessage, isSendi
       )}
 
       {/* == Input == */}
-      <ChatInput onSend={onSendMessage} isLoading={isSending} />
+      <ChatInput onSend={onSendMessage} isLoading={isSending} draft={draft} />
     </div>
   );
 }

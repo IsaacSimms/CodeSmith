@@ -7,12 +7,16 @@ import type { ScenarioResponse, SystemLabChatMessage } from "../types";
 import { useResizableVerticalSplit } from "../../chat/hooks/useResizableVerticalSplit";
 import { MessageBubble } from "../../chat/components/MessageBubble";
 import { ChatInput } from "../../chat/components/ChatInput";
+import { StreamingChatTail, type FailedTurn } from "../../chat/components/StreamingChatTail";
 
 interface SystemLabRightPanelProps {
   scenario: ScenarioResponse;
   chatMessages: SystemLabChatMessage[];
   onSendMessage: (message: string) => void;
   isSending: boolean;
+  streamingText: string;           // in-flight assistant reply, accumulating while isSending
+  failedTurn: FailedTurn | null;   // last turn died mid-stream — partial kept visible, dimmed
+  draft: { text: string } | null;  // failed turn's user message, restored to the input
 }
 
 export function SystemLabRightPanel({
@@ -20,6 +24,9 @@ export function SystemLabRightPanel({
   chatMessages,
   onSendMessage,
   isSending,
+  streamingText,
+  failedTurn,
+  draft,
 }: SystemLabRightPanelProps) {
   const messagesEndRef                                          = useRef<HTMLDivElement>(null);
   const [infoCollapsed, setInfoCollapsed]                      = useState(false);
@@ -27,7 +34,7 @@ export function SystemLabRightPanel({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages]);
+  }, [chatMessages, streamingText, failedTurn]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -119,11 +126,12 @@ export function SystemLabRightPanel({
                   content={msg.content}
                 />
               ))}
+              <StreamingChatTail isStreaming={isSending} streamingText={streamingText} failedTurn={failedTurn} />
               <div ref={messagesEndRef} />
             </div>
           </div>
 
-          <ChatInput onSend={onSendMessage} isLoading={isSending} />
+          <ChatInput onSend={onSendMessage} isLoading={isSending} draft={draft} />
         </div>
 
       </div>

@@ -13,6 +13,7 @@ import { ScenarioSelector } from "./ScenarioSelector";
 import { JustificationEditor } from "./JustificationEditor";
 import { AttemptResultsPanel } from "./AttemptResultsPanel";
 import { SystemLabRightPanel } from "./SystemLabRightPanel";
+import type { FailedTurn } from "../../chat/components/StreamingChatTail";
 
 export function SystemLabWindow() {
   const [session, setSession]                   = useState<SystemLabSession | null>(null);
@@ -20,6 +21,8 @@ export function SystemLabWindow() {
   const [justification, setJustification]       = useState("");
   const [lastResult, setLastResult]             = useState<AttemptResult | null>(null);
   const [chatMessages, setChatMessages]         = useState<SystemLabChatMessage[]>([]);
+  const [failedChatTurn, setFailedChatTurn]     = useState<FailedTurn | null>(null);
+  const [chatDraft, setChatDraft]               = useState<{ text: string } | null>(null);
 
   const { provider }  = useProviderPreference();
   const getScenarios  = useGetScenarios();
@@ -94,6 +97,8 @@ export function SystemLabWindow() {
     if (!session) return;
 
     // Optimistically append user message
+    setFailedChatTurn(null);
+    setChatDraft(null);
     setChatMessages((prev) => [...prev, { role: "user", content: message }]);
 
     sendChat.mutate(
@@ -102,9 +107,12 @@ export function SystemLabWindow() {
         onSuccess: (data) => {
           setChatMessages((prev) => [...prev, { role: "assistant", content: data.response }]);
         },
-        onError: () => {
-          // Remove the optimistically added user message on failure
+        onError: (error) => {
+          // The server rolled the turn back — mirror it: drop the optimistic user bubble, keep
+          // the partial reply visible as a failed turn, and put the message back in the input.
           setChatMessages((prev) => prev.slice(0, -1));
+          setFailedChatTurn({ partial: sendChat.getStreamedText(), message: error.message });
+          setChatDraft({ text: message });
         },
       }
     );
@@ -215,6 +223,9 @@ export function SystemLabWindow() {
             chatMessages={chatMessages}
             onSendMessage={handleSendChat}
             isSending={sendChat.isPending}
+            streamingText={sendChat.streamingText}
+            failedTurn={failedChatTurn}
+            draft={chatDraft}
           />
         </div>
       </div>
