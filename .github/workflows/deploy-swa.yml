@@ -31,7 +31,7 @@ jobs:
           cache: npm
           cache-dependency-path: CodeSmith.Web/package-lock.json
 
-      - name: Install and build
+      - name: Install, build, and test
         working-directory: CodeSmith.Web
         env:
           VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
@@ -42,6 +42,7 @@ jobs:
         run: |
           npm ci
           npm run build
+          npm test
 
       - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1

@@ -66,7 +66,9 @@ describe("AuthControls", () => {
 
     expect(loginRedirect).toHaveBeenCalledTimes(1);
     expect(loginRedirect).toHaveBeenCalledWith({ scopes: ["api://test/access"] });
-    expect(loginRedirect.mock.calls[0][0]).not.toHaveProperty("extraQueryParameters");
+    const firstArgs = loginRedirect.mock.calls[0]?.[0];
+    expect(firstArgs).toBeDefined();
+    expect(firstArgs).not.toHaveProperty("extraQueryParameters");
   });
 
   it("Continue with Google calls loginRedirect with domain_hint google", async () => {
