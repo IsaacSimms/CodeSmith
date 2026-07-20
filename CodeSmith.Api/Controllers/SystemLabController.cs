@@ -1,8 +1,8 @@
 // == System Lab Controller == //
+using CodeSmith.Api.Authorization;
 using CodeSmith.Api.DTOs.SystemLab;
 using CodeSmith.Api.Streaming;
 using CodeSmith.Core.Interfaces;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CodeSmith.Api.Controllers;
@@ -48,6 +48,7 @@ public class SystemLabController : ControllerBase
     // == Start Session Endpoint == //
 
     [HttpPost("sessions")]
+    [MeteredAi]
     [ProducesResponseType(typeof(SystemLabSessionResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -63,7 +64,7 @@ public class SystemLabController : ControllerBase
     // == Submit Attempt Endpoint == //
 
     [HttpPost("sessions/{sessionId:guid}/submit")]
-    [Authorize]
+    [MeteredAi]
     [ProducesResponseType(typeof(SystemLabAttemptResultResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -82,7 +83,7 @@ public class SystemLabController : ControllerBase
     // == Guidance Chat Endpoint == //
 
     [HttpPost("sessions/{sessionId:guid}/chat")]
-    [Authorize]
+    [MeteredAi]
     [ProducesResponseType(typeof(SystemLabChatResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -101,7 +102,7 @@ public class SystemLabController : ControllerBase
     // == Guidance Chat Stream Endpoint == //
 
     [HttpPost("sessions/{sessionId:guid}/chat/stream")]  // NDJSON sibling of Chat: reply deltas stream, the full reply rides the final event
-    [Authorize]
+    [MeteredAi]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

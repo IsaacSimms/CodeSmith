@@ -1,11 +1,11 @@
 // == Session Controller == //
+using CodeSmith.Api.Authorization;
 using CodeSmith.Api.DTOs;
 using CodeSmith.Api.Streaming;
 using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
 using CodeSmith.Infrastructure.Configuration;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -46,7 +46,7 @@ public class SessionController : ControllerBase
     // == Create Session Endpoint == //
 
     [HttpPost("session")]  // Creates a new coding problem session at the specified difficulty level
-    [Authorize]
+    [MeteredAi]
     [ProducesResponseType(typeof(ProblemSession), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> CreateSession(
@@ -76,7 +76,7 @@ public class SessionController : ControllerBase
     // == Create Session Stream Endpoint == //
 
     [HttpPost("session/stream")]  // NDJSON sibling of CreateSession: description deltas stream, the full session rides the final event
-    [Authorize]
+    [MeteredAi]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> CreateSessionStream(
@@ -118,7 +118,7 @@ public class SessionController : ControllerBase
     // == Chat Endpoint == //
 
     [HttpPost("session/{sessionId:guid}/chat")]  // Sends a message within an existing session and receives guided assistance
-    [Authorize]
+    [MeteredAi]
     [ProducesResponseType(typeof(ChatResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -135,7 +135,7 @@ public class SessionController : ControllerBase
     // == Chat Stream Endpoint == //
 
     [HttpPost("session/{sessionId:guid}/chat/stream")]  // NDJSON sibling of Chat: reply deltas stream, ChatResponse metadata rides the final event
-    [Authorize]
+    [MeteredAi]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

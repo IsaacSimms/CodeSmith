@@ -144,7 +144,7 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 | `WebhookSignatureException` | 400 Bad Request |
 | *(unmapped, incl. `EvaluationParseException`)* | 500 Internal Server Error |
 
-> Note: **402** = out of quota/credits (`UsageEnforcer`); **429** = rate-limited (too many requests per IP). The full exception is logged internally; only a safe message reaches the client.
+> Note: **401** on `[MeteredAi]` endpoints = login required (`login_required` ProblemDetails via `MeteredAiAuthorizationMiddlewareResultHandler`); **402** = out of quota/credits (`UsageEnforcer`); **429** = rate-limited (too many requests per IP). The full exception is logged internally; only a safe message reaches the client.
 
 ### Configuration pattern
 
@@ -158,10 +158,11 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 
 ### Authentication & usage
 
-- LLM-mutating endpoints carry `[Authorize]`. **Entra is wired:** Bearer (Entra External ID via `AddMicrosoftIdentityWebApi` bound to the `AzureAd` section) is the default scheme in all environments. In Development only, a "Debug" scheme is additionally registered and added to the default authorization policy, so allow-listed `X-Debug-User-Id` headers satisfy `[Authorize]` without a bearer token; the allow-list is `UsageOptions.AllowedDebugObjectIds`.
+- LLM-metered endpoints carry **`[MeteredAi]`** (subclasses `[Authorize]`): auth is required, and auth failures are handled by `MeteredAiAuthorizationMiddlewareResultHandler`, which returns **401** ProblemDetails with `title: "Login required"`, `detail: "Sign in with an account to use tokens."`, and extension `code: "login_required"`. Non-metered authorized routes (billing) keep stock `[Authorize]` / generic 401. **Entra is wired:** Bearer (Entra External ID via `AddMicrosoftIdentityWebApi` bound to the `AzureAd` section) is the default scheme in all environments. In Development only, a "Debug" scheme is additionally registered and added to the default authorization policy, so allow-listed `X-Debug-User-Id` headers satisfy auth without a bearer token; the allow-list is `UsageOptions.AllowedDebugObjectIds`.
 - **SPA (MSAL):** `CodeSmith.Web` uses `@azure/msal-browser` / `@azure/msal-react` against the same CIAM tenant. **Sign in** opens a dropdown with **Continue with email** (local CIAM email/password path; stock `loginRedirect`) and **Continue with Google** (`extraQueryParameters: { domain_hint: "google" }` so CIAM federates to Google). Both paths yield **Entra-issued** access tokens for the existing API audience — there is no dual Google JWT stack on the API. Helper copy: “Use the same sign-in method next time.” There is **no account linking**: the same person using email vs Google may get two CIAM users and two `ObjectId` / credit balances. Google IdP must be configured in Entra + Google Cloud (portal); until then the Google menu item can fail at the IdP — SPA always shows both options. External setup runbook: `Docs/Handoffs.User/2026-07-19-google-idp-sign-in-handoff.md` §8.
 - `ICurrentUser.ObjectId` is the stable Entra objectId. `HttpCurrentUser` resolves it from the request (with the dev bypass); `NoopCurrentUser` is the Infrastructure default so decorator registration succeeds without the Api layer.
 - Usage decorators require a non-null `ObjectId` and throw `InvalidOperationException` if absent.
+- **401** on metered AI = not signed in (or invalid token) — sign in required to meter free or paid tokens. **402** = signed-in account with insufficient free window + paid credits (`InsufficientQuotaException`).
 
 ---
 
@@ -186,7 +187,7 @@ All routes are under `/api`. Enums serialize as strings (`JsonStringEnumConverte
 | POST | `/api/prompt-lab/sessions/{sessionId}/chat` 🔒 | `PromptLabChatRequest { message, editorContent? }` | `PromptLabChatResponse` | 200 / 400 / 404 |
 | GET | `/api/system-lab/scenarios` | — | `ScenarioResponse[]` | SecurityPitfalls stripped |
 | GET | `/api/system-lab/scenarios/{id}` | — | `ScenarioResponse` | 200 / 404 |
-| POST | `/api/system-lab/sessions` | `StartSystemLabSessionRequest { scenarioId, provider }` | `SystemLabSessionResponse` | 201 / 400 / 404 |
+| POST | `/api/system-lab/sessions` 🔒 | `StartSystemLabSessionRequest { scenarioId, provider }` | `SystemLabSessionResponse` | 201 / 400 / 404 |
 | POST | `/api/system-lab/sessions/{sessionId}/submit` 🔒 | `SubmitJustificationRequest { justificationContent }` | `SystemLabAttemptResultResponse` | 200 / 400 / 404 |
 | POST | `/api/system-lab/sessions/{sessionId}/chat` 🔒 | `SystemLabChatRequest { message, currentJustification? }` | `SystemLabChatResponse` | 200 / 400 / 404 |
 | POST | `/api/billing/checkout` 🔒 | `CheckoutRequest { priceId }` | `CheckoutResponse { url }` | 200 / 400 (unknown priceId); priceId must be allow-listed |

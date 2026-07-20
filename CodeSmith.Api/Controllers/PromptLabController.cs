@@ -1,10 +1,10 @@
 // == Prompt Lab Controller == //
+using CodeSmith.Api.Authorization;
 using CodeSmith.Api.DTOs.PromptLab;
 using CodeSmith.Api.Streaming;
 using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models.PromptLab;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CodeSmith.Api.Controllers;
@@ -50,7 +50,7 @@ public class PromptLabController : ControllerBase
     // == Start Challenge Endpoint == //
 
     [HttpPost("sessions")]  // Creates a new Prompt Lab session and generates dynamic test inputs for the challenge
-    [Authorize]
+    [MeteredAi]
     [ProducesResponseType(typeof(PromptLabSessionResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -67,7 +67,7 @@ public class PromptLabController : ControllerBase
     // == Submit Attempt Endpoint == //
 
     [HttpPost("sessions/{sessionId:guid}/submit")]  // Runs the user's prompt against all test inputs and returns scored results
-    [Authorize]
+    [MeteredAi]
     [ProducesResponseType(typeof(AttemptResultResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> SubmitAttempt(
@@ -87,7 +87,7 @@ public class PromptLabController : ControllerBase
     // == Guidance Chat Endpoint == //
 
     [HttpPost("sessions/{sessionId:guid}/chat")]
-    [Authorize]
+    [MeteredAi]
     [ProducesResponseType(typeof(PromptLabChatResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -106,7 +106,7 @@ public class PromptLabController : ControllerBase
     // == Guidance Chat Stream Endpoint == //
 
     [HttpPost("sessions/{sessionId:guid}/chat/stream")]  // NDJSON sibling of Chat: reply deltas stream, the full reply rides the final event
-    [Authorize]
+    [MeteredAi]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

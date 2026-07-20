@@ -7,6 +7,7 @@ using CodeSmith.Api.Services;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Infrastructure.DependencyInjection;
 using CodeSmith.Infrastructure.Diagnostics;
+using CodeSmith.Api.Authorization;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -85,6 +86,9 @@ builder.Services.AddAuthorization(options =>
             .Build();
     }
 });
+
+// Metered AI endpoints: custom 401 ProblemDetails (login_required) instead of stock Unauthorized
+builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, MeteredAiAuthorizationMiddlewareResultHandler>();
 
 // Register CodeSmith Infrastructure services (Anthropic client, session store)
 builder.Services.AddCodeSmithInfrastructure(builder.Configuration);
