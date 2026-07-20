@@ -2,7 +2,7 @@
 
 CodeSmith is an AI-powered practice tool for technical interviews. It hosts three independent practice surfaces — **Tutoring** (coding problems with a Socratic pair-programmer), **Prompt Lab** (prompt-engineering challenges scored against a rubric), and **System Lab** (system-design justification scenarios) — over a shared, provider-agnostic LLM layer. Every LLM call is metered against a per-user free quota and paid credit balance so the SaaS cannot be run at a loss.
 
-This document is the ground-truth architectural reference. It reflects the repo as of 2026-07-18 (token streaming shipped). Keep the Seams table, API Reference, subsystem sections, and the [Ubiquitous Language](#ubiquitous-language) glossary updated as the architecture evolves.
+This document is the ground-truth architectural reference. It reflects the repo as of 2026-07-19 (token streaming shipped; SPA Sign in chooser email/Google via CIAM). Keep the Seams table, API Reference, subsystem sections, and the [Ubiquitous Language](#ubiquitous-language) glossary updated as the architecture evolves.
 
 > **Vocabulary note.** This project uses a deliberate architecture vocabulary — **Module, Interface, Implementation, Depth, Seam, Adapter, Leverage, Locality**. Definitions are in the [Ubiquitous Language](#ubiquitous-language) section at the end. Use these terms exactly; do not substitute "component / service / boundary."
 
@@ -60,6 +60,7 @@ CodeSmith.CLI/             — Command-line client over the API (ApiClient)
 CodeSmith.Tests/           — Backend xUnit tests, mirroring source layout (Api/, CLI/, Core/, Infrastructure/)
 
 CodeSmith.Web/             — React frontend (Vite dev server on 5173)
+  src/auth/                — MSAL bootstrap + AuthControls (Sign in chooser: email / Google)
   src/lib/                 — apiClient.ts (native fetch, relative /api paths)
   src/contexts/            — NavigationContext (cross-feature reset registry)
   src/features/chat/       — Tutoring surface (types, hooks, components)
@@ -158,6 +159,7 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 ### Authentication & usage
 
 - LLM-mutating endpoints carry `[Authorize]`. **Entra is wired:** Bearer (Entra External ID via `AddMicrosoftIdentityWebApi` bound to the `AzureAd` section) is the default scheme in all environments. In Development only, a "Debug" scheme is additionally registered and added to the default authorization policy, so allow-listed `X-Debug-User-Id` headers satisfy `[Authorize]` without a bearer token; the allow-list is `UsageOptions.AllowedDebugObjectIds`.
+- **SPA (MSAL):** `CodeSmith.Web` uses `@azure/msal-browser` / `@azure/msal-react` against the same CIAM tenant. **Sign in** opens a dropdown with **Continue with email** (local CIAM email/password path; stock `loginRedirect`) and **Continue with Google** (`extraQueryParameters: { domain_hint: "google" }` so CIAM federates to Google). Both paths yield **Entra-issued** access tokens for the existing API audience — there is no dual Google JWT stack on the API. Helper copy: “Use the same sign-in method next time.” There is **no account linking**: the same person using email vs Google may get two CIAM users and two `ObjectId` / credit balances. Google IdP must be configured in Entra + Google Cloud (portal); until then the Google menu item can fail at the IdP — SPA always shows both options. External setup runbook: `Docs/Handoffs.User/2026-07-19-google-idp-sign-in-handoff.md` §8.
 - `ICurrentUser.ObjectId` is the stable Entra objectId. `HttpCurrentUser` resolves it from the request (with the dev bypass); `NoopCurrentUser` is the Infrastructure default so decorator registration succeeds without the Api layer.
 - Usage decorators require a non-null `ObjectId` and throw `InvalidOperationException` if absent.
 

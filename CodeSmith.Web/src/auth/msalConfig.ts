@@ -48,3 +48,11 @@ export function buildLoginRequest() {
     scopes: [getApiScope()],
   };
 }
+
+// == Google federated IdP (CIAM domain_hint) == //
+export function buildGoogleLoginRequest() {
+  return {
+    ...buildLoginRequest(),
+    extraQueryParameters: { domain_hint: "google" },
+  };
+}

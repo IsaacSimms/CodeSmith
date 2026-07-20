@@ -11,6 +11,10 @@
 *.sln.docstates
 *.lscache
 
+# Docs/Handoffs.User/ is a project folder; *.user above would ignore it
+!Docs/Handoffs.User/
+!Docs/Handoffs.User/**
+
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 
