@@ -10,10 +10,12 @@ import {
   resolveApiUrl,
 } from "./apiClient";
 
+// == Hermetic env: ambient VITE_API_BASE_URL (CI deploy vars, local .env) must not leak into URL asserts == //
 beforeEach(() => {
   vi.restoreAllMocks();
   setAccessTokenProvider(null);
   vi.unstubAllEnvs();
+  vi.stubEnv("VITE_API_BASE_URL", "");
 });
 
 afterEach(() => {

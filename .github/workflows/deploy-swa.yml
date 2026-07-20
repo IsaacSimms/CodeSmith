@@ -31,7 +31,17 @@ jobs:
           cache: npm
           cache-dependency-path: CodeSmith.Web/package-lock.json
 
-      - name: Install, build, and test
+      # Install once; test without deploy VITE_* so unit tests see relative /api paths.
+      # Build with production vars so the SPA bundle points at the real API + AAD.
+      - name: Install dependencies
+        working-directory: CodeSmith.Web
+        run: npm ci
+
+      - name: Test
+        working-directory: CodeSmith.Web
+        run: npm test
+
+      - name: Build
         working-directory: CodeSmith.Web
         env:
           VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
@@ -39,10 +49,7 @@ jobs:
           VITE_AAD_TENANT_ID: ${{ vars.VITE_AAD_TENANT_ID }}
           VITE_AAD_INSTANCE: ${{ vars.VITE_AAD_INSTANCE }}
           VITE_AAD_API_SCOPE: ${{ vars.VITE_AAD_API_SCOPE }}
-        run: |
-          npm ci
-          npm run build
-          npm test
+        run: npm run build
 
       - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
