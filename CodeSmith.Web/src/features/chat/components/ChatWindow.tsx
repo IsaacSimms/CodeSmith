@@ -3,46 +3,53 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useNavigationContext } from "../../../contexts/NavigationContext";
 import { useProviderPreference } from "../../../hooks/useProviderPreference";
-import type { ProblemSession, Difficulty, Language, ChatMessage, RunCodeResponse, GuidanceMode } from "../types";
+import type { ProblemSession, Difficulty, Language, RunCodeResponse, GuidanceMode, ChatResponse } from "../types";
 import { isDifficulty, isLanguage, languageLabels } from "../types";
 import { useCreateSession } from "../hooks/useCreateSession";
-import { useSendMessage } from "../hooks/useSendMessage";
+import { useStreamingChat } from "../../../hooks/useStreamingChat";
+import { streamChat } from "../../../lib/apiClient";
 import { useRunCode } from "../hooks/useRunCode";
 import { useResizableSplit } from "../hooks/useResizableSplit";
 import { DifficultySelector } from "./DifficultySelector";
 import { CodePanel } from "./CodePanel";
 import { ChatPanel } from "./ChatPanel";
-import type { FailedTurn } from "./StreamingChatTail";
 
 export function ChatWindow() {
   const [searchParams] = useSearchParams();
   const [session, setSession] = useState<ProblemSession | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [code, setCode] = useState("");
   const [executionResult, setExecutionResult] = useState<RunCodeResponse | null>(null);
   const [contextTokensUsed, setContextTokensUsed] = useState<number | null>(null);
   const [contextWindowSize, setContextWindowSize] = useState(200_000);
-  const [failedTurn, setFailedTurn] = useState<FailedTurn | null>(null);
-  const [draft, setDraft] = useState<{ text: string } | null>(null);
 
   const createSession = useCreateSession();
-  const sendMessage = useSendMessage();
+  // The shared streaming-chat module owns the transcript and turn invariant; this surface
+  // supplies its stream call (current editor contents + per-send guidance mode) as data.
+  const chat = useStreamingChat<ChatResponse, GuidanceMode>((message, onDelta, guidanceMode) => {
+    if (!session) return Promise.reject(new Error("No active session"));
+    return streamChat(
+      session.sessionId,
+      { message, editorContent: code, guidanceMode: guidanceMode ?? "Guidance" },
+      { onDelta }
+    );
+  });
   const runCode = useRunCode();
   const { provider } = useProviderPreference();
   const { leftPercent, dividerProps, containerRef } = useResizableSplit(75);
   const { registerReset, unregisterReset } = useNavigationContext();
 
   // == Register nav reset handler == //
+  const { resetChat } = chat;   // stable identity, safe as an effect dependency
   useEffect(() => {
     registerReset("pairedprogrammer", () => {
       setSession(null);
-      setMessages([]);
+      resetChat();
       setCode("");
       setExecutionResult(null);
       setContextTokensUsed(null);
     });
     return () => unregisterReset("pairedprogrammer");
-  }, [registerReset, unregisterReset]);
+  }, [registerReset, unregisterReset, resetChat]);
 
   // == URL Param Seeding (Option A) == //
   const urlLangRaw = searchParams.get("lang");
@@ -56,7 +63,7 @@ export function ChatWindow() {
       {
         onSuccess: (data) => {
           setSession(data);
-          setMessages(data.messages);
+          chat.resetChat(data.messages);
           setCode(data.starterCode);
           setExecutionResult(null);
         },
@@ -81,37 +88,13 @@ export function ChatWindow() {
   function handleSendMessage(message: string, guidanceMode: GuidanceMode = "Guidance") {
     if (!session) return;
 
-    const userMessage: ChatMessage = {
-      role: "User",
-      content: message,
-      timestamp: new Date().toISOString(),
-    };
-    setFailedTurn(null);
-    setDraft(null);
-    setMessages((prev) => [...prev, userMessage]);
-
-    sendMessage.mutate(
-      { sessionId: session.sessionId, message, editorContent: code, guidanceMode },
-      {
-        onSuccess: (data) => {
-          const assistantMessage: ChatMessage = {
-            role: "Assistant",
-            content: data.response,
-            timestamp: new Date().toISOString(),
-          };
-          setMessages((prev) => [...prev, assistantMessage]);
-          setContextTokensUsed(data.contextTokensUsed);
-          setContextWindowSize(data.contextWindowSize);
-        },
-        onError: (error) => {
-          // The server rolled the turn back — mirror it: drop the optimistic user bubble, keep
-          // the partial reply visible as a failed turn, and put the message back in the input.
-          setMessages((prev) => prev.slice(0, -1));
-          setFailedTurn({ partial: sendMessage.getStreamedText(), message: error.message });
-          setDraft({ text: message });
-        },
-      }
-    );
+    chat.sendMessage(message, {
+      context: guidanceMode,
+      onSuccess: (reply) => {
+        setContextTokensUsed(reply.contextTokensUsed);
+        setContextWindowSize(reply.contextWindowSize);
+      },
+    });
   }
 
   // == Run Code and Auto-Analyze == //
@@ -211,12 +194,12 @@ export function ChatWindow() {
         <div className="min-w-0" style={{ width: `${100 - leftPercent}%` }}>
           <ChatPanel
             problemDescription={session.problemDescription}
-            messages={messages}
+            messages={chat.messages}
             onSendMessage={handleSendMessage}
-            isSending={sendMessage.isPending}
-            streamingText={sendMessage.streamingText}
-            failedTurn={failedTurn}
-            draft={draft}
+            isSending={chat.isSending}
+            streamingText={chat.streamingText}
+            failedTurn={chat.failedTurn}
+            draft={chat.draft}
             contextTokensUsed={contextTokensUsed}
             contextWindowSize={contextWindowSize}
           />

@@ -2,16 +2,17 @@
 // Top: collapsible scenario info (description, constraints, rubric, tradeoffs)
 // Bottom: guidance chat (messages + input)
 // Resizable vertical split mirrors ChatPanel in features/chat.
-import { useRef, useEffect, useState } from "react";
-import type { ScenarioResponse, SystemLabChatMessage } from "../types";
+import { useState } from "react";
+import type { ScenarioResponse } from "../types";
+import type { ChatMessage } from "../../chat/types";
 import { useResizableVerticalSplit } from "../../chat/hooks/useResizableVerticalSplit";
-import { MessageBubble } from "../../chat/components/MessageBubble";
 import { ChatInput } from "../../chat/components/ChatInput";
-import { StreamingChatTail, type FailedTurn } from "../../chat/components/StreamingChatTail";
+import { ChatTranscript } from "../../chat/components/ChatTranscript";
+import type { FailedTurn } from "../../chat/components/StreamingChatTail";
 
 interface SystemLabRightPanelProps {
   scenario: ScenarioResponse;
-  chatMessages: SystemLabChatMessage[];
+  chatMessages: ChatMessage[];
   onSendMessage: (message: string) => void;
   isSending: boolean;
   streamingText: string;           // in-flight assistant reply, accumulating while isSending
@@ -28,13 +29,8 @@ export function SystemLabRightPanel({
   failedTurn,
   draft,
 }: SystemLabRightPanelProps) {
-  const messagesEndRef                                          = useRef<HTMLDivElement>(null);
-  const [infoCollapsed, setInfoCollapsed]                      = useState(false);
-  const { topPercent, dividerProps, containerRef }             = useResizableVerticalSplit(40, 15, 75);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages, streamingText, failedTurn]);
+  const [infoCollapsed, setInfoCollapsed]          = useState(false);
+  const { topPercent, dividerProps, containerRef } = useResizableVerticalSplit(40, 15, 75);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -114,22 +110,14 @@ export function SystemLabRightPanel({
             <h3 className="text-xs font-semibold text-gray-400">Guidance</h3>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-3">
-            {chatMessages.length === 0 && (
-              <p className="text-xs text-gray-600">Ask a question to get Socratic guidance on your justification.</p>
-            )}
-            <div className="flex flex-col gap-3">
-              {chatMessages.map((msg, i) => (
-                <MessageBubble
-                  key={i}
-                  role={msg.role === "user" ? "User" : "Assistant"}
-                  content={msg.content}
-                />
-              ))}
-              <StreamingChatTail isStreaming={isSending} streamingText={streamingText} failedTurn={failedTurn} />
-              <div ref={messagesEndRef} />
-            </div>
-          </div>
+          <ChatTranscript
+            className="flex-1"
+            messages={chatMessages}
+            isStreaming={isSending}
+            streamingText={streamingText}
+            failedTurn={failedTurn}
+            emptyStateText="Ask a question to get Socratic guidance on your justification."
+          />
 
           <ChatInput onSend={onSendMessage} isLoading={isSending} draft={draft} />
         </div>

@@ -118,22 +118,11 @@ public class PromptLabController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Message))
             return BadRequest(new { error = "Message is required." });
 
-        var writer = new NdjsonStreamWriter(Response);
-        try
+        // Envelope owns the chunk-contract choreography (final/error events, status-line freeze)
+        return await NdjsonStreamEnvelope.RunAsync(Response, async writer =>
         {
             var response = await _service.StreamChatAsync(sessionId, request.Message, request.EditorContent, writer.WriteDeltaAsync, ct);
-            await writer.WriteFinalAsync(new PromptLabChatResponse { Response = response }, ct);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            // Client gone — nothing to write and nobody to receive it
-        }
-        catch (Exception ex) when (Response.HasStarted)
-        {
-            // Status line is frozen once deltas were written; the failure must ride the stream
-            await writer.WriteErrorAsync(ex);
-        }
-        // Pre-stream failures propagate to AppExceptionHandler while the status line is still writable
-        return new EmptyResult();
+            return new PromptLabChatResponse { Response = response };
+        }, ct);
     }
 }

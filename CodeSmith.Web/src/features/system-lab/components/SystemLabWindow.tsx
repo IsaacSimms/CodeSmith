@@ -2,33 +2,39 @@
 import { useEffect, useState } from "react";
 import { useNavigationContext } from "../../../contexts/NavigationContext";
 import { useProviderPreference } from "../../../hooks/useProviderPreference";
-import type { ScenarioResponse, AttemptResult, SystemLabSession, SystemLabChatMessage } from "../types";
+import type { ScenarioResponse, AttemptResult, SystemLabSession, SystemLabChatResponse } from "../types";
 import { useGetScenarios } from "../hooks/useGetScenarios";
 import { useStartSession } from "../hooks/useStartSession";
 import { useSubmitAttempt } from "../hooks/useSubmitAttempt";
-import { useSystemLabChat } from "../hooks/useSystemLabChat";
+import { useStreamingChat } from "../../../hooks/useStreamingChat";
+import { streamSystemLabChat } from "../../../lib/apiClient";
 import { useResizableSplit } from "../../chat/hooks/useResizableSplit";
 import { useResizableVerticalSplit } from "../../chat/hooks/useResizableVerticalSplit";
 import { ScenarioSelector } from "./ScenarioSelector";
 import { JustificationEditor } from "./JustificationEditor";
 import { AttemptResultsPanel } from "./AttemptResultsPanel";
 import { SystemLabRightPanel } from "./SystemLabRightPanel";
-import type { FailedTurn } from "../../chat/components/StreamingChatTail";
 
 export function SystemLabWindow() {
   const [session, setSession]                   = useState<SystemLabSession | null>(null);
   const [scenario, setScenario]                 = useState<ScenarioResponse | null>(null);
   const [justification, setJustification]       = useState("");
   const [lastResult, setLastResult]             = useState<AttemptResult | null>(null);
-  const [chatMessages, setChatMessages]         = useState<SystemLabChatMessage[]>([]);
-  const [failedChatTurn, setFailedChatTurn]     = useState<FailedTurn | null>(null);
-  const [chatDraft, setChatDraft]               = useState<{ text: string } | null>(null);
 
   const { provider }  = useProviderPreference();
   const getScenarios  = useGetScenarios();
   const startSession  = useStartSession();
   const submitAttempt = useSubmitAttempt();
-  const sendChat      = useSystemLabChat();
+  // The shared streaming-chat module owns the transcript and turn invariant; this surface
+  // supplies its stream call (the current justification draft) as data.
+  const sendChat = useStreamingChat<SystemLabChatResponse>((message, onDelta) => {
+    if (!session) return Promise.reject(new Error("No active session"));
+    return streamSystemLabChat(
+      session.sessionId,
+      { message, currentJustification: justification || undefined },
+      { onDelta }
+    );
+  });
 
   const { registerReset, unregisterReset } = useNavigationContext();
 
@@ -41,16 +47,17 @@ export function SystemLabWindow() {
     useResizableVerticalSplit(60);
 
   // == Register nav reset handler == //
+  const { resetChat } = sendChat;   // stable identity, safe as an effect dependency
   useEffect(() => {
     registerReset("system-lab", () => {
       setSession(null);
       setScenario(null);
       setLastResult(null);
       setJustification("");
-      setChatMessages([]);
+      resetChat();
     });
     return () => unregisterReset("system-lab");
-  }, [registerReset, unregisterReset]);
+  }, [registerReset, unregisterReset, resetChat]);
 
   // Snap editor to full height when results close, restore split when they open
   useEffect(() => {
@@ -71,7 +78,7 @@ export function SystemLabWindow() {
           setScenario(found);
           setJustification("");
           setLastResult(null);
-          setChatMessages([]);
+          sendChat.resetChat();
         },
       }
     );
@@ -95,27 +102,7 @@ export function SystemLabWindow() {
 
   function handleSendChat(message: string) {
     if (!session) return;
-
-    // Optimistically append user message
-    setFailedChatTurn(null);
-    setChatDraft(null);
-    setChatMessages((prev) => [...prev, { role: "user", content: message }]);
-
-    sendChat.mutate(
-      { sessionId: session.sessionId, message, currentJustification: justification || undefined },
-      {
-        onSuccess: (data) => {
-          setChatMessages((prev) => [...prev, { role: "assistant", content: data.response }]);
-        },
-        onError: (error) => {
-          // The server rolled the turn back — mirror it: drop the optimistic user bubble, keep
-          // the partial reply visible as a failed turn, and put the message back in the input.
-          setChatMessages((prev) => prev.slice(0, -1));
-          setFailedChatTurn({ partial: sendChat.getStreamedText(), message: error.message });
-          setChatDraft({ text: message });
-        },
-      }
-    );
+    sendChat.sendMessage(message);
   }
 
   // == No session: show scenario selector == //
@@ -220,12 +207,12 @@ export function SystemLabWindow() {
         <div className="min-w-0" style={{ width: `${100 - leftPercent}%` }}>
           <SystemLabRightPanel
             scenario={scenario}
-            chatMessages={chatMessages}
+            chatMessages={sendChat.messages}
             onSendMessage={handleSendChat}
-            isSending={sendChat.isPending}
+            isSending={sendChat.isSending}
             streamingText={sendChat.streamingText}
-            failedTurn={failedChatTurn}
-            draft={chatDraft}
+            failedTurn={sendChat.failedTurn}
+            draft={sendChat.draft}
           />
         </div>
       </div>

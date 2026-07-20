@@ -2,12 +2,12 @@
 // Top: ChallengePanel (challenge info, rubric, test inputs)
 // Bottom: guidance chat (messages + input)
 // Resizable vertical split mirrors SystemLabRightPanel in features/system-lab.
-import { useRef, useEffect } from "react";
-import type { ChallengeResponse, AttemptResult, TestInputSummary, PromptLabChatMessage } from "../types";
+import type { ChallengeResponse, AttemptResult, TestInputSummary } from "../types";
+import type { ChatMessage } from "../../chat/types";
 import { useResizableVerticalSplit } from "../../chat/hooks/useResizableVerticalSplit";
-import { MessageBubble } from "../../chat/components/MessageBubble";
 import { ChatInput } from "../../chat/components/ChatInput";
-import { StreamingChatTail, type FailedTurn } from "../../chat/components/StreamingChatTail";
+import { ChatTranscript } from "../../chat/components/ChatTranscript";
+import type { FailedTurn } from "../../chat/components/StreamingChatTail";
 import { ChallengePanel } from "./ChallengePanel";
 
 interface PromptLabRightPanelProps {
@@ -17,7 +17,7 @@ interface PromptLabRightPanelProps {
   lastAttempt: AttemptResult | null;
   attemptCount: number;
   onSubmit: () => void;
-  chatMessages: PromptLabChatMessage[];
+  chatMessages: ChatMessage[];
   onSendMessage: (message: string) => void;
   isSendingChat: boolean;
   streamingText: string;           // in-flight assistant reply, accumulating while isSendingChat
@@ -39,12 +39,7 @@ export function PromptLabRightPanel({
   failedTurn,
   draft,
 }: PromptLabRightPanelProps) {
-  const messagesEndRef                             = useRef<HTMLDivElement>(null);
   const { topPercent, dividerProps, containerRef } = useResizableVerticalSplit(55, 25, 80);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages, streamingText, failedTurn]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -74,22 +69,14 @@ export function PromptLabRightPanel({
             <h3 className="text-xs font-semibold text-gray-400">Guidance</h3>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-3">
-            {chatMessages.length === 0 && (
-              <p className="text-xs text-gray-600">Ask a question to get guidance on your prompt.</p>
-            )}
-            <div className="flex flex-col gap-3">
-              {chatMessages.map((msg, i) => (
-                <MessageBubble
-                  key={i}
-                  role={msg.role === "user" ? "User" : "Assistant"}
-                  content={msg.content}
-                />
-              ))}
-              <StreamingChatTail isStreaming={isSendingChat} streamingText={streamingText} failedTurn={failedTurn} />
-              <div ref={messagesEndRef} />
-            </div>
-          </div>
+          <ChatTranscript
+            className="flex-1"
+            messages={chatMessages}
+            isStreaming={isSendingChat}
+            streamingText={streamingText}
+            failedTurn={failedTurn}
+            emptyStateText="Ask a question to get guidance on your prompt."
+          />
 
           <ChatInput onSend={onSendMessage} isLoading={isSendingChat} draft={draft} />
         </div>

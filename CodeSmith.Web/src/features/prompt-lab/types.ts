@@ -107,13 +107,6 @@ export interface PromptLabChatResponse {
   response: string;
 }
 
-// == Local Chat Display Type == //
-
-export interface PromptLabChatMessage {
-  role: "user" | "assistant";
-  content: string;
-}
-
 // == Display Helpers == //
 
 export const categoryLabels: Record<ChallengeCategory, string> = {

@@ -1,9 +1,8 @@
 // == Chat Panel Component == //
-import { useRef, useEffect } from "react";
 import type { ChatMessage } from "../types";
-import { MessageBubble } from "./MessageBubble";
 import { ChatInput } from "./ChatInput";
-import { StreamingChatTail, type FailedTurn } from "./StreamingChatTail";
+import { ChatTranscript } from "./ChatTranscript";
+import type { FailedTurn } from "./StreamingChatTail";
 import { TokenUsageBar } from "../../../components/TokenUsageBar";
 import { useResizableVerticalSplit } from "../hooks/useResizableVerticalSplit";
 
@@ -20,12 +19,7 @@ interface ChatPanelProps {
 }
 
 export function ChatPanel({ problemDescription, messages, onSendMessage, isSending, streamingText, failedTurn, draft, contextTokensUsed, contextWindowSize }: ChatPanelProps) {
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const { topPercent, dividerProps, containerRef } = useResizableVerticalSplit(30, 15, 70);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingText, failedTurn]);
 
   return (
     <div className="flex h-full flex-col">
@@ -48,14 +42,14 @@ export function ChatPanel({ problemDescription, messages, onSendMessage, isSendi
         />
 
         {/* == Messages == */}
-        <div className="overflow-y-auto p-3" style={{ height: `${100 - topPercent}%` }}>
-          <div className="flex flex-col gap-3">
-            {messages.map((msg, i) => (
-              <MessageBubble key={i} role={msg.role} content={msg.content} />
-            ))}
-            <StreamingChatTail isStreaming={isSending} streamingText={streamingText} failedTurn={failedTurn} />
-            <div ref={messagesEndRef} />
-          </div>
+        <div className="min-h-0" style={{ height: `${100 - topPercent}%` }}>
+          <ChatTranscript
+            className="h-full"
+            messages={messages}
+            isStreaming={isSending}
+            streamingText={streamingText}
+            failedTurn={failedTurn}
+          />
         </div>
 
       </div>

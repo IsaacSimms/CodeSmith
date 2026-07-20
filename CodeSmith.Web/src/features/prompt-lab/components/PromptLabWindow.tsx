@@ -2,16 +2,16 @@
 import { useEffect, useState } from "react";
 import { useNavigationContext } from "../../../contexts/NavigationContext";
 import { useProviderPreference } from "../../../hooks/useProviderPreference";
-import type { ChallengeResponse, AttemptResult, PromptLabSession, PromptLabChatMessage } from "../types";
+import type { ChallengeResponse, AttemptResult, PromptLabSession, PromptLabChatResponse } from "../types";
 import { useGetChallenges } from "../hooks/useGetChallenges";
 import { useStartChallenge } from "../hooks/useStartChallenge";
 import { useSubmitAttempt } from "../hooks/useSubmitAttempt";
-import { usePromptLabChat } from "../hooks/usePromptLabChat";
+import { useStreamingChat } from "../../../hooks/useStreamingChat";
+import { streamPromptLabChat } from "../../../lib/apiClient";
 import { useResizableSplit } from "../../chat/hooks/useResizableSplit";
 import { useResizableVerticalSplit } from "../../chat/hooks/useResizableVerticalSplit";
 import { ChallengeSelector } from "./ChallengeSelector";
 import { PromptLabRightPanel } from "./PromptLabRightPanel";
-import type { FailedTurn } from "../../chat/components/StreamingChatTail";
 import { PromptEditors } from "./PromptEditors";
 import { ResultsPanel } from "./ResultsPanel";
 import { TokenUsageBar } from "../../../components/TokenUsageBar";
@@ -22,14 +22,22 @@ export function PromptLabWindow() {
   const [systemPromptContent, setSystemContent] = useState("");
   const [userMessageContent, setUserContent]    = useState("");
   const [lastResult, setLastResult]             = useState<AttemptResult | null>(null);
-  const [chatMessages, setChatMessages]         = useState<PromptLabChatMessage[]>([]);
-  const [failedChatTurn, setFailedChatTurn]     = useState<FailedTurn | null>(null);
-  const [chatDraft, setChatDraft]               = useState<{ text: string } | null>(null);
 
   const getChallenges  = useGetChallenges();
   const startChallenge = useStartChallenge();
   const submitAttempt  = useSubmitAttempt();
-  const sendChat       = usePromptLabChat();
+  // The shared streaming-chat module owns the transcript and turn invariant; this surface
+  // supplies its stream call (structured editor content from both prompt editors) as data.
+  const sendChat = useStreamingChat<PromptLabChatResponse>((message, onDelta) => {
+    if (!session) return Promise.reject(new Error("No active session"));
+    const editorContent = [
+      systemPromptContent ? `[SYSTEM PROMPT]\n${systemPromptContent}` : null,
+      userMessageContent  ? `[USER MESSAGE]\n${userMessageContent}`   : null,
+    ]
+      .filter(Boolean)
+      .join("\n\n") || undefined;
+    return streamPromptLabChat(session.sessionId, { message, editorContent }, { onDelta });
+  });
   const { provider } = useProviderPreference();
   const { registerReset, unregisterReset } = useNavigationContext();
 
@@ -41,15 +49,16 @@ export function PromptLabWindow() {
     useResizableVerticalSplit(60);
 
   // == Register nav reset handler == //
+  const { resetChat } = sendChat;   // stable identity, safe as an effect dependency
   useEffect(() => {
     registerReset("prompt-lab", () => {
       setSession(null);
       setChallenge(null);
       setLastResult(null);
-      setChatMessages([]);
+      resetChat();
     });
     return () => unregisterReset("prompt-lab");
-  }, [registerReset, unregisterReset]);
+  }, [registerReset, unregisterReset, resetChat]);
 
   // Snap editors to full height when results close, restore split when they open
   useEffect(() => {
@@ -94,7 +103,7 @@ export function PromptLabWindow() {
         onSuccess: (data) => {
           setSession(data);
           setChallenge(found);
-          setChatMessages([]);
+          sendChat.resetChat();
         },
       }
     );
@@ -123,35 +132,7 @@ export function PromptLabWindow() {
 
   function handleSendChat(message: string) {
     if (!session) return;
-
-    // Build structured editor content from both prompt editors
-    const editorContent = [
-      systemPromptContent ? `[SYSTEM PROMPT]\n${systemPromptContent}` : null,
-      userMessageContent  ? `[USER MESSAGE]\n${userMessageContent}`   : null,
-    ]
-      .filter(Boolean)
-      .join("\n\n") || undefined;
-
-    // Optimistically append user message
-    setFailedChatTurn(null);
-    setChatDraft(null);
-    setChatMessages((prev) => [...prev, { role: "user", content: message }]);
-
-    sendChat.mutate(
-      { sessionId: session.sessionId, message, editorContent },
-      {
-        onSuccess: (data) => {
-          setChatMessages((prev) => [...prev, { role: "assistant", content: data.response }]);
-        },
-        onError: (error) => {
-          // The server rolled the turn back — mirror it: drop the optimistic user bubble, keep
-          // the partial reply visible as a failed turn, and put the message back in the input.
-          setChatMessages((prev) => prev.slice(0, -1));
-          setFailedChatTurn({ partial: sendChat.getStreamedText(), message: error.message });
-          setChatDraft({ text: message });
-        },
-      }
-    );
+    sendChat.sendMessage(message);
   }
 
   // == No session: show challenge selector == //
@@ -262,12 +243,12 @@ export function PromptLabWindow() {
             lastAttempt={lastResult}
             attemptCount={session.attempts.length}
             onSubmit={handleSubmit}
-            chatMessages={chatMessages}
+            chatMessages={sendChat.messages}
             onSendMessage={handleSendChat}
-            isSendingChat={sendChat.isPending}
+            isSendingChat={sendChat.isSending}
             streamingText={sendChat.streamingText}
-            failedTurn={failedChatTurn}
-            draft={chatDraft}
+            failedTurn={sendChat.failedTurn}
+            draft={sendChat.draft}
           />
         </div>
       </div>

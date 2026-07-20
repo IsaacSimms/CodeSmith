@@ -91,28 +91,13 @@ public class SessionController : ControllerBase
         if (!Enum.IsDefined(typeof(AiProvider), request.Provider))
             return BadRequest(new { error = "Invalid provider value. Use Anthropic, OpenAi, or Xai." });
 
-        var writer = new NdjsonStreamWriter(Response);
-        try
-        {
-            var session = await _tutoringService.StreamGenerateProblemAsync(
+        // Envelope owns the chunk-contract choreography (final/error events, status-line freeze)
+        return await NdjsonStreamEnvelope.RunAsync(Response, writer =>
+            _tutoringService.StreamGenerateProblemAsync(
                 request.Difficulty, request.Language, request.Provider,
                 writer.WriteDeltaAsync,
                 writer.WriteResetAsync,
-                ct);
-            await writer.WriteFinalAsync(session, ct);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            // Client gone — nothing to write and nobody to receive it
-        }
-        catch (Exception ex) when (Response.HasStarted)
-        {
-            // Status line is frozen once deltas were written; the failure must ride the stream
-            await writer.WriteErrorAsync(ex);
-        }
-        // Pre-stream failures (402 quota, 429, 502 before the first delta) propagate to
-        // AppExceptionHandler while the status line is still writable
-        return new EmptyResult();   // body was written directly; nothing for MVC to execute
+                ct), ct);
     }
 
     // == Chat Endpoint == //
@@ -144,26 +129,11 @@ public class SessionController : ControllerBase
         [FromBody] ChatRequest request,
         CancellationToken ct)
     {
-        var writer = new NdjsonStreamWriter(Response);
-        try
-        {
-            var response = await _tutoringService.StreamGuidanceAsync(
+        // Envelope owns the chunk-contract choreography (final/error events, status-line freeze)
+        return await NdjsonStreamEnvelope.RunAsync(Response, writer =>
+            _tutoringService.StreamGuidanceAsync(
                 sessionId, request.Message, request.EditorContent, request.GuidanceMode,
-                writer.WriteDeltaAsync, ct);
-            await writer.WriteFinalAsync(response, ct);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            // Client gone — nothing to write and nobody to receive it
-        }
-        catch (Exception ex) when (Response.HasStarted)
-        {
-            // Status line is frozen once deltas were written; the failure must ride the stream
-            await writer.WriteErrorAsync(ex);
-        }
-        // Pre-stream failures (402 quota, 404 session, 429, 502 before the first delta) propagate
-        // to AppExceptionHandler while the status line is still writable
-        return new EmptyResult();
+                writer.WriteDeltaAsync, ct), ct);
     }
 
     // == Run Code Endpoint == //

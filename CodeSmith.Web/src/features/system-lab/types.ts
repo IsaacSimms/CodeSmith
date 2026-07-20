@@ -96,13 +96,6 @@ export interface SystemLabChatResponse {
   response: string;
 }
 
-// == Local Chat Display Type == //
-
-export interface SystemLabChatMessage {
-  role: "user" | "assistant";
-  content: string;
-}
-
 // == Display Helpers == //
 
 export const categoryLabels: Record<SystemLabCategory, string> = {
