@@ -38,7 +38,7 @@ export function ChatPanel({ problemDescription, messages, onSendMessage, isSendi
           style={{ height: `${topPercent}%` }}
         >
           <h2 className="mb-1 text-sm font-semibold text-gray-400">Problem</h2>
-          <p className="whitespace-pre-wrap text-sm text-gray-300">{problemDescription}</p>
+          <p className="whitespace-pre-wrap text-sm text-gray-100">{problemDescription}</p>
         </div>
 
         {/* == Drag Divider == */}

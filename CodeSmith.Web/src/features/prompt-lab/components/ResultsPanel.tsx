@@ -64,7 +64,7 @@ export function ResultsPanel({ result, isEvaluating, onClear }: ResultsPanelProp
             {result.adversarialHint && (
               <div className="mt-4 border-t border-gray-700 pt-3">
                 <p className="mb-1 text-xs font-semibold text-gray-500">What You Were Fighting Against</p>
-                <p className="whitespace-pre-wrap break-words text-gray-400 italic">"{result.adversarialHint}"</p>
+                <p className="whitespace-pre-wrap break-words text-gray-200 italic">"{result.adversarialHint}"</p>
               </div>
             )}
           </div>

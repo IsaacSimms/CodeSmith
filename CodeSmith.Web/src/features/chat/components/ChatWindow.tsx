@@ -155,7 +155,7 @@ export function ChatWindow() {
             <h2 className="mb-2 text-sm font-semibold text-gray-400">
               {createSession.isRetrying ? "Taking another pass at your problem…" : "Writing your problem…"}
             </h2>
-            <p className="whitespace-pre-wrap text-sm text-gray-300">{createSession.streamingDescription}</p>
+            <p className="whitespace-pre-wrap text-sm text-gray-100">{createSession.streamingDescription}</p>
           </div>
         ) : (
           <div>

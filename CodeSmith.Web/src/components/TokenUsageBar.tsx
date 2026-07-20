@@ -24,12 +24,12 @@ export function TokenUsageBar({ tokensUsed, contextWindowSize, label, descriptio
         {/* == Hover Tooltip (floats below the bar) == */}
         <div className="pointer-events-none absolute top-full left-0 right-0 z-10 mt-1 rounded-md border border-gray-700 bg-gray-800 px-3 py-2 shadow-lg opacity-0 transition-opacity duration-200 group-hover:opacity-100">
           <div className="mb-1 flex items-baseline justify-between">
-            <span className="text-xs font-semibold text-gray-400">{label}</span>
-            <span className="font-mono text-xs tabular-nums text-gray-500">
+            <span className="text-xs font-semibold text-gray-100">{label}</span>
+            <span className="font-mono text-xs tabular-nums text-gray-200">
               {tokensUsed.toLocaleString()} / {contextWindowSize.toLocaleString()} tokens
             </span>
           </div>
-          <p className="text-xs text-gray-600">{description}</p>
+          <p className="text-xs text-gray-300">{description}</p>
         </div>
 
         {/* == Fill Bar == */}

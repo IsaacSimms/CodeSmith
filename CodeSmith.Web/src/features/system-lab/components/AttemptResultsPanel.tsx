@@ -147,7 +147,7 @@ function TradeoffRow({ result }: { result: TradeoffResult }) {
         <span className={`mt-0.5 shrink-0 text-xs font-bold ${result.engaged ? "text-green-400" : "text-red-400"}`}>
           {result.engaged ? "✓" : "✗"}
         </span>
-        <span className="flex-1 text-xs leading-relaxed text-gray-300">{result.tradeoffQuestion}</span>
+        <span className="flex-1 text-xs leading-relaxed text-gray-100">{result.tradeoffQuestion}</span>
         <span className="shrink-0 text-xs text-gray-600">{expanded ? "▲" : "▼"}</span>
       </button>
       {expanded && result.feedback && (

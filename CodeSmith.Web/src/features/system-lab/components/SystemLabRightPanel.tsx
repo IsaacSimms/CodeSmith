@@ -64,13 +64,13 @@ export function SystemLabRightPanel({
               {/* Description */}
               <section>
                 <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Scenario</h3>
-                <p className="whitespace-pre-wrap text-xs leading-relaxed text-gray-300">{scenario.description.trim()}</p>
+                <p className="whitespace-pre-wrap text-xs leading-relaxed text-gray-100">{scenario.description.trim()}</p>
               </section>
 
               {/* Constraints */}
               <section>
                 <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Constraints</h3>
-                <p className="whitespace-pre-wrap text-xs leading-relaxed text-gray-300">{scenario.constraints.trim()}</p>
+                <p className="whitespace-pre-wrap text-xs leading-relaxed text-gray-100">{scenario.constraints.trim()}</p>
               </section>
 
               {/* Required tradeoffs */}
@@ -78,7 +78,7 @@ export function SystemLabRightPanel({
                 <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Required Tradeoffs</h3>
                 <ol className="list-decimal space-y-1 pl-4">
                   {scenario.requiredTradeoffs.map((t, i) => (
-                    <li key={i} className="text-xs leading-relaxed text-gray-300">{t}</li>
+                    <li key={i} className="text-xs leading-relaxed text-gray-100">{t}</li>
                   ))}
                 </ol>
               </section>
@@ -90,10 +90,10 @@ export function SystemLabRightPanel({
                   {scenario.rubric.map((criterion) => (
                     <div key={criterion.criterionId} className="rounded border border-gray-700 px-3 py-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-gray-300">{criterion.name}</span>
+                        <span className="text-xs font-medium text-gray-200">{criterion.name}</span>
                         <span className="text-xs text-gray-500">{criterion.maxPoints} pts</span>
                       </div>
-                      <p className="mt-0.5 text-xs text-gray-500">{criterion.description}</p>
+                      <p className="mt-0.5 text-xs text-gray-300">{criterion.description}</p>
                     </div>
                   ))}
                 </div>
