@@ -80,7 +80,14 @@ public class TutoringService : ITutoringService
         var session = _sessionStore.Get(sessionId.ToString())
             ?? throw new SessionNotFoundException(sessionId);
 
-        return await _codeExecutionService.ExecuteAsync(language, code, ct);
+        return await _codeExecutionService.ExecuteAsync(
+            new CodeExecutionRequest
+            {
+                Language = language,
+                Code = code,
+                SessionId = sessionId
+            },
+            ct);
     }
 
     // == Guidance == //

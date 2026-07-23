@@ -222,7 +222,7 @@ public class TutoringServiceTests
 
         var expectedResult = new CodeExecutionResult { Stdout = "42\n", ExitCode = 0 };
         var codeExec = Substitute.For<ICodeExecutionService>();
-        codeExec.ExecuteAsync(Language.Python, "print(42)", Arg.Any<CancellationToken>())
+        codeExec.ExecuteAsync(Arg.Any<CodeExecutionRequest>(), Arg.Any<CancellationToken>())
             .Returns(expectedResult);
 
         var service = BuildService(store: store, codeExec: codeExec);

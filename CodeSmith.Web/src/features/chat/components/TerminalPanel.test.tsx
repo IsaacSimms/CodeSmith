@@ -1,6 +1,6 @@
 // == Terminal Panel Tests == //
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { TerminalPanel } from "./TerminalPanel";
 
@@ -59,6 +59,23 @@ describe("TerminalPanel", () => {
     render(<TerminalPanel result={null} isRunning={true} onClear={vi.fn()} />);
 
     expect(screen.getByText("Running…")).toBeInTheDocument();
+  });
+
+  it("shows Starting sandbox copy after 5s while still running", () => {
+    vi.useFakeTimers();
+    render(<TerminalPanel result={null} isRunning={true} onClear={vi.fn()} />);
+
+    expect(screen.getByText("Running code…")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(5_000);
+    });
+
+    expect(screen.getByText("Starting sandbox…")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Starting sandbox… first run after idle can take up to a minute/)
+    ).toBeInTheDocument();
+    vi.useRealTimers();
   });
 
   it("shows (no output) when stdout and stderr are both empty", () => {

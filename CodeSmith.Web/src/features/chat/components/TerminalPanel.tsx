@@ -1,4 +1,5 @@
 // == Terminal Panel Component == //
+import { useEffect, useState } from "react";
 import type { RunCodeResponse } from "../types";
 
 interface TerminalPanelProps {
@@ -7,7 +8,21 @@ interface TerminalPanelProps {
   onClear: () => void;
 }
 
+const SANDBOX_HINT_MS = 5_000; // After this pending duration, show cold-start messaging
+
 export function TerminalPanel({ result, isRunning, onClear }: TerminalPanelProps) {
+  const [showSandboxHint, setShowSandboxHint] = useState(false);
+
+  // == Slow-run hint for Dynamic Sessions cold start == //
+  useEffect(() => {
+    if (!isRunning) {
+      setShowSandboxHint(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setShowSandboxHint(true), SANDBOX_HINT_MS);
+    return () => window.clearTimeout(timer);
+  }, [isRunning]);
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* == Panel Header == */}
@@ -17,7 +32,9 @@ export function TerminalPanel({ result, isRunning, onClear }: TerminalPanelProps
 
           {/* == Status Badges == */}
           {isRunning && (
-            <span className="rounded bg-blue-900 px-2 py-0.5 text-xs text-blue-300">Running…</span>
+            <span className="rounded bg-blue-900 px-2 py-0.5 text-xs text-blue-300">
+              {showSandboxHint ? "Starting sandbox…" : "Running…"}
+            </span>
           )}
           {!isRunning && result && (
             <span
@@ -48,7 +65,11 @@ export function TerminalPanel({ result, isRunning, onClear }: TerminalPanelProps
       {/* == Output Area == */}
       <div className="flex-1 overflow-y-auto bg-gray-900 p-3 font-mono text-sm">
         {isRunning && !result && (
-          <span className="text-gray-500">Running code…</span>
+          <span className="text-gray-500">
+            {showSandboxHint
+              ? "Starting sandbox… first run after idle can take up to a minute."
+              : "Running code…"}
+          </span>
         )}
 
         {result && (

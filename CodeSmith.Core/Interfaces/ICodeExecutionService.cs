@@ -1,5 +1,4 @@
 // == Code Execution Service Interface == //
-using CodeSmith.Core.Enums;
 using CodeSmith.Core.Models;
 
 namespace CodeSmith.Core.Interfaces;
@@ -9,5 +8,6 @@ namespace CodeSmith.Core.Interfaces;
 /// </summary>
 public interface ICodeExecutionService
 {
-    Task<CodeExecutionResult> ExecuteAsync(Language language, string code, CancellationToken ct = default); // Executes user code and returns stdout, stderr, exit code, and timeout status
+    // Executes user code and returns stdout, stderr, exit code, and timeout status
+    Task<CodeExecutionResult> ExecuteAsync(CodeExecutionRequest request, CancellationToken ct = default);
 }

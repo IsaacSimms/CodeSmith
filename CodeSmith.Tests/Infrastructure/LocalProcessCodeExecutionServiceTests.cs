@@ -1,6 +1,7 @@
 // == Code Execution Service Tests == //
 using CodeSmith.Core.Enums;
 using CodeSmith.Core.Exceptions;
+using CodeSmith.Core.Models;
 using CodeSmith.Infrastructure.Services;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
@@ -23,7 +24,7 @@ public class LocalProcessCodeExecutionServiceTests
     [Trait("Category", "Integration")]
     public async Task ExecuteAsync_PythonStdout_CapturesOutput()
     {
-        var result = await _service.ExecuteAsync(Language.Python, "print('hello world')");
+        var result = await _service.ExecuteAsync(Req(Language.Python, "print('hello world')"));
 
         Assert.Equal("hello world\n", result.Stdout.Replace("\r\n", "\n"));
         Assert.Equal(0, result.ExitCode);
@@ -34,7 +35,7 @@ public class LocalProcessCodeExecutionServiceTests
     [Trait("Category", "Integration")]
     public async Task ExecuteAsync_PythonStderr_CapturesError()
     {
-        var result = await _service.ExecuteAsync(Language.Python, "import sys; sys.stderr.write('oops')");
+        var result = await _service.ExecuteAsync(Req(Language.Python, "import sys; sys.stderr.write('oops')"));
 
         Assert.Contains("oops", result.Stderr);
     }
@@ -43,7 +44,7 @@ public class LocalProcessCodeExecutionServiceTests
     [Trait("Category", "Integration")]
     public async Task ExecuteAsync_PythonSyntaxError_ReturnsNonZeroExit()
     {
-        var result = await _service.ExecuteAsync(Language.Python, "def broken(");
+        var result = await _service.ExecuteAsync(Req(Language.Python, "def broken("));
 
         Assert.NotEqual(0, result.ExitCode);
         Assert.Contains("SyntaxError", result.Stderr);
@@ -53,7 +54,7 @@ public class LocalProcessCodeExecutionServiceTests
     [Trait("Category", "Integration")]
     public async Task ExecuteAsync_PythonInfiniteLoop_TimesOut()
     {
-        var result = await _service.ExecuteAsync(Language.Python, "while True: pass");
+        var result = await _service.ExecuteAsync(Req(Language.Python, "while True: pass"));
 
         Assert.True(result.TimedOut);
     }
@@ -75,7 +76,7 @@ public class LocalProcessCodeExecutionServiceTests
         // should throw CodeExecutionException, not ArgumentOutOfRangeException.
         try
         {
-            await _service.ExecuteAsync(language, "// placeholder");
+            await _service.ExecuteAsync(Req(language, "// placeholder"));
         }
         catch (CodeExecutionException)
         {
@@ -93,6 +94,9 @@ public class LocalProcessCodeExecutionServiceTests
         cts.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => _service.ExecuteAsync(Language.Python, "print('hi')", cts.Token));
+            () => _service.ExecuteAsync(Req(Language.Python, "print('hi')"), cts.Token));
     }
+
+    private static CodeExecutionRequest Req(Language language, string code) =>
+        new() { Language = language, Code = code };
 }

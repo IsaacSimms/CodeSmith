@@ -3,6 +3,7 @@ using System.Net;
 using System.Text;
 using CodeSmith.Core.Enums;
 using CodeSmith.Core.Exceptions;
+using CodeSmith.Core.Models;
 using CodeSmith.Infrastructure.Configuration;
 using CodeSmith.Infrastructure.Services.Piston;
 using Microsoft.Extensions.Logging;
@@ -47,7 +48,7 @@ public class PistonCodeExecutionServiceTests
             """);
         var service = CreateService(handler);
 
-        var result = await service.ExecuteAsync(Language.Python, "print('hello')");
+        var result = await service.ExecuteAsync(Req(Language.Python, "print('hello')"));
 
         Assert.Equal("hello\n", result.Stdout);
         Assert.Equal(0, result.ExitCode);
@@ -62,7 +63,7 @@ public class PistonCodeExecutionServiceTests
             """);
         var service = CreateService(handler);
 
-        var result = await service.ExecuteAsync(Language.Python, "raise Exception()");
+        var result = await service.ExecuteAsync(Req(Language.Python, "raise Exception()"));
 
         Assert.Equal(1, result.ExitCode);
         Assert.Contains("Traceback", result.Stderr);
@@ -77,7 +78,7 @@ public class PistonCodeExecutionServiceTests
             """);
         var service = CreateService(handler);
 
-        var result = await service.ExecuteAsync(Language.Python, "while True: pass");
+        var result = await service.ExecuteAsync(Req(Language.Python, "while True: pass"));
 
         Assert.True(result.TimedOut);
         Assert.Equal(-1, result.ExitCode);
@@ -96,7 +97,7 @@ public class PistonCodeExecutionServiceTests
             """);
         var service = CreateService(handler);
 
-        var result = await service.ExecuteAsync(Language.Cpp, "int main() { return 0 }");
+        var result = await service.ExecuteAsync(Req(Language.Cpp, "int main() { return 0 }"));
 
         Assert.Equal(1, result.ExitCode);
         Assert.Contains("expected ';'", result.Stderr);
@@ -110,7 +111,7 @@ public class PistonCodeExecutionServiceTests
         var service = CreateService(handler);
 
         var ex = await Assert.ThrowsAsync<CodeExecutionException>(
-            () => service.ExecuteAsync(Language.Python, "print('hi')"));
+            () => service.ExecuteAsync(Req(Language.Python, "print('hi')")));
 
         Assert.Contains("400", ex.Message);
         Assert.Contains("Requested runtime is unknown", ex.Message);
@@ -123,7 +124,7 @@ public class PistonCodeExecutionServiceTests
         var service = CreateService(handler);
 
         var ex = await Assert.ThrowsAsync<CodeExecutionException>(
-            () => service.ExecuteAsync(Language.Python, "print('hi')"));
+            () => service.ExecuteAsync(Req(Language.Python, "print('hi')")));
 
         Assert.Contains("Piston unavailable", ex.Message);
     }
@@ -137,13 +138,16 @@ public class PistonCodeExecutionServiceTests
             """);
         var service = CreateService(handler, maxOutputLength: 10);
 
-        var result = await service.ExecuteAsync(Language.Python, "print('x' * 50)");
+        var result = await service.ExecuteAsync(Req(Language.Python, "print('x' * 50)"));
 
         Assert.Contains("[output truncated]", result.Stdout);
         Assert.True(result.Stdout.Length < 50 + "[output truncated]".Length + 5);
     }
 
     // == Test Helpers == //
+    private static CodeExecutionRequest Req(Language language, string code) =>
+        new() { Language = language, Code = code };
+
     private sealed class StubHandler : HttpMessageHandler
     {
         private readonly HttpResponseMessage? _response;

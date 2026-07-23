@@ -31,8 +31,11 @@ public class LocalProcessCodeExecutionService : ICodeExecutionService
     }
 
     // == Execute User Code == //
-    public async Task<CodeExecutionResult> ExecuteAsync(Language language, string code, CancellationToken ct = default)
+    public async Task<CodeExecutionResult> ExecuteAsync(CodeExecutionRequest request, CancellationToken ct = default)
     {
+        // SessionId is unused by LocalProcess (ephemeral temp dir per call).
+        var language = request.Language;
+        var code = request.Code;
         var tempDir = Path.Combine(Path.GetTempPath(), "codesmith", Guid.NewGuid().ToString());
 
         try

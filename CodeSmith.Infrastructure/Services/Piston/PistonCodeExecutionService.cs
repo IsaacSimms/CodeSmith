@@ -36,19 +36,20 @@ public class PistonCodeExecutionService : ICodeExecutionService
     }
 
     // == Execute User Code == //
-    public async Task<CodeExecutionResult> ExecuteAsync(Language language, string code, CancellationToken ct = default)
+    public async Task<CodeExecutionResult> ExecuteAsync(CodeExecutionRequest request, CancellationToken ct = default)
     {
-        if (!PistonLanguageMap.TryGet(language, out var mapping))
-            throw new CodeExecutionException($"Language '{language}' is not mapped to a Piston runtime.");
+        // SessionId is unused by Piston (stateless HTTP per execute).
+        if (!PistonLanguageMap.TryGet(request.Language, out var mapping))
+            throw new CodeExecutionException($"Language '{request.Language}' is not mapped to a Piston runtime.");
 
         // Piston's /api/v2/execute requires an exact installed version; it does NOT accept "*".
         var version = await _runtimeResolver.ResolveVersionAsync(mapping.Language, ct);
 
-        var request = new PistonExecuteRequest
+        var pistonRequest = new PistonExecuteRequest
         {
             Language = mapping.Language,
             Version = version,
-            Files = new List<PistonFile> { new() { Name = mapping.FileName, Content = code } },
+            Files = new List<PistonFile> { new() { Name = mapping.FileName, Content = request.Code } },
             RunTimeout = _options.RunTimeoutMs,
             CompileTimeout = _options.CompileTimeoutMs
         };
@@ -57,7 +58,7 @@ public class PistonCodeExecutionService : ICodeExecutionService
         try
         {
             var httpClient = _httpClientFactory.CreateClient(PistonHttpClient.Name);
-            var httpResponse = await httpClient.PostAsJsonAsync("/api/v2/execute", request, ct);
+            var httpResponse = await httpClient.PostAsJsonAsync("/api/v2/execute", pistonRequest, ct);
 
             if (!httpResponse.IsSuccessStatusCode)
             {
@@ -66,7 +67,7 @@ public class PistonCodeExecutionService : ICodeExecutionService
                 var body = await httpResponse.Content.ReadAsStringAsync(ct);
                 _logger.LogError(
                     "Piston returned {StatusCode} for {Language} (version={Version}): {Body}",
-                    (int)httpResponse.StatusCode, language, version, body);
+                    (int)httpResponse.StatusCode, request.Language, version, body);
                 throw new CodeExecutionException(
                     $"Piston rejected the request ({(int)httpResponse.StatusCode}): {body}");
             }
@@ -83,7 +84,7 @@ public class PistonCodeExecutionService : ICodeExecutionService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Piston request failed for {Language}", language);
+            _logger.LogError(ex, "Piston request failed for {Language}", request.Language);
             throw new CodeExecutionException(
                 "Piston unavailable. Is the container running? See README for setup instructions.", ex);
         }

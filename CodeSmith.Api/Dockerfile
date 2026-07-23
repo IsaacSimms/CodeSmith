@@ -20,6 +20,7 @@ COPY CodeSmith.Infrastructure/CodeSmith.Infrastructure.csproj CodeSmith.Infrastr
 COPY CodeSmith.Api/CodeSmith.Api.csproj CodeSmith.Api/
 COPY CodeSmith.CLI/CodeSmith.CLI.csproj CodeSmith.CLI/
 COPY CodeSmith.Tests/CodeSmith.Tests.csproj CodeSmith.Tests/
+COPY CodeSmith.Executor/CodeSmith.Executor.csproj CodeSmith.Executor/
 COPY CodeSmith.Web/CodeSmith.Web.esproj CodeSmith.Web/
 
 # Restore using the solution file. This is the single source of truth and matches the

@@ -5,6 +5,7 @@ using CodeSmith.Infrastructure.Configuration;
 using CodeSmith.Infrastructure.Persistence;
 using CodeSmith.Infrastructure.Persistence.Repositories;
 using CodeSmith.Infrastructure.Services;
+using CodeSmith.Infrastructure.Services.DynamicSessions;
 using CodeSmith.Infrastructure.Services.Piston;
 using CodeSmith.Infrastructure.Services.PromptLab;
 using CodeSmith.Infrastructure.Services.SystemLab;
@@ -139,8 +140,8 @@ public static class ServiceCollectionExtensions
 
         // == Code Execution Backend Selection == //
         // Reads CodeExecution:Backend from config and wires the matching implementation.
-        // "Piston" (default) routes to the sandboxed Docker-hosted runner.
-        // "LocalProcess" runs code directly on the host — development fallback only.
+        // "Piston" (default) → local Docker sandbox. "LocalProcess" → host processes (dev only).
+        // "DynamicSessions" → Azure Container Apps custom session pool (Hyper-V sandboxes).
         var backend = configuration.GetSection(CodeExecutionOptions.SectionName)["Backend"] ?? "Piston";
 
         if (string.Equals(backend, "Piston", StringComparison.OrdinalIgnoreCase))
@@ -161,10 +162,25 @@ public static class ServiceCollectionExtensions
         {
             services.AddScoped<ICodeExecutionService, LocalProcessCodeExecutionService>();
         }
+        else if (string.Equals(backend, "DynamicSessions", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddHttpClient(DynamicSessionsHttpClient.Name, (sp, client) =>
+            {
+                var opts = sp.GetRequiredService<IOptions<CodeExecutionOptions>>().Value.DynamicSessions;
+                if (string.IsNullOrWhiteSpace(opts.PoolManagementEndpoint))
+                    throw new InvalidOperationException(
+                        "CodeExecution:DynamicSessions:PoolManagementEndpoint is required when Backend is DynamicSessions.");
+                client.BaseAddress = new Uri(opts.PoolManagementEndpoint.TrimEnd('/') + "/");
+                client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds);
+            }).AddStandardResilienceHandler();
+
+            services.AddSingleton<IDynamicSessionsTokenProvider, DefaultAzureDynamicSessionsTokenProvider>();
+            services.AddScoped<ICodeExecutionService, DynamicSessionsCodeExecutionService>();
+        }
         else
         {
             throw new InvalidOperationException(
-                $"Unknown CodeExecution:Backend value '{backend}'. Expected 'Piston' or 'LocalProcess'.");
+                $"Unknown CodeExecution:Backend value '{backend}'. Expected 'Piston', 'LocalProcess', or 'DynamicSessions'.");
         }
 
         // Provide a default ICurrentUser so decorator registration succeeds.
