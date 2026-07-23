@@ -86,4 +86,64 @@ describe("MessageBubble", () => {
 
     expect(screen.getByText("Just a normal reply.")).toBeInTheDocument();
   });
+
+  it("renders GFM pipe tables as HTML tables for assistant messages", () => {
+    const content = [
+      "| Number | Binary |",
+      "| --- | --- |",
+      "| 1 | 0001 |",
+      "| 2 | 0010 |",
+    ].join("\n");
+
+    const { container } = render(<MessageBubble role="Assistant" content={content} />);
+
+    const table = container.querySelector("table");
+    expect(table).toBeInTheDocument();
+    expect(screen.getByText("Number")).toBeInTheDocument();
+    expect(screen.getByText("Binary")).toBeInTheDocument();
+    expect(screen.getByText("0001")).toBeInTheDocument();
+    expect(screen.getByText("0010")).toBeInTheDocument();
+  });
+
+  it("wraps assistant tables in a horizontal scroll container", () => {
+    const content = [
+      "| A | B |",
+      "| --- | --- |",
+      "| 1 | 2 |",
+    ].join("\n");
+
+    const { container } = render(<MessageBubble role="Assistant" content={content} />);
+
+    const table = container.querySelector("table");
+    const scrollWrapper = table?.parentElement;
+    expect(scrollWrapper).toBeTruthy();
+    expect(scrollWrapper?.className).toContain("overflow-x-auto");
+  });
+
+  it("renders assistant markdown links with external target and safe rel", () => {
+    render(
+      <MessageBubble
+        role="Assistant"
+        content="See [docs](https://example.com/docs) for details."
+      />,
+    );
+
+    const link = screen.getByRole("link", { name: "docs" });
+    expect(link).toHaveAttribute("href", "https://example.com/docs");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("does not parse GFM tables in user messages", () => {
+    const content = [
+      "| Number | Binary |",
+      "| --- | --- |",
+      "| 1 | 0001 |",
+    ].join("\n");
+
+    const { container } = render(<MessageBubble role="User" content={content} />);
+
+    expect(container.querySelector("table")).not.toBeInTheDocument();
+    expect(container.querySelector("p")?.textContent).toContain("| Number | Binary |");
+  });
 });

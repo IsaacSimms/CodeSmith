@@ -1,6 +1,7 @@
 // == Message Bubble Component == //
 import Markdown from "react-markdown";
 import type { Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { MessageRole } from "../types";
 import { CodeBlock } from "./CodeBlock";
 
@@ -41,6 +42,42 @@ const markdownComponents: Components = {
   p({ children }) {
     return <p className="mb-2 last:mb-0 break-words">{children}</p>;
   },
+  // GFM tables — horizontal scroll so wide grids stay inside the bubble
+  table({ children }) {
+    return (
+      <div className="my-2 overflow-x-auto rounded border border-gray-600">
+        <table className="w-full border-collapse text-sm">{children}</table>
+      </div>
+    );
+  },
+  thead({ children }) {
+    return <thead className="bg-gray-800">{children}</thead>;
+  },
+  th({ children }) {
+    return (
+      <th className="border border-gray-600 px-2 py-1.5 text-left font-semibold text-gray-100">
+        {children}
+      </th>
+    );
+  },
+  td({ children }) {
+    return (
+      <td className="border border-gray-600 px-2 py-1.5 text-gray-100">{children}</td>
+    );
+  },
+  // Autolinks / markdown links — dark-theme safe, open externally
+  a({ href, children }) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-accent underline underline-offset-2 hover:text-accent-hover"
+      >
+        {children}
+      </a>
+    );
+  },
 };
 
 export function MessageBubble({ role, content }: MessageBubbleProps) {
@@ -56,7 +93,9 @@ export function MessageBubble({ role, content }: MessageBubbleProps) {
         {isUser ? (
           <p className="whitespace-pre-wrap break-words">{content}</p>
         ) : (
-          <Markdown components={markdownComponents}>{content}</Markdown>
+          <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+            {content}
+          </Markdown>
         )}
       </div>
     </div>
