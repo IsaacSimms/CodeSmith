@@ -1,8 +1,8 @@
 # CodeSmith
 
-AI-powered interview practice tool with three independent surfaces: **Tutoring** (a coding problem with starter code in a split-screen editor and a Socratic AI pair programmer that always has the current editor contents), **Prompt Lab** (prompt-engineering challenges scored against a rubric), and **System Lab** (system-design justification scenarios). All three run over one provider-agnostic LLM layer, and every LLM call is metered against a per-user free quota + paid credit balance so the SaaS cannot run at a loss.
+AI-powered interview practice tool with three independent surfaces: **Tutoring** (a coding problem with starter code in a split-screen editor and a Socratic AI pair programmer that always has the current editor contents), **Prompt Lab** (prompt-engineering challenges scored against a rubric), and **System Lab** (system-design justification scenarios). All three run over one provider-agnostic LLM layer (blocking + NDJSON streaming), and every LLM call is metered against a per-user free quota + paid credit balance so the SaaS cannot run at a loss.
 
-> **`context.md` (repo root) is the exhaustive architecture reference** — seams, full API surface, the usage/credits subsystem, and the project's Ubiquitous Language. Consult it for anything this file doesn't cover.
+> **`context.md` (repo root) is the exhaustive architecture reference** — seams, full API surface, streaming contract, usage/credits, Dynamic Sessions, deploy topology, and the project's Ubiquitous Language. Consult it for anything this file doesn't cover.
 
 ## Stack
 
@@ -10,7 +10,10 @@ AI-powered interview practice tool with three independent surfaces: **Tutoring**
 |---------------|--------------------------------|
 | Backend       | .NET 8, ASP.NET Core Web API   |
 | AI            | Anthropic, OpenAI, and xAI/Grok SDKs (provider chosen per session; xAI default) |
-| Payments      | Stripe.net (prepaid credit top-ups; test mode) |
+| Payments      | Stripe.net (prepaid credit top-ups) |
+| Auth          | Entra External ID (CIAM) + MSAL SPA; Development `X-Debug-User-Id` allow-list |
+| Code sandbox  | Piston (local Docker default), LocalProcess (dev host), DynamicSessions (Azure) |
+| Telemetry     | OpenTelemetry → App Insights when `APPLICATIONINSIGHTS_CONNECTION_STRING` is set |
 | Frontend      | React 19, TypeScript, Vite 6   |
 | Styling       | Tailwind CSS v4                |
 | Data Fetching | TanStack Query v5              |
@@ -22,36 +25,51 @@ AI-powered interview practice tool with three independent surfaces: **Tutoring**
 ## Folder Structure
 
 - `CodeSmith.Core/` — Domain models, enums, interfaces
-- `CodeSmith.Infrastructure/` — LLM provider adapters, usage/credits enforcement, Stripe billing (`Billing/`), code execution, in-memory session stores, EF persistence
+- `CodeSmith.Infrastructure/` — LLM provider adapters, usage/credits, Stripe billing (`Billing/`), code execution (`Piston/`, `DynamicSessions/`, LocalProcess), in-memory session stores, EF persistence
 - `CodeSmith.Api/` — ASP.NET Core Web API (HTTPS 7111, HTTP 5175)
-- `CodeSmith.CLI/` — Command-line interface
+  - `Authorization/` — `[MeteredAi]` + login_required 401 handler
+  - `Streaming/` — NDJSON stream writer for `/stream` endpoints
+- `CodeSmith.Executor/` — Multi-language Minimal API image for Azure custom Dynamic Sessions
+- `CodeSmith.CLI/` — Command-line interface (blocking JSON)
 - `CodeSmith.Tests/` — Backend unit/integration tests (Api/, CLI/, Core/, Infrastructure/)
 - `CodeSmith.Web/` — React frontend (Vite dev server on port 5173)
-  - `src/lib/` — API client (native fetch, no axios)
-  - `src/features/chat/` — Types, hooks, components
+  - `src/lib/` — API client (native fetch, no axios; `streamRequest` for NDJSON)
+  - `src/auth/` — MSAL (email + Google sign-in chooser)
+  - `src/features/chat|prompt-lab|system-lab|billing|home/`
   - `e2e/` — Playwright end-to-end tests
+- `Docs/` — Recaps, handoffs, general Azure runbooks (Entra, Dynamic Sessions)
+- `.github/workflows/` — `deploy-azure.yml`, `deploy-swa.yml`, `deploy-executor.yml` (all manual)
 
 ## API Endpoints
 
-LLM-mutating endpoints require auth (`[Authorize]`; in Development an allow-listed `X-Debug-User-Id` header satisfies it). Any metered call can return **402** when free quota and paid credits are exhausted. The Tutoring endpoints below are the originals; the **Prompt Lab** (`/api/prompt-lab/...`), **System Lab** (`/api/system-lab/...`), code-run (`/api/session/{id}/run`), and `/api/providers` endpoints are documented in full in `context.md`.
+LLM-mutating endpoints use **`[MeteredAi]`** (subclasses `[Authorize]`). In Development an allow-listed `X-Debug-User-Id` header satisfies auth. Metered auth failures return **401** ProblemDetails with `code: "login_required"`. Any metered call can return **402** when free quota and paid credits are exhausted. **429** = IP rate limit.
 
-### POST /api/session 🔒
+Sibling **`/stream`** routes speak the NDJSON chunk contract (`delta` / `reset` / `final` / `error`); the SPA consumes those. Blocking JSON remains for the CLI. Full table + DTOs in `context.md`.
+
+The Tutoring endpoints below are the originals; **Prompt Lab** (`/api/prompt-lab/...`), **System Lab** (`/api/system-lab/...`), code-run (`/api/session/{id}/run`), providers, and billing are documented in full in `context.md`.
+
+### POST /api/session 🔒 `[MeteredAi]`
 Create a new coding problem session.
 - Request: `{ "difficulty": "Easy" | "Medium" | "Hard", "language": "CSharp" | "Cpp" | "Go" | "Rust" | "Python" | "Java" | "TypeScript", "provider": "Anthropic" | "OpenAi" | "Xai" }`
 - Response (201): `{ sessionId, difficulty, language, provider, problemDescription, starterCode, messages: [], createdAt }`
+- Stream sibling: `POST /api/session/stream` (description deltas + final `ProblemSession`)
 
-### POST /api/session/{sessionId}/chat 🔒
+### POST /api/session/{sessionId}/chat 🔒 `[MeteredAi]`
 Send a message in an existing session.
 - Request: `{ "message": "..." (1-2000 chars), "editorContent?": "..." (optional, max 50000 chars), "guidanceMode?": "Guidance" | "CodeAnalysis" }`
 - Response (200): `{ "response": "...", "contextTokensUsed", "contextWindowSize" }`
 - `editorContent` passes the current code editor contents so the AI can reference the student's actual code
-- Errors: 400, 402, 404, 429, 502
+- Stream sibling: `POST /api/session/{sessionId}/chat/stream`
+- Errors: 400, **401**, 402, 404, 429, 502
+
+### POST /api/session/{sessionId}/run
+Execute user code in the configured sandbox (`CodeExecution:Backend`). Not LLM-metered; no `[MeteredAi]`. Dynamic Sessions requires the tutoring session id as the pool identifier.
 
 ### Billing (Stripe prepaid credits)
 
 Separate module from usage enforcement: **billing writes credits, enforcement debits them** — billing never references `IUsageEnforcer` or any LLM service. `objectId` comes only from `ICurrentUser`. Full seam/entity detail in `context.md`.
 
-#### POST /api/billing/checkout 🔒
+#### POST /api/billing/checkout 🔐 `[Authorize]`
 Create a Stripe Checkout session for a credit pack.
 - Request: `{ "priceId": "..." }` — must be an allow-listed Price ID (`StripeOptions.PriceIds`)
 - Response (200): `{ "url": "..." }` (hosted Stripe checkout URL, redirect mode)
@@ -61,10 +79,10 @@ Create a Stripe Checkout session for a credit pack.
 Stripe completion webhook — **anonymous, signature-verified, raw body** (no model binding). Idempotent via a `ProcessedStripeEvent` dedup table; on `checkout.session.completed` it credits `amount_total` (USD) to `PaidCreditsBalance` and appends a `TopUp` ledger row atomically.
 - Contract: **400** invalid signature · **200** processed / duplicate / ignored (e.g. non-USD) · **500** transient failure (Stripe retries)
 
-#### GET /api/billing/balance 🔒
+#### GET /api/billing/balance 🔐 `[Authorize]`
 Returns the caller's paid credits: `{ "paidCreditsUsd": <decimal> }`.
 
-#### GET /api/billing/ledger?take=20 🔒
+#### GET /api/billing/ledger?take=20 🔐 `[Authorize]`
 Returns the caller's recent ledger rows (top-ups and spends). DTO omits `ProviderCostUsd` (margin) and `RowVersion`.
 
 ## Dev Commands
@@ -75,6 +93,9 @@ cd CodeSmith.Api && dotnet run
 
 # Frontend
 cd CodeSmith.Web && npm run dev
+
+# Local Piston sandbox
+docker compose up -d piston
 
 # Tests
 cd CodeSmith.Tests && dotnet test
@@ -108,3 +129,4 @@ When requested, the workflow is:
 - Tailwind v4: `@import "tailwindcss"` in CSS, no config file needed
 - API client uses native `fetch` with relative `/api` paths
 - All API calls use TanStack Query mutations (no raw `useEffect` + `fetch`)
+- Prefer streaming apiClient helpers for SPA chat/create; keep blocking paths for CLI and non-stream callers

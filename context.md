@@ -2,7 +2,7 @@
 
 CodeSmith is an AI-powered practice tool for technical interviews. It hosts three independent practice surfaces — **Tutoring** (coding problems with a Socratic pair-programmer), **Prompt Lab** (prompt-engineering challenges scored against a rubric), and **System Lab** (system-design justification scenarios) — over a shared, provider-agnostic LLM layer. Every LLM call is metered against a per-user free quota and paid credit balance so the SaaS cannot be run at a loss.
 
-This document is the ground-truth architectural reference. It reflects the repo as of 2026-07-19 (token streaming shipped; SPA Sign in chooser email/Google via CIAM). Keep the Seams table, API Reference, subsystem sections, and the [Ubiquitous Language](#ubiquitous-language) glossary updated as the architecture evolves.
+This document is the ground-truth architectural reference. It reflects the repo as of 2026-07-25 (token streaming; SPA Sign in email/Google via CIAM; MeteredAi 401; Azure Dynamic Sessions + `CodeSmith.Executor`; Stripe billing). Keep the Seams table, API Reference, subsystem sections, and the [Ubiquitous Language](#ubiquitous-language) glossary updated as the architecture evolves.
 
 > **Vocabulary note.** This project uses a deliberate architecture vocabulary — **Module, Interface, Implementation, Depth, Seam, Adapter, Leverage, Locality**. Definitions are in the [Ubiquitous Language](#ubiquitous-language) section at the end. Use these terms exactly; do not substitute "component / service / boundary."
 
@@ -15,7 +15,8 @@ This document is the ground-truth architectural reference. It reflects the repo 
 | Backend        | .NET 8, ASP.NET Core Web API                    |
 | LLM providers  | Anthropic SDK; OpenAI SDK (also drives xAI/Grok via OpenAI-compatible endpoint) |
 | Persistence    | EF Core + SQL Server (usage/credits); in-memory session stores |
-| Code execution | Piston (Docker sandbox, default) or LocalProcess (dev fallback) |
+| Code execution | Piston (Docker sandbox, local default); LocalProcess (dev host fallback); DynamicSessions (Azure custom Dynamic Sessions + `CodeSmith.Executor`) |
+| Payments        | Stripe.net (prepaid credit top-ups; webhook-credited ledger) |
 | Telemetry      | OpenTelemetry → Azure Monitor / Application Insights (active only when `APPLICATIONINSIGHTS_CONNECTION_STRING` is set) |
 | Frontend       | React 19, TypeScript, Vite 6                    |
 | Styling        | Tailwind CSS v4 (VS Code Dark Modern palette)   |
@@ -35,7 +36,7 @@ CodeSmith.Core/            — Domain models, enums, exceptions, interfaces (no 
                              EvaluationMode, ChallengeCategory, SystemLabCategory, PromptFieldType, LedgerEntryType
   Exceptions/              — Domain exceptions (each maps to one HTTP status, see below)
   Interfaces/              — All seams live here (ILlm*, I*Service, ISessionStore, IUsage*, etc.)
-  Models/                  — ChatMessage, LlmResponse, ProblemSession, CodeExecutionResult,
+  Models/                  — ChatMessage, LlmResponse, ProblemSession, CodeExecutionRequest/Result,
                              PromptLab/*, SystemLab/*, Usage/*
 
 CodeSmith.Infrastructure/  — Implementations of Core interfaces; the only project that touches SDKs/EF/HTTP
@@ -46,32 +47,42 @@ CodeSmith.Infrastructure/  — Implementations of Core interfaces; the only proj
   Services/                — LLM adapters, generators, lab orchestrators, session stores
     PromptLab/             — ChallengeCatalog, PromptSimulator, PromptEvaluator, TestInputGenerator, PromptLabService
     SystemLab/             — ScenarioCatalog, SystemLabEvaluator, SystemLabService
-    Piston/                — Sandboxed code-execution adapter + runtime resolver
+    Piston/                — Local Docker sandbox adapter + runtime resolver
+    DynamicSessions/       — Azure custom Dynamic Sessions adapter + Azure AD token provider
     Usage/                 — UsageEnforcer, LlmPricing, UserUsageLock, NoopCurrentUser, Decorators/
 
 CodeSmith.Api/             — ASP.NET Core host (HTTPS 7111, HTTP 5175)
+  Authorization/           — MeteredAiAttribute + MeteredAiAuthorizationMiddlewareResultHandler (login_required 401)
   Controllers/             — SessionController, PromptLabController, SystemLabController, BillingController
   DTOs/                    — Request/response shapes per surface (PromptLab/, SystemLab/, Billing/)
   Middleware/              — AppExceptionHandler (declarative exception→status table); RequestLoggingMiddleware
+  Streaming/               — NdjsonStreamWriter (shared chunk contract for /stream endpoints)
   Services/                — HttpCurrentUser (resolves Entra objectId, dev bypass)
 
-CodeSmith.CLI/             — Command-line client over the API (ApiClient)
+CodeSmith.Executor/        — Multi-language Minimal API host image for Azure custom Dynamic Sessions (POST /execute; /health, /ready)
+                             Not referenced by the API project graph at compile time — deployed as the session-pool container.
+
+CodeSmith.CLI/             — Command-line client over the API (ApiClient; blocking JSON, not NDJSON streams)
 
 CodeSmith.Tests/           — Backend xUnit tests, mirroring source layout (Api/, CLI/, Core/, Infrastructure/)
 
 CodeSmith.Web/             — React frontend (Vite dev server on 5173)
   src/auth/                — MSAL bootstrap + AuthControls (Sign in chooser: email / Google)
-  src/lib/                 — apiClient.ts (native fetch, relative /api paths)
+  src/lib/                 — apiClient.ts (native fetch, relative /api paths; streamRequest for NDJSON)
   src/contexts/            — NavigationContext (cross-feature reset registry)
   src/features/chat/       — Tutoring surface (types, hooks, components)
   src/features/prompt-lab/ — Prompt Lab surface
   src/features/system-lab/ — System Lab surface
+  src/features/billing/    — Checkout result pages (success/cancel)
   src/features/home/       — Landing page
   src/features/shared/     — monacoTheme and cross-surface bits
   e2e/                     — Playwright specs
+
+Docs/                      — Recaps/, Handoffs.*, general/ (Entra + Dynamic Sessions Azure runbooks)
+.github/workflows/         — deploy-azure.yml (API → ACR/ACA), deploy-swa.yml (SPA → SWA), deploy-executor.yml (executor image → ACR)
 ```
 
-**Dependency direction:** `Api → Infrastructure → Core`. Core depends on nothing. Infrastructure is the only project that references SDKs, EF, or HTTP. Controllers depend only on Core interfaces; they never see an Adapter directly.
+**Dependency direction:** `Api → Infrastructure → Core`. Core depends on nothing. Infrastructure is the only project that references SDKs, EF, or HTTP. Controllers depend only on Core interfaces; they never see an Adapter directly. `CodeSmith.Executor` is a separate deployable (session-pool image), not part of the Api DI graph.
 
 ---
 
@@ -94,8 +105,9 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 | System Lab orchestration | `ISystemLabService` | `SystemLabService` |
 | System Lab scoring | `ISystemLabEvaluator` | `SystemLabEvaluator` |
 | Session storage | `ISessionStore<T>` (+ `IPromptLabSessionStore`, `ISystemLabSessionStore`) | `InMemorySessionStore<T>` etc. (ConcurrentDictionary; `WithSessionLockAsync` serializes per-session mutation for all three surfaces) |
-| Code execution | `ICodeExecutionService` | `PistonCodeExecutionService` (default) or `LocalProcessCodeExecutionService` (config-selected) |
-| Piston runtime mapping | `IPistonRuntimeResolver` | `PistonRuntimeResolver` |
+| Code execution | `ICodeExecutionService` — `ExecuteAsync(CodeExecutionRequest, ct)`; `SessionId` optional for Piston/LocalProcess, **required** for DynamicSessions (tutoring session id → pool identifier) | `PistonCodeExecutionService` (local default), `LocalProcessCodeExecutionService` (dev host), `DynamicSessionsCodeExecutionService` (Azure) — selected by `CodeExecution:Backend` at composition |
+| Piston runtime mapping | `IPistonRuntimeResolver` | `PistonRuntimeResolver` (Piston backend only) |
+| Dynamic Sessions auth token | `IDynamicSessionsTokenProvider` (Infra-internal) | `DefaultAzureDynamicSessionsTokenProvider` (`Azure.Identity` DefaultAzureCredential → ACA session-executor scope) |
 | Usage enforcement | `IUsageEnforcer` | `UsageEnforcer` (reserve → settle / release; free-then-paid deduction) |
 | Enforcement storage | `IUsageStore` | `EfUsageStore` — one snapshot read (balance + IP aggregate) and ONE single-SaveChanges persist per enforcement phase |
 | Pricing | `ILlmPricing` | `LlmPricing` (markup over `LlmPricingCatalog` — the single model↔rate source, also used by startup validation) |
@@ -111,13 +123,13 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 
 ### Service lifetimes
 
-- **Singleton:** all LLM provider Adapters and their keyed decorators (stateless), session stores (thread-safe `ConcurrentDictionary`), `ITutoringPromptTemplates`, `IProblemResponseParser`, `ILlmPricing`, `IPistonRuntimeResolver`, named `HttpClient`s.
-- **Scoped:** `ILlmServiceFactory`, `IProblemGenerator`, all three `I*Service` orchestrators, all Prompt Lab / System Lab phase modules, EF repositories + `IUsageStore`, `IUsageEnforcer`, `ICurrentUser`, `CodeSmithDbContext` (**pooled** via `AddDbContextPool` when a connection string exists — pooled instances are recycled, not rebuilt, per scope), `ICodeExecutionService`.
+- **Singleton:** raw LLM provider Adapters (stateless, under `"raw:{provider}"` keys), session stores (thread-safe `ConcurrentDictionary`), `ITutoringPromptTemplates`, `IProblemResponseParser`, `ILlmPricing`, `IPistonRuntimeResolver`, `IDynamicSessionsTokenProvider`, named `HttpClient`s.
+- **Scoped:** usage-enforcing `ILlmService` decorators (keyed by `AiProvider`), `ILlmServiceFactory`, `IProblemGenerator`, all three `I*Service` orchestrators, all Prompt Lab / System Lab phase modules, EF repositories + `IUsageStore`, `IUsageEnforcer`, `ICurrentUser`, `CodeSmithDbContext` (**pooled** via `AddDbContextPool` when a connection string exists — pooled instances are recycled, not rebuilt, per scope), `ICodeExecutionService`.
 - Rule of thumb: stateless or pure-config → singleton; anything depending on the scoped factory, the per-request user, or the DbContext → scoped.
 
 ### Middleware pipeline *(order matters)*
 
-1. `UseExceptionHandler()` → `AppExceptionHandler` (RFC 7807 ProblemDetails via `IExceptionMapper` adapters)
+1. `UseExceptionHandler()` → `AppExceptionHandler` (RFC 7807 ProblemDetails via declarative mapping table)
 2. `UseRequestLogging()` (`RequestLoggingMiddleware`)
 3. Swagger (Development only)
 4. `UseForwardedHeaders()` — honours `X-Forwarded-For` / `X-Forwarded-Proto` (config clears `KnownNetworks`/`KnownProxies`) so `RemoteIpAddress` is the real client IP. **Load-bearing for spend control:** both the rate limiter and the per-IP free-token cap partition on client IP.
@@ -151,7 +163,7 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 - `appsettings.json` (defaults) + `appsettings.Development.json` (dev overrides).
 - Sections: `Ai`, `Anthropic`, `OpenAi`, `Xai`, `CodeExecution`, `Usage`, `Stripe`, `AzureAd` (Entra), plus `ConnectionStrings:CodeSmithDb` and `AllowedCorsOrigins`.
 - Each options class exposes a `SectionName` constant; bound via `services.Configure<T>(config.GetSection(T.SectionName))` and injected as `IOptions<T>`.
-- `Ai:ActiveProvider` selects the default provider name (**default `Xai` / Grok**); `CodeExecution:Backend` selects `Piston` vs `LocalProcess` at startup.
+- `Ai:ActiveProvider` selects the default provider name (**default `Xai` / Grok**); `CodeExecution:Backend` selects `Piston` (local default), `LocalProcess` (dev host), or `DynamicSessions` (Azure) at startup. `CodeExecution:DynamicSessions` carries `PoolManagementEndpoint`, `ExecutePath` (default `/execute`), and timeouts (HTTP client default 120s to cover cold start).
 - Each provider's `AccurateModel`/`FastModel` is **validated against the pricing catalog at startup** (`ValidateOnStart`); a model with no rate entry fails the boot rather than mis-charging silently.
 - `Usage` carries `FreeMonthlyTokenQuota` (the per-objectId free cap, default 20,000 — note the name predates the move to a 48h window; it maps to `CreditBalance.FreeQuotaMax`), `PaidMarkupMultiplier` (raw-cost → charge multiplier, default `2.0`), and `AllowedDebugObjectIds` (objectIds permitted to use the dev `X-Debug-User-Id` bypass; empty in production).
 - `Stripe` (`StripeOptions`) carries `SecretKey` + `WebhookSecret` (secrets — Key Vault / user-secrets), `PriceIds` (allow-list of purchasable packs), and `SuccessUrl`/`CancelUrl`. Not validated at startup (unlike provider options).
@@ -168,7 +180,7 @@ CodeSmith.Web/             — React frontend (Vite dev server on 5173)
 
 ## API Reference
 
-All routes are under `/api`. Enums serialize as strings (`JsonStringEnumConverter`). 🔒 = `[Authorize]`.
+All routes are under `/api`. Enums serialize as strings (`JsonStringEnumConverter`). 🔒 = `[MeteredAi]` (auth + `login_required` 401 body). 🔐 = `[Authorize]` (billing; stock 401).
 
 | Method | Route | Request | Response | Notes |
 |--------|-------|---------|----------|-------|
@@ -190,10 +202,10 @@ All routes are under `/api`. Enums serialize as strings (`JsonStringEnumConverte
 | POST | `/api/system-lab/sessions` 🔒 | `StartSystemLabSessionRequest { scenarioId, provider }` | `SystemLabSessionResponse` | 201 / 400 / 404 |
 | POST | `/api/system-lab/sessions/{sessionId}/submit` 🔒 | `SubmitJustificationRequest { justificationContent }` | `SystemLabAttemptResultResponse` | 200 / 400 / 404 |
 | POST | `/api/system-lab/sessions/{sessionId}/chat` 🔒 | `SystemLabChatRequest { message, currentJustification? }` | `SystemLabChatResponse` | 200 / 400 / 404 |
-| POST | `/api/billing/checkout` 🔒 | `CheckoutRequest { priceId }` | `CheckoutResponse { url }` | 200 / 400 (unknown priceId); priceId must be allow-listed |
+| POST | `/api/billing/checkout` 🔐 | `CheckoutRequest { priceId }` | `CheckoutResponse { url }` | 200 / 400 (unknown priceId); priceId must be allow-listed |
 | POST | `/api/billing/webhook` | *(raw body)* + `Stripe-Signature` header | `{ result }` | **anonymous, signature-verified**; 400 bad sig / 200 processed-dup-ignored / 500 transient |
-| GET | `/api/billing/balance` 🔒 | — | `BalanceResponse { paidCreditsUsd }` | 200 |
-| GET | `/api/billing/ledger?take=20` 🔒 | — | `LedgerEntryResponse[] { type, amountUsd, feature?, timestampUtc }` | 200; omits `ProviderCostUsd` (margin) |
+| GET | `/api/billing/balance` 🔐 | — | `BalanceResponse { paidCreditsUsd }` | 200 |
+| GET | `/api/billing/ledger?take=20` 🔐 | — | `LedgerEntryResponse[] { type, amountUsd, feature?, timestampUtc }` | 200; omits `ProviderCostUsd` (margin) |
 
 **NDJSON chunk contract (all `/stream` endpoints).** `Content-Type: application/x-ndjson`, one JSON event per line, flushed per event, written by the shared `NdjsonStreamWriter` (Api `Streaming/`). Event types: `{type:"delta", text}` (assistant/description text), `{type:"reset"}` (generation retry — clear shown text), `{type:"final", data}` (the same payload the blocking sibling returns), `{type:"error", code, message}` (mid-stream failure; `code` is the HTTP status the request would have had, mapped from the same `AppExceptionHandler` table). **Failures before the first delta keep real HTTP statuses** (402/404/429/502 — the endpoints write nothing before the first delta and let pre-stream exceptions reach `AppExceptionHandler`); once the response has started, the status line is frozen and failures ride the stream as `error` events. The blocking JSON endpoints remain unchanged (the CLI still consumes them); the SPA uses the `/stream` siblings.
 
@@ -222,6 +234,8 @@ All routes are under `/api`. Enums serialize as strings (`JsonStringEnumConverte
 | `IpFreeUsage` | `Ip`, `FreeTokensIssued`, `FirstSeenUtc` — per-IP aggregate of free tokens granted across all objectIds; backs the 60k-per-IP cap |
 | `UsageReservation` | `ObjectId`, `ClientIp`, `Provider`, `ReservedFreeTokens`, `ReservedPaidUsd`, `UsedFree` — the upper-bound hold `ReserveAsync` returns and `SettleAsync`/`ReleaseAsync` reconcile |
 | `UsageSnapshot` | `Balance?` (null = objectId never persisted), `IpFreeTokensIssued` — the full decision state one enforcement phase reads in a single `IUsageStore` call |
+| `CodeExecutionRequest` | `Language`, `Code`, `SessionId?` — input to `ICodeExecutionService`; `SessionId` required only for DynamicSessions |
+| `CodeExecutionResult` | `Stdout`, `Stderr`, `ExitCode`, `TimedOut` — sandbox outcome projected to `RunCodeResponse` |
 
 **Enums:** `Difficulty {Easy, Medium, Hard}`; `Language {CSharp, Cpp, Go, Rust, Python, Java, TypeScript}`; `AiProvider {Anthropic, OpenAi, Xai}`; `EvaluationMode {SingleAnswer, TradeoffReasoning, OpenJudgment}`; `LedgerEntryType {Spend=0, TopUp}`; plus `GuidanceMode`, `ChallengeCategory`, `SystemLabCategory`, `PromptFieldType`, `MessageRole`.
 
@@ -263,7 +277,7 @@ Tests assert spans with an `ActivityListener` (`ActivityCapture` helper); span-e
 
 ### Tutoring (coding problems)
 
-`SessionController` → `ITutoringService`. Problem creation delegates to `IProblemGenerator`, which builds a prompt from `ITutoringPromptTemplates`, calls the accurate model (MaxTokens 4000 — headroom so truncation retries rarely fire; the reserve holds against it but settle refunds to actuals), and parses the `DESCRIPTION:` / `STARTER_CODE:` markers via `IProblemResponseParser`. It retries up to 2 times on truncation (`LlmResponse.WasTruncated`) or incomplete parse; each attempt emits a `problem.generation.attempt` span. Guidance is multi-turn: the service rebuilds the system prompt each turn (injecting the current editor contents) and hands the turn to the shared `IGuidanceConversation`, which owns the append/trim/call/persist/rollback mechanics; the service projects the returned completion into a `ChatResponse`. Both operations have streaming siblings (`StreamGenerateProblemAsync`, `StreamGuidanceAsync`) sharing one core with the blocking shapes and feeding the `/stream` endpoints. `RunCodeAsync` validates the session exists, then delegates to `ICodeExecutionService`.
+`SessionController` → `ITutoringService`. Problem creation delegates to `IProblemGenerator`, which builds a prompt from `ITutoringPromptTemplates`, calls the accurate model (MaxTokens 4000 — headroom so truncation retries rarely fire; the reserve holds against it but settle refunds to actuals), and parses the `DESCRIPTION:` / `STARTER_CODE:` markers via `IProblemResponseParser`. It retries up to 2 times on truncation (`LlmResponse.WasTruncated`) or incomplete parse; each attempt emits a `problem.generation.attempt` span. Guidance is multi-turn: the service rebuilds the system prompt each turn (injecting the current editor contents) and hands the turn to the shared `IGuidanceConversation`, which owns the append/trim/call/persist/rollback mechanics; the service projects the returned completion into a `ChatResponse`. Both operations have streaming siblings (`StreamGenerateProblemAsync`, `StreamGuidanceAsync`) sharing one core with the blocking shapes and feeding the `/stream` endpoints. `RunCodeAsync` validates the session exists, then delegates to `ICodeExecutionService` with `CodeExecutionRequest` (including `SessionId` for Dynamic Sessions affinity) — see [Code execution](#code-execution).
 
 ### Prompt Lab (prompt engineering)
 
@@ -306,14 +320,36 @@ All three run under a **per-user lock** (`IUserUsageLock`); IP-aggregate adjustm
 
 A module **separate from usage enforcement**: billing *writes* credits, enforcement *debits* them. Billing code never references `IUsageEnforcer`, `IUserUsageLock`, or any LLM service; `objectId` comes only from `ICurrentUser`. `BillingController` → `IBillingService` (Core, carries no Stripe types) → `StripeBillingService` (Infrastructure `Billing/`).
 
-- **Checkout** (`POST /api/billing/checkout`, 🔒): validates `priceId` against `StripeOptions.PriceIds` (else `InvalidPriceException` → 400), creates a hosted Stripe Checkout session (`mode=payment`, `metadata["objectId"] = currentUser.ObjectId`), returns `session.Url`.
+- **Checkout** (`POST /api/billing/checkout`, 🔐): validates `priceId` against `StripeOptions.PriceIds` (else `InvalidPriceException` → 400), creates a hosted Stripe Checkout session (`mode=payment`, `metadata["objectId"] = currentUser.ObjectId`), returns `session.Url`.
 - **Webhook** (`POST /api/billing/webhook`, **anonymous**): reads the **raw body** (no model binding — signature hashes exact bytes) and the `Stripe-Signature` header. Verification is isolated behind the internal `IStripeEventReader` seam (over `EventUtility.ConstructEvent`) so the handler is unit-testable without minting signatures; a mismatch → `WebhookSignatureException` → 400. On `checkout.session.completed` it guards currency == `usd`, presence of `objectId` metadata, and positive `amount_total`, then credits `amount_total / 100` USD. HTTP contract: **400** bad sig · **200** processed/duplicate/ignored · **500** transient (Stripe retries).
 - **Idempotency + atomicity** — the credit lives in the deep `IStripeCreditStore` / `EfStripeCreditStore`, which in **one `SaveChangesAsync`** inserts the `ProcessedStripeEvent` dedup marker, credits `PaidCreditsBalance` (creating the row via `GetOrCreateAsync` for a payer who buys before their first LLM call), and appends a `TopUp` `UsageLedgerEntry`. A re-seen event id (or PK-collision race) returns `AlreadyProcessed` with no change; a concurrent enforcement write surfaces as `DbUpdateConcurrencyException` and is retried against `CreditBalance.RowVersion`. Stripe delivers at-least-once, so this replay-safety is load-bearing.
-- **Reads** (🔒): `GET /balance` returns paid credits; `GET /ledger?take=N` returns recent rows as DTOs that **omit `ProviderCostUsd`** (raw cost / margin) and `RowVersion`.
+- **Reads** (🔐): `GET /balance` returns paid credits; `GET /ledger?take=N` returns recent rows as DTOs that **omit `ProviderCostUsd`** (raw cost / margin) and `RowVersion`.
 
 ### Code execution
 
-Config key `CodeExecution:Backend` selects the Adapter at startup: **`Piston`** (default) posts to a Dockerized sandbox via a named, resilience-wrapped `HttpClient`, mapping `Language` → Piston runtime through `IPistonRuntimeResolver`; **`LocalProcess`** runs code directly on the host (dev fallback only). Any other value throws at composition time.
+Config key `CodeExecution:Backend` selects the Adapter at startup (any other value throws at composition):
+
+| Backend | Adapter | When |
+|---------|---------|------|
+| **`Piston`** (default) | `PistonCodeExecutionService` | Local dev — Docker Compose service on port 2000; maps `Language` → runtime via `IPistonRuntimeResolver` |
+| **`LocalProcess`** | `LocalProcessCodeExecutionService` | Dev host subprocesses only — **never in deployed environments** |
+| **`DynamicSessions`** | `DynamicSessionsCodeExecutionService` | Azure production — ACA **custom Dynamic Sessions** (Hyper-V isolation) |
+
+**Request shape.** Callers pass `CodeExecutionRequest { Language, Code, SessionId? }`. Piston and LocalProcess ignore `SessionId`. Dynamic Sessions **requires** it: the tutoring `sessionId` is sent as the pool session `identifier` so repeated **Test Code** clicks in the same problem can reuse a warm sandbox. Code runs are **outside** `IUsageEnforcer` (no token debit for execution itself).
+
+**Azure path.** Platform limit: Piston needs `privileged: true`; Container Apps forbid privileged containers. Production therefore uses a multi-language **`CodeSmith.Executor`** Minimal API image (`POST /execute`, `GET /health`, `GET /ready`) as the custom session container. The API adapter obtains a short-lived token via `IDynamicSessionsTokenProvider` (`Azure.Identity`) and POSTs to the pool management endpoint + `ExecutePath` (default `/execute`). Cold start after idle can take tens of seconds; the SPA terminal may surface a “Starting sandbox…” hint after a short pending delay. Ops (one-time pool create, **Azure ContainerApps Session Executor** role on the API managed identity, `CodeExecution__Backend` + pool endpoint on the API app): `Docs/general/dynamic-sessions-azure-setup.md`. Executor image push: `.github/workflows/deploy-executor.yml`.
+
+### Deploy topology *(Azure)*
+
+All deploys are **manual** (`workflow_dispatch` only — no auto-deploy on push). Secrets stay in GitHub / Key Vault, not in source.
+
+| Workflow | Artifact | Target |
+|----------|----------|--------|
+| `deploy-azure.yml` | `CodeSmith.Api` image | ACR → Azure Container Apps (API) |
+| `deploy-swa.yml` | `CodeSmith.Web` static build | Azure Static Web Apps (`VITE_*` baked at build for API base URL + AAD) |
+| `deploy-executor.yml` | `CodeSmith.Executor` image | ACR (consumed by Dynamic Sessions session pool) |
+
+Telemetry: OpenTelemetry → Application Insights activates only when `APPLICATIONINSIGHTS_CONNECTION_STRING` is set on the API app. Entra External ID setup notes: `Docs/general/entra-external-id-azure-setup.md`.
 
 ---
 
@@ -400,7 +436,7 @@ Compile-time capability segregation (e.g. a System Lab caller could request any 
 
 ## Frontend Conventions
 
-- **Feature-based folders** under `src/features/{chat,prompt-lab,system-lab,home}`, each with `components/`, `hooks/`, and `types.ts`. Shared bits in `src/features/shared/`.
+- **Feature-based folders** under `src/features/{chat,prompt-lab,system-lab,billing,home}`, each with `components/` (and `hooks/` / `types.ts` where the surface talks to the API). Shared bits in `src/features/shared/`.
 - **API access** goes through `src/lib/apiClient.ts` only — native `fetch`, relative `/api` paths (Vite proxies to `http://localhost:5175`), a single `request<T>` helper that throws `ApiClientError` (carrying status + `ApiError` body) on non-2xx, plus a single `streamRequest<T>` helper that consumes the NDJSON chunk contract (deltas via `StreamCallbacks.onDelta`, generation retries via `onReset`, `final.data` resolving the promise, `error` events rethrown as `ApiClientError` with the mapped code; events are reassembled across arbitrary network chunk splits). API functions are plain exported functions, not class methods.
 - **All server calls are TanStack Query** mutations/queries in `hooks/` (`useCreateSession`, `useSendMessage`, `useStartChallenge`, `useSubmitAttempt`, `use*Chat`, etc.). No raw `useEffect` + `fetch`. `QueryClient` is configured in `App.tsx` (`retry: 1`, `refetchOnWindowFocus: false`). **Streaming stays inside this convention:** the chat/create hooks' `mutationFn` calls the `stream*` apiClient function, so `isPending`/`data`/`error` behave exactly as before; deltas accumulate in `streamingText` via the shared `useStreamingText` hook (`src/hooks/`), whose ref mirror (`getStreamedText()`) lets `onError` snapshot the partial reply for the failed-turn UI. The shared `StreamingChatTail` component renders the live reply and the dimmed remains of a failed turn on all three surfaces; a failed turn also restores the user's message into `ChatInput` via its `draft` prop (mirroring the server-side whole-turn rollback).
 - The three surfaces currently duplicate a parallel hook/API/type structure (start / submit / chat per lab) — a candidate consolidation, lower priority than the backend LLM Seam.
@@ -465,6 +501,9 @@ cd CodeSmith.Api && dotnet run
 # Frontend (Vite on 5173)
 cd CodeSmith.Web && npm run dev
 
+# Local code sandbox (Piston)
+docker compose up -d piston
+
 # Backend tests
 cd CodeSmith.Tests && dotnet test
 
@@ -474,6 +513,8 @@ cd CodeSmith.Web && npm test
 # E2E
 cd CodeSmith.Web && npx playwright test
 ```
+
+> Azure Dynamic Sessions is **not** the local default. Point `CodeExecution:Backend` at `DynamicSessions` only when a pool endpoint and managed identity are configured (see Code execution + Deploy topology above).
 
 ---
 
