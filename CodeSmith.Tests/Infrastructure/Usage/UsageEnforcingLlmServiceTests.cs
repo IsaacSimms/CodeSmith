@@ -52,12 +52,12 @@ public class UsageEnforcingLlmServiceTests
         var (sut, inner, enforcer) = Build(reservation);
 
         inner.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new LlmResponse { Content = "hi", Model = "claude-haiku-4-5-20251001", InputTokensUsed = 5, OutputTokensUsed = 3 });
+            .Returns(new LlmResponse { Content = "hi", Model = "claude-haiku-4-5", InputTokensUsed = 5, OutputTokensUsed = 3 });
 
         var response = await sut.CompleteAsync(Request());
 
         Assert.Equal("hi", response.Content);
-        await enforcer.Received(1).SettleAsync(reservation, "claude-haiku-4-5-20251001", 5, 3, Arg.Any<decimal>(), Arg.Any<decimal>(), "Tutoring:Guidance", Arg.Any<CancellationToken>());
+        await enforcer.Received(1).SettleAsync(reservation, "claude-haiku-4-5", 5, 3, Arg.Any<decimal>(), Arg.Any<decimal>(), "Tutoring:Guidance", Arg.Any<CancellationToken>());
         await enforcer.DidNotReceive().ReleaseAsync(Arg.Any<UsageReservation>(), Arg.Any<CancellationToken>());
     }
 
@@ -87,7 +87,7 @@ public class UsageEnforcingLlmServiceTests
         var (sut, inner, _) = Build(SampleReservation());
 
         inner.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
-            .Returns(new LlmResponse { Content = "hi", Model = "claude-haiku-4-5-20251001", InputTokensUsed = 5, OutputTokensUsed = 3 });
+            .Returns(new LlmResponse { Content = "hi", Model = "claude-haiku-4-5", InputTokensUsed = 5, OutputTokensUsed = 3 });
 
         await sut.CompleteAsync(Request());
 
@@ -100,7 +100,7 @@ public class UsageEnforcingLlmServiceTests
         // Each lifecycle phase is a child span so provider time vs enforcement time is separable
         var call = capture.Single("llm.call");
         Assert.Equal(completion.SpanId, call.ParentSpanId);
-        Assert.Equal("claude-haiku-4-5-20251001", call.GetTagItem("codesmith.model")?.ToString());
+        Assert.Equal("claude-haiku-4-5", call.GetTagItem("codesmith.model")?.ToString());
         Assert.Equal(5, call.GetTagItem("codesmith.tokens.input"));
         Assert.Equal(3, call.GetTagItem("codesmith.tokens.output"));
 
@@ -145,7 +145,7 @@ public class UsageEnforcingLlmServiceTests
     {
         var reservation = SampleReservation();
         var (sut, inner, enforcer) = Build(reservation);
-        InnerStreams(inner, new LlmResponse { Content = "Hello!", Model = "claude-haiku-4-5-20251001", InputTokensUsed = 5, OutputTokensUsed = 3 }, "Hel", "lo!");
+        InnerStreams(inner, new LlmResponse { Content = "Hello!", Model = "claude-haiku-4-5", InputTokensUsed = 5, OutputTokensUsed = 3 }, "Hel", "lo!");
 
         var deltas = new List<string>();
         var response = await sut.StreamAsync(Request(), (text, _) =>
@@ -156,7 +156,7 @@ public class UsageEnforcingLlmServiceTests
 
         Assert.Equal(["Hel", "lo!"], deltas);
         Assert.Equal("Hello!", response.Content);
-        await enforcer.Received(1).SettleAsync(reservation, "claude-haiku-4-5-20251001", 5, 3, Arg.Any<decimal>(), Arg.Any<decimal>(), "Tutoring:Guidance", Arg.Any<CancellationToken>());
+        await enforcer.Received(1).SettleAsync(reservation, "claude-haiku-4-5", 5, 3, Arg.Any<decimal>(), Arg.Any<decimal>(), "Tutoring:Guidance", Arg.Any<CancellationToken>());
         await enforcer.DidNotReceive().ReleaseAsync(Arg.Any<UsageReservation>(), Arg.Any<CancellationToken>());
     }
 
@@ -193,7 +193,7 @@ public class UsageEnforcingLlmServiceTests
     {
         using var capture = new ActivityCapture();
         var (sut, inner, _) = Build(SampleReservation());
-        InnerStreams(inner, new LlmResponse { Content = "hi", Model = "claude-haiku-4-5-20251001", InputTokensUsed = 5, OutputTokensUsed = 3 }, "hi");
+        InnerStreams(inner, new LlmResponse { Content = "hi", Model = "claude-haiku-4-5", InputTokensUsed = 5, OutputTokensUsed = 3 }, "hi");
 
         await sut.StreamAsync(Request(), (_, _) => Task.CompletedTask);
 

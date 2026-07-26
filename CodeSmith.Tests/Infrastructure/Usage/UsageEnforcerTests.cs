@@ -113,7 +113,7 @@ public class UsageEnforcerTests
         var reservation = await enforcer.ReserveAsync(ObjectId, ClientIp, AiProvider.Xai, 100, 100);
         Assert.Equal(90m, store.Current.PaidCreditsBalance); // $10 held up front
 
-        await enforcer.SettleAsync(reservation, "grok-4.3", actualInput: 1, actualOutput: 0, chargeUsd: 2m, providerCostUsd: 1m);
+        await enforcer.SettleAsync(reservation, "grok-4.5", actualInput: 1, actualOutput: 0, chargeUsd: 2m, providerCostUsd: 1m);
 
         Assert.Equal(98m, store.Current.PaidCreditsBalance); // refund $10 hold, charge actual $2
         var captured = Assert.Single(store.Ledger);

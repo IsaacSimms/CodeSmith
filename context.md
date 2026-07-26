@@ -164,7 +164,7 @@ Docs/                      — Recaps/, Handoffs.*, general/ (Entra + Dynamic Se
 - Sections: `Ai`, `Anthropic`, `OpenAi`, `Xai`, `CodeExecution`, `Usage`, `Stripe`, `AzureAd` (Entra), plus `ConnectionStrings:CodeSmithDb` and `AllowedCorsOrigins`.
 - Each options class exposes a `SectionName` constant; bound via `services.Configure<T>(config.GetSection(T.SectionName))` and injected as `IOptions<T>`.
 - `Ai:ActiveProvider` selects the default provider name (**default `Xai` / Grok**); `CodeExecution:Backend` selects `Piston` (local default), `LocalProcess` (dev host), or `DynamicSessions` (Azure) at startup. `CodeExecution:DynamicSessions` carries `PoolManagementEndpoint`, `ExecutePath` (default `/execute`), and timeouts (HTTP client default 120s to cover cold start).
-- Each provider's `AccurateModel`/`FastModel` is **validated against the pricing catalog at startup** (`ValidateOnStart`); a model with no rate entry fails the boot rather than mis-charging silently.
+- Each provider's `AccurateModel`/`FastModel` is **validated against the pricing catalog at startup** (`ValidateOnStart`); a model with no rate entry fails the boot rather than mis-charging silently. `ProviderOptionsValidationTests.ShippedAppSettings_ConfiguredModels_ArePricedInCatalog` runs that same validation over the real `appsettings.json` in CI, so bumping a model without adding its rate fails a test instead of a production container boot. `appsettings.Development.json` is not layered into that test — it is gitignored and absent on CI.
 - `Usage` carries `FreeMonthlyTokenQuota` (the per-objectId free cap, default 20,000 — note the name predates the move to a 48h window; it maps to `CreditBalance.FreeQuotaMax`), `PaidMarkupMultiplier` (raw-cost → charge multiplier, default `2.0`), and `AllowedDebugObjectIds` (objectIds permitted to use the dev `X-Debug-User-Id` bypass; empty in production).
 - `Stripe` (`StripeOptions`) carries `SecretKey` + `WebhookSecret` (secrets — Key Vault / user-secrets), `PriceIds` (allow-list of purchasable packs), and `SuccessUrl`/`CancelUrl`. Not validated at startup (unlike provider options).
 
@@ -247,14 +247,14 @@ Each provider's options class defines two model tiers; callers pick the tier per
 
 | Operation | Tier | Anthropic default | Rationale |
 |-----------|------|-------------------|-----------|
-| Problem generation | Accurate | `claude-sonnet-4-6` | Once per session; quality matters |
-| Tutoring / lab chat guidance | Fast | `claude-haiku-4-5-20251001` | Per-message; latency + cost |
+| Problem generation | Accurate | `claude-sonnet-5` | Once per session; quality matters |
+| Tutoring / lab chat guidance | Fast | `claude-haiku-4-5` | Per-message; latency + cost |
 | Prompt Lab simulation | Fast | Haiku | Parallel, one call per test input |
 | Prompt Lab evaluation | Accurate | Sonnet | Rubric scoring; accuracy matters |
 | Test-input generation | Accurate | Sonnet | One call at session start |
 | System Lab justification evaluation | Accurate | Sonnet | Single-turn scoring |
 
-OpenAI/xAI map the same Fast/Accurate tiers to their own model names in `OpenAiOptions` / `XaiOptions` (OpenAI defaults `gpt-4.1` / `gpt-4.1-mini`; xAI uses `grok-4.3` for **both** tiers). Context windows differ by provider — Anthropic 200,000, OpenAI ~1,047,576, xAI ~1,000,000 tokens. `ContextTokensUsed` / `ContextWindowSize` drive the frontend `TokenUsageBar` (informational only; the real spend control is the usage layer below).
+OpenAI/xAI map the same Fast/Accurate tiers to their own model names in `OpenAiOptions` / `XaiOptions` (OpenAI defaults `gpt-4.1` / `gpt-4.1-mini`; xAI uses `grok-4.5` for **both** tiers). Context windows differ by provider — Anthropic 200,000, OpenAI ~1,047,576, xAI 500,000 tokens. `ContextTokensUsed` / `ContextWindowSize` drive the frontend `TokenUsageBar` (informational only; the real spend control is the usage layer below).
 
 > **Tier downgrade on free quota.** The usage decorator overrides the requested tier to `Fast` for *evaluation* features (`Feature` containing `"Evaluate"` or `"SystemLab"`) **while** the call is being covered by free quota inside the 48h window. Paid or post-window usage keeps `Accurate`. So an Accurate-tier evaluation can run on the Fast model when it costs the house nothing.
 

@@ -18,7 +18,7 @@ public class LlmPricingTests
     public void ComputeCostUsd_KnownModel_ReturnsRawProviderCost()
     {
         // Haiku 4.5: $1/$5 per MTok → 0.001/0.005 per 1k. 1000 in + 500 out.
-        var cost = BuildPricing(markup: 2.0m).ComputeCostUsd(AiProvider.Anthropic, "claude-haiku-4-5-20251001", 1000, 500);
+        var cost = BuildPricing(markup: 2.0m).ComputeCostUsd(AiProvider.Anthropic, "claude-haiku-4-5", 1000, 500);
 
         Assert.Equal(0.001m + 0.0025m, cost); // raw, unaffected by markup
     }
@@ -37,8 +37,8 @@ public class LlmPricingTests
     {
         var pricing = BuildPricing(markup: 2.0m);
 
-        var raw    = pricing.ComputeCostUsd(AiProvider.Anthropic, "claude-haiku-4-5-20251001", 1000, 500);
-        var charge = pricing.ComputeChargeUsd(AiProvider.Anthropic, "claude-haiku-4-5-20251001", 1000, 500);
+        var raw    = pricing.ComputeCostUsd(AiProvider.Anthropic, "claude-haiku-4-5", 1000, 500);
+        var charge = pricing.ComputeChargeUsd(AiProvider.Anthropic, "claude-haiku-4-5", 1000, 500);
 
         Assert.Equal(raw * 2.0m, charge);
     }
@@ -52,8 +52,8 @@ public class LlmPricingTests
     }
 
     [Theory]
-    [InlineData(AiProvider.Anthropic, "claude-sonnet-4-6", 1000, 0, 0.003)]
-    [InlineData(AiProvider.Xai, "grok-4.3", 0, 2000, 0.005)]           // $2.50/MTok out → 0.0025/1k × 2k
+    [InlineData(AiProvider.Anthropic, "claude-sonnet-5", 1000, 0, 0.003)]
+    [InlineData(AiProvider.Xai, "grok-4.5", 0, 2000, 0.012)]           // $6/MTok out → 0.006/1k × 2k
     [InlineData(AiProvider.OpenAi, "gpt-4.1-mini", 1000, 1000, 0.002)] // 0.0004 + 0.0016
     public void ComputeCostUsd_VariousModels_MatchCorrectedTable(AiProvider provider, string model, int inTok, int outTok, decimal expected)
     {

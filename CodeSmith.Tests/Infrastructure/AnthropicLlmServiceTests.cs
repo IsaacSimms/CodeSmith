@@ -27,8 +27,8 @@ public class AnthropicLlmServiceTests
     private static AnthropicOptions DefaultOptions() => new()
     {
         ApiKey        = "test-key",
-        AccurateModel = "claude-sonnet-4-6",
-        FastModel     = "claude-haiku-4-5-20251001",
+        AccurateModel = "claude-sonnet-5",
+        FastModel     = "claude-haiku-4-5",
         ContextWindow = 200_000
     };
 
@@ -60,8 +60,8 @@ public class AnthropicLlmServiceTests
     // == Outgoing request: tier→model, endpoint == //
 
     [Theory]
-    [InlineData(ModelTier.Accurate, "claude-sonnet-4-6")]
-    [InlineData(ModelTier.Fast,     "claude-haiku-4-5-20251001")]
+    [InlineData(ModelTier.Accurate, "claude-sonnet-5")]
+    [InlineData(ModelTier.Fast,     "claude-haiku-4-5")]
     public async Task CompleteAsync_SendsConfiguredModelForTier(ModelTier tier, string expectedModel)
     {
         var handler = OkHandler();
@@ -128,7 +128,7 @@ public class AnthropicLlmServiceTests
 
         var result = await CreateService(handler).CompleteAsync(SingleTurn(ModelTier.Fast));
 
-        Assert.Equal("claude-haiku-4-5-20251001", result.Model);   // configured name, never the served one — pricing keys off this
+        Assert.Equal("claude-haiku-4-5", result.Model);   // configured name, never the served one — pricing keys off this
         Assert.Equal("Hello!", result.Content);
         Assert.Equal(12, result.InputTokensUsed);
         Assert.Equal(7,  result.OutputTokensUsed);
@@ -267,7 +267,7 @@ public class AnthropicLlmServiceTests
 
         var result = await CreateService(handler).StreamAsync(SingleTurn(ModelTier.Fast), (_, _) => Task.CompletedTask);
 
-        Assert.Equal("claude-haiku-4-5-20251001", result.Model);   // configured name, never the served one — pricing keys off this
+        Assert.Equal("claude-haiku-4-5", result.Model);   // configured name, never the served one — pricing keys off this
         Assert.Equal(12, result.InputTokensUsed);
         Assert.Equal(7,  result.OutputTokensUsed);
         Assert.Equal(200_000, result.ContextWindowSize);
