@@ -26,10 +26,15 @@ The realistic risks are compute cost and outbound abuse, not container escape. M
 
 Executor image already in ACR (`deploy-executor.yml` pushes `:latest` + `:<sha>`).
 
+**Run this first, in the same shell you use for every step below.** Steps 1-4 all reference `$RG`/`$ACR`; if the shell is closed or a new tab is opened, re-run this block. An unset `$RG` fails with the misleading `argument --resource-group/-g: expected one argument`.
+
 ```powershell
 $RG  = "rg-codesmith-prod-centralus-001"
 $ACR = "acrcodesmithprod001"
+
+# Confirm the variables took and you are on the right subscription
 az account show --query "{name:name, id:id}" -o table
+"RG=$RG  ACR=$ACR"
 ```
 
 ## 1. Create the Container App
@@ -52,6 +57,13 @@ az containerapp create `
 `--min-replicas 0` is the whole point: no replicas, no CPU/memory charge. The default 300s scale-in cooldown keeps a replica warm across repeated Test Code clicks in one session.
 
 > First create may fail to pull if AcrPull is not yet granted (step 2). That is expected — step 3 re-points it.
+
+Confirm the app exists and captured a principal before continuing:
+
+```powershell
+az containerapp show -n ca-codesmith-exec-001 -g $RG `
+  --query "{name:name, fqdn:properties.configuration.ingress.fqdn, principal:identity.principalId}" -o json
+```
 
 ## 2. Grant AcrPull to the app's own identity
 
