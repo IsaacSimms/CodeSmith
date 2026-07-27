@@ -22,7 +22,7 @@ vi.mock("./msalConfig", async (importOriginal) => {
     buildLoginRequest: () => ({ scopes: ["api://test/access"] }),
     buildGoogleLoginRequest: () => ({
       scopes: ["api://test/access"],
-      extraQueryParameters: { domain_hint: "google" },
+      extraQueryParameters: { domain_hint: "Google" },
     }),
   };
 });
@@ -71,7 +71,7 @@ describe("AuthControls", () => {
     expect(firstArgs).not.toHaveProperty("extraQueryParameters");
   });
 
-  it("Continue with Google calls loginRedirect with domain_hint google", async () => {
+  it("Continue with Google calls loginRedirect with domain_hint Google", async () => {
     const user = userEvent.setup();
     render(<AuthControls />);
 
@@ -81,7 +81,7 @@ describe("AuthControls", () => {
     expect(loginRedirect).toHaveBeenCalledTimes(1);
     expect(loginRedirect).toHaveBeenCalledWith({
       scopes: ["api://test/access"],
-      extraQueryParameters: { domain_hint: "google" },
+      extraQueryParameters: { domain_hint: "Google" },
     });
   });
 

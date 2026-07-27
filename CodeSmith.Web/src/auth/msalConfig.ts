@@ -50,9 +50,11 @@ export function buildLoginRequest() {
 }
 
 // == Google federated IdP (CIAM domain_hint) == //
+// Capital "Google": lowercase "google" fails on desktop browser CIAM authorize
+// (AADSTS500208 / AADSTS90023) while hosted "Sign in with Google" still works.
 export function buildGoogleLoginRequest() {
   return {
     ...buildLoginRequest(),
-    extraQueryParameters: { domain_hint: "google" },
+    extraQueryParameters: { domain_hint: "Google" },
   };
 }

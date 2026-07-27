@@ -25,10 +25,10 @@ describe("buildLoginRequest", () => {
 });
 
 describe("buildGoogleLoginRequest", () => {
-  it("includes API scope and domain_hint google", () => {
+  it("includes API scope and domain_hint Google (capital G for web CIAM)", () => {
     expect(buildGoogleLoginRequest()).toEqual({
       scopes: ["api://test-client/access"],
-      extraQueryParameters: { domain_hint: "google" },
+      extraQueryParameters: { domain_hint: "Google" },
     });
   });
 });
