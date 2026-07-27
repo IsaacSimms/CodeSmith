@@ -1,7 +1,16 @@
-# == Deploy Seam: CodeSmith.Executor image to ACR == #
-# Manually triggered. Builds the multi-language session container used by
-# Azure Container Apps custom Dynamic Sessions (not a normal Container App).
-# Session pool create/update is one-time az CLI — see Docs/general/dynamic-sessions-azure-setup.md
+# == Deploy Seam: CodeSmith.Executor to ACR + Container App == #
+# Manually triggered. Builds the multi-language code sandbox image and rolls it out to
+# ca-codesmith-exec-001, a scale-to-zero Container App on internal ingress.
+#
+# Prerequisites (one-time, run by user — see Docs/general/executor-container-app-setup.md):
+# - ca-codesmith-exec-001 created with --system-assigned, --ingress internal, --target-port 8080,
+#   --min-replicas 0, and an HTTP scale rule at concurrency 1
+# - That app's SYSTEM-assigned principal granted AcrPull on acrcodesmithprod001
+# - API env: CodeExecution__Backend=Executor + CodeExecution__Executor__BaseUrl=<internal fqdn>
+#
+# The executor deliberately does NOT use mi-codesmith-backend-prod-centralus-001 (the API's
+# identity). That MI can reach Key Vault and SQL; untrusted student code runs in this container
+# and could mint tokens for it via IMDS. Its own system-assigned identity holds AcrPull only.
 
 name: Deploy Executor
 
@@ -41,3 +50,20 @@ jobs:
             -t acrcodesmithprod001.azurecr.io/codesmith-executor:latest \
             -f CodeSmith.Executor/Dockerfile \
             .
+
+      - name: Configure ACR registry with system-assigned identity
+        # Idempotent. --identity system keeps image pull scoped to this app's own principal.
+        run: |
+          az containerapp registry set \
+            --name ca-codesmith-exec-001 \
+            --resource-group rg-codesmith-prod-centralus-001 \
+            --server acrcodesmithprod001.azurecr.io \
+            --identity system
+
+      - name: Update Container App image
+        # Deploys the sha tag (not :latest) so each Container Apps revision maps to an exact commit.
+        run: |
+          az containerapp update \
+            --name ca-codesmith-exec-001 \
+            --resource-group rg-codesmith-prod-centralus-001 \
+            --image acrcodesmithprod001.azurecr.io/codesmith-executor:${{ github.sha }}

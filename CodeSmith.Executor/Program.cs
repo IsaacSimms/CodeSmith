@@ -187,11 +187,19 @@ internal static class LanguageRunner
         CancellationToken ct,
         bool allowMissingExecutable = false)
     {
+        // .NET on Unix resolves a relative FileName against THIS process's current directory
+        // (the image WORKDIR, /app) rather than StartInfo.WorkingDirectory. A compiled artifact
+        // invoked as "./main" would therefore be looked up next to the host binary and fail with
+        // ENOENT. Anchor "./" paths to the run directory; bare names still resolve through PATH.
+        var executable = fileName.StartsWith("./", StringComparison.Ordinal)
+            ? Path.Combine(workDir, fileName[2..])
+            : fileName;
+
         using var process = new Process
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = fileName,
+                FileName = executable,
                 WorkingDirectory = workDir,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,

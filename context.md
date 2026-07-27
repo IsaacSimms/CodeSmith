@@ -15,7 +15,7 @@ This document is the ground-truth architectural reference. It reflects the repo 
 | Backend        | .NET 8, ASP.NET Core Web API                    |
 | LLM providers  | Anthropic SDK; OpenAI SDK (also drives xAI/Grok via OpenAI-compatible endpoint) |
 | Persistence    | EF Core + SQL Server (usage/credits); in-memory session stores |
-| Code execution | Piston (Docker sandbox, local default); LocalProcess (dev host fallback); DynamicSessions (Azure custom Dynamic Sessions + `CodeSmith.Executor`) |
+| Code execution | Piston (Docker sandbox, local default); LocalProcess (dev host fallback); Executor (`CodeSmith.Executor` as a scale-to-zero Azure Container App); DynamicSessions (retained upgrade path) |
 | Payments        | Stripe.net (prepaid credit top-ups; webhook-credited ledger) |
 | Telemetry      | OpenTelemetry → Azure Monitor / Application Insights (active only when `APPLICATIONINSIGHTS_CONNECTION_STRING` is set) |
 | Frontend       | React 19, TypeScript, Vite 6                    |
@@ -48,6 +48,7 @@ CodeSmith.Infrastructure/  — Implementations of Core interfaces; the only proj
     PromptLab/             — ChallengeCatalog, PromptSimulator, PromptEvaluator, TestInputGenerator, PromptLabService
     SystemLab/             — ScenarioCatalog, SystemLabEvaluator, SystemLabService
     Piston/                — Local Docker sandbox adapter + runtime resolver
+    Executor/              — Shared CodeSmith.Executor wire contract + language map; direct-HTTP (Container App) adapter
     DynamicSessions/       — Azure custom Dynamic Sessions adapter + Azure AD token provider
     Usage/                 — UsageEnforcer, LlmPricing, UserUsageLock, NoopCurrentUser, Decorators/
 
@@ -59,8 +60,8 @@ CodeSmith.Api/             — ASP.NET Core host (HTTPS 7111, HTTP 5175)
   Streaming/               — NdjsonStreamWriter (shared chunk contract for /stream endpoints)
   Services/                — HttpCurrentUser (resolves Entra objectId, dev bypass)
 
-CodeSmith.Executor/        — Multi-language Minimal API host image for Azure custom Dynamic Sessions (POST /execute; /health, /ready)
-                             Not referenced by the API project graph at compile time — deployed as the session-pool container.
+CodeSmith.Executor/        — Multi-language Minimal API sandbox image (POST /execute; /health, /ready). Runs non-root.
+                             Not referenced by the API project graph at compile time — deployed as its own Container App.
 
 CodeSmith.CLI/             — Command-line client over the API (ApiClient; blocking JSON, not NDJSON streams)
 
@@ -105,7 +106,7 @@ Docs/                      — Recaps/, Handoffs.*, general/ (Entra + Dynamic Se
 | System Lab orchestration | `ISystemLabService` | `SystemLabService` |
 | System Lab scoring | `ISystemLabEvaluator` | `SystemLabEvaluator` |
 | Session storage | `ISessionStore<T>` (+ `IPromptLabSessionStore`, `ISystemLabSessionStore`) | `InMemorySessionStore<T>` etc. (ConcurrentDictionary; `WithSessionLockAsync` serializes per-session mutation for all three surfaces) |
-| Code execution | `ICodeExecutionService` — `ExecuteAsync(CodeExecutionRequest, ct)`; `SessionId` optional for Piston/LocalProcess, **required** for DynamicSessions (tutoring session id → pool identifier) | `PistonCodeExecutionService` (local default), `LocalProcessCodeExecutionService` (dev host), `DynamicSessionsCodeExecutionService` (Azure) — selected by `CodeExecution:Backend` at composition |
+| Code execution | `ICodeExecutionService` — `ExecuteAsync(CodeExecutionRequest, ct)`; `SessionId` optional for Piston/LocalProcess/Executor, **required** for DynamicSessions (tutoring session id → pool identifier) | `PistonCodeExecutionService` (local default), `LocalProcessCodeExecutionService` (dev host), `ExecutorCodeExecutionService` (Azure), `DynamicSessionsCodeExecutionService` (retained) — selected by `CodeExecution:Backend` at composition |
 | Piston runtime mapping | `IPistonRuntimeResolver` | `PistonRuntimeResolver` (Piston backend only) |
 | Dynamic Sessions auth token | `IDynamicSessionsTokenProvider` (Infra-internal) | `DefaultAzureDynamicSessionsTokenProvider` (`Azure.Identity` DefaultAzureCredential → ACA session-executor scope) |
 | Usage enforcement | `IUsageEnforcer` | `UsageEnforcer` (reserve → settle / release; free-then-paid deduction) |
@@ -163,7 +164,7 @@ Docs/                      — Recaps/, Handoffs.*, general/ (Entra + Dynamic Se
 - `appsettings.json` (defaults) + `appsettings.Development.json` (dev overrides).
 - Sections: `Ai`, `Anthropic`, `OpenAi`, `Xai`, `CodeExecution`, `Usage`, `Stripe`, `AzureAd` (Entra), plus `ConnectionStrings:CodeSmithDb` and `AllowedCorsOrigins`.
 - Each options class exposes a `SectionName` constant; bound via `services.Configure<T>(config.GetSection(T.SectionName))` and injected as `IOptions<T>`.
-- `Ai:ActiveProvider` selects the default provider name (**default `Xai` / Grok**); `CodeExecution:Backend` selects `Piston` (local default), `LocalProcess` (dev host), or `DynamicSessions` (Azure) at startup. `CodeExecution:DynamicSessions` carries `PoolManagementEndpoint`, `ExecutePath` (default `/execute`), and timeouts (HTTP client default 120s to cover cold start).
+- `Ai:ActiveProvider` selects the default provider name (**default `Xai` / Grok**); `CodeExecution:Backend` selects `Piston` (local default), `LocalProcess` (dev host), `Executor` (Azure), or `DynamicSessions` (retained) at startup. `CodeExecution:Executor` carries `BaseUrl` (the executor's internal ingress FQDN), `ExecutePath` (default `/execute`), and timeouts (HTTP client default 120s to cover scale-from-zero cold start). `CodeExecution:DynamicSessions` carries `PoolManagementEndpoint` plus the same path/timeout keys.
 - Each provider's `AccurateModel`/`FastModel` is **validated against the pricing catalog at startup** (`ValidateOnStart`); a model with no rate entry fails the boot rather than mis-charging silently. `ProviderOptionsValidationTests.ShippedAppSettings_ConfiguredModels_ArePricedInCatalog` runs that same validation over the real `appsettings.json` in CI, so bumping a model without adding its rate fails a test instead of a production container boot. `appsettings.Development.json` is not layered into that test — it is gitignored and absent on CI.
 - `Usage` carries `FreeMonthlyTokenQuota` (the per-objectId free cap, default 20,000 — note the name predates the move to a 48h window; it maps to `CreditBalance.FreeQuotaMax`), `PaidMarkupMultiplier` (raw-cost → charge multiplier, default `2.0`), and `AllowedDebugObjectIds` (objectIds permitted to use the dev `X-Debug-User-Id` bypass; empty in production).
 - `Stripe` (`StripeOptions`) carries `SecretKey` + `WebhookSecret` (secrets — Key Vault / user-secrets), `PriceIds` (allow-list of purchasable packs), and `SuccessUrl`/`CancelUrl`. Not validated at startup (unlike provider options).
@@ -333,9 +334,16 @@ Config key `CodeExecution:Backend` selects the Adapter at startup (any other val
 |---------|---------|------|
 | **`Piston`** (default) | `PistonCodeExecutionService` | Local dev — Docker Compose service on port 2000; maps `Language` → runtime via `IPistonRuntimeResolver` |
 | **`LocalProcess`** | `LocalProcessCodeExecutionService` | Dev host subprocesses only — **never in deployed environments** |
-| **`DynamicSessions`** | `DynamicSessionsCodeExecutionService` | Azure production — ACA **custom Dynamic Sessions** (Hyper-V isolation) |
+| **`Executor`** | `ExecutorCodeExecutionService` | **Azure production** — `CodeSmith.Executor` as a scale-to-zero Container App on internal ingress |
+| **`DynamicSessions`** | `DynamicSessionsCodeExecutionService` | Retained upgrade path — ACA **custom Dynamic Sessions** (Hyper-V isolation), not currently deployed |
 
-**Request shape.** Callers pass `CodeExecutionRequest { Language, Code, SessionId? }`. Piston and LocalProcess ignore `SessionId`. Dynamic Sessions **requires** it: the tutoring `sessionId` is sent as the pool session `identifier` so repeated **Test Code** clicks in the same problem can reuse a warm sandbox. Code runs are **outside** `IUsageEnforcer` (no token debit for execution itself).
+`Executor` and `DynamicSessions` talk to the **same** `CodeSmith.Executor` image over the same `POST /execute` contract, so the DTOs (`ExecutorExecuteRequest`/`ExecutorExecuteResponse`) and `ExecutorLanguageMap` live once in `Services/Executor/` and are shared by both Adapters. They differ only in auth and addressing: `Executor` sends no token and no identifier (internal ingress is the trust boundary); `DynamicSessions` attaches a bearer token and `?identifier=`.
+
+`Executor` was chosen over `DynamicSessions` on cost: Azure rejects `--ready-sessions 0` on custom pools, so the cheapest pool still bills one always-warm session. A Container App at `minReplicas: 0` costs nothing idle. The tradeoff is isolation — ACA is a shared kernel with no seccomp/AppArmor support, so the image runs non-root and the app carries a system-assigned identity scoped to AcrPull only. See `Docs/general/executor-container-app-setup.md`.
+
+Neither branch registers `AddStandardResilienceHandler()`: its 10s attempt timeout and 30s total timeout would abort a 60-90s scale-from-zero cold start, and its retries would re-execute non-idempotent user code. The configured client `Timeout` (120s) is the only budget.
+
+**Request shape.** Callers pass `CodeExecutionRequest { Language, Code, SessionId? }`. Piston, LocalProcess, and Executor ignore `SessionId`. Dynamic Sessions **requires** it: the tutoring `sessionId` is sent as the pool session `identifier` so repeated **Test Code** clicks in the same problem can reuse a warm sandbox. Code runs are **outside** `IUsageEnforcer` (no token debit for execution itself), but `POST /api/session/{id}/run` does carry plain `[Authorize]` — authenticated, never metered — so anonymous callers cannot drive sandbox scale-out.
 
 **Azure path.** Platform limit: Piston needs `privileged: true`; Container Apps forbid privileged containers. Production therefore uses a multi-language **`CodeSmith.Executor`** Minimal API image (`POST /execute`, `GET /health`, `GET /ready`) as the custom session container. The API adapter obtains a short-lived token via `IDynamicSessionsTokenProvider` (`Azure.Identity`) and POSTs to the pool management endpoint + `ExecutePath` (default `/execute`). Cold start after idle can take tens of seconds; the SPA terminal may surface a “Starting sandbox…” hint after a short pending delay. Ops (one-time pool create, **Azure ContainerApps Session Executor** role on the API managed identity, `CodeExecution__Backend` + pool endpoint on the API app): `Docs/general/dynamic-sessions-azure-setup.md`. Executor image push: `.github/workflows/deploy-executor.yml`.
 
@@ -347,7 +355,7 @@ All deploys are **manual** (`workflow_dispatch` only — no auto-deploy on push)
 |----------|----------|--------|
 | `deploy-azure.yml` | `CodeSmith.Api` image | ACR → Azure Container Apps (API) |
 | `deploy-swa.yml` | `CodeSmith.Web` static build | Azure Static Web Apps (`VITE_*` baked at build for API base URL + AAD) |
-| `deploy-executor.yml` | `CodeSmith.Executor` image | ACR (consumed by Dynamic Sessions session pool) |
+| `deploy-executor.yml` | `CodeSmith.Executor` image | ACR → Azure Container Apps (`ca-codesmith-exec-001`, scale-to-zero, internal ingress) |
 
 Telemetry: OpenTelemetry → Application Insights activates only when `APPLICATIONINSIGHTS_CONNECTION_STRING` is set on the API app. Entra External ID setup notes: `Docs/general/entra-external-id-azure-setup.md`.
 

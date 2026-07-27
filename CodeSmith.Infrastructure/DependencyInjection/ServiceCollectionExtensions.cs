@@ -6,6 +6,7 @@ using CodeSmith.Infrastructure.Persistence;
 using CodeSmith.Infrastructure.Persistence.Repositories;
 using CodeSmith.Infrastructure.Services;
 using CodeSmith.Infrastructure.Services.DynamicSessions;
+using CodeSmith.Infrastructure.Services.Executor;
 using CodeSmith.Infrastructure.Services.Piston;
 using CodeSmith.Infrastructure.Services.PromptLab;
 using CodeSmith.Infrastructure.Services.SystemLab;
@@ -141,6 +142,7 @@ public static class ServiceCollectionExtensions
         // == Code Execution Backend Selection == //
         // Reads CodeExecution:Backend from config and wires the matching implementation.
         // "Piston" (default) → local Docker sandbox. "LocalProcess" → host processes (dev only).
+        // "Executor" → CodeSmith.Executor as a scale-to-zero Container App on internal ingress.
         // "DynamicSessions" → Azure Container Apps custom session pool (Hyper-V sandboxes).
         var backend = configuration.GetSection(CodeExecutionOptions.SectionName)["Backend"] ?? "Piston";
 
@@ -162,6 +164,26 @@ public static class ServiceCollectionExtensions
         {
             services.AddScoped<ICodeExecutionService, LocalProcessCodeExecutionService>();
         }
+        else if (string.Equals(backend, "Executor", StringComparison.OrdinalIgnoreCase))
+        {
+            // CodeSmith.Executor hosted as a scale-to-zero Container App on internal ingress.
+            // No token provider: reachability inside the Container Apps Environment is the trust boundary.
+            services.AddHttpClient(ExecutorHttpClient.Name, (sp, client) =>
+            {
+                var opts = sp.GetRequiredService<IOptions<CodeExecutionOptions>>().Value.Executor;
+                if (string.IsNullOrWhiteSpace(opts.BaseUrl))
+                    throw new InvalidOperationException(
+                        "CodeExecution:Executor:BaseUrl is required when Backend is Executor.");
+                client.BaseAddress = new Uri(opts.BaseUrl.TrimEnd('/') + "/");
+                client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds);
+            });
+            // Deliberately NO AddStandardResilienceHandler: its defaults are a 10s per-attempt timeout,
+            // a 30s total timeout, and 3 retries. A cold scale-from-zero start takes 60-90s and a legitimate
+            // run can use the full 10s RunTimeoutMs, so those defaults would abort valid requests — and the
+            // retries would re-execute non-idempotent user code. The 120s client timeout is the only budget.
+
+            services.AddScoped<ICodeExecutionService, ExecutorCodeExecutionService>();
+        }
         else if (string.Equals(backend, "DynamicSessions", StringComparison.OrdinalIgnoreCase))
         {
             services.AddHttpClient(DynamicSessionsHttpClient.Name, (sp, client) =>
@@ -172,7 +194,9 @@ public static class ServiceCollectionExtensions
                         "CodeExecution:DynamicSessions:PoolManagementEndpoint is required when Backend is DynamicSessions.");
                 client.BaseAddress = new Uri(opts.PoolManagementEndpoint.TrimEnd('/') + "/");
                 client.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds);
-            }).AddStandardResilienceHandler();
+            });
+            // Same reasoning as the Executor branch above: the standard resilience handler's 10s attempt
+            // timeout / 30s total timeout would abort sandbox allocation, and its retries would re-run user code.
 
             services.AddSingleton<IDynamicSessionsTokenProvider, DefaultAzureDynamicSessionsTokenProvider>();
             services.AddScoped<ICodeExecutionService, DynamicSessionsCodeExecutionService>();
@@ -180,7 +204,7 @@ public static class ServiceCollectionExtensions
         else
         {
             throw new InvalidOperationException(
-                $"Unknown CodeExecution:Backend value '{backend}'. Expected 'Piston', 'LocalProcess', or 'DynamicSessions'.");
+                $"Unknown CodeExecution:Backend value '{backend}'. Expected 'Piston', 'LocalProcess', 'Executor', or 'DynamicSessions'.");
         }
 
         // Provide a default ICurrentUser so decorator registration succeeds.

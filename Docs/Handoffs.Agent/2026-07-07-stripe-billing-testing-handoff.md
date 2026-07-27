@@ -104,7 +104,7 @@ A prior grill-me session corrected a Stripe billing design (seven flawed assumpt
 - **Raw body is mandatory** for the webhook; signature verification hashes exact bytes. Do not add `[FromBody]` to the webhook action.
 - **Duplicate-event handling is by design:** the store treats a re-seen event id (or PK-collision race) as `AlreadyProcessed` and makes no change — the correct, safe behavior.
 - **User conventions:** block `// == Title == //` comments; `/// <summary>` only at type level; TDD; direct pushback expected, no affirmations; reviews every line.
-- The three test Price IDs: `price_1TntDORzQXBJQm3BtbhkfobM` ($25), `price_1TntCSRzQXBJQm3BDDwBF5Je` ($10), `price_1Tnt9nRzQXBJQm3BK0llW9f7` ($5). Configured webhook secret: `whsec_8b01682e7f651dccee8ee0ae262960c8e7438fdd1087afb54aa7be01ed919aa0`.
+- The three test Price IDs: `price_1TntDORzQXBJQm3BtbhkfobM` ($25), `price_1TntCSRzQXBJQm3BDDwBF5Je` ($10), `price_1Tnt9nRzQXBJQm3BK0llW9f7` ($5). Configured webhook secret:
 
 ---
 

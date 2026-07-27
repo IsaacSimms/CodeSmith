@@ -14,6 +14,7 @@ internal sealed class CapturingHttpHandler : HttpMessageHandler
     private readonly HttpStatusCode _status;
     private readonly string _body;
     private readonly string _contentType;
+    private readonly Exception? _exception;
 
     public HttpRequestMessage? LastRequest     { get; private set; }   // Most recent request message (URI, headers)
     public string?            LastRequestBody { get; private set; }   // Most recent request body, read before the SDK disposes it
@@ -27,6 +28,16 @@ internal sealed class CapturingHttpHandler : HttpMessageHandler
         _contentType = contentType;
     }
 
+    // Transport-failure overload — throws instead of responding, so adapters' connection-failure
+    // paths can be exercised without a second stub handler type.
+    public CapturingHttpHandler(Exception exception)
+    {
+        _exception   = exception;
+        _status      = HttpStatusCode.OK;
+        _body        = string.Empty;
+        _contentType = "application/json";
+    }
+
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         CallCount++;
@@ -34,6 +45,8 @@ internal sealed class CapturingHttpHandler : HttpMessageHandler
         LastRequestBody = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
 
         cancellationToken.ThrowIfCancellationRequested();   // honour cancelled tokens like a real socket would
+
+        if (_exception is not null) throw _exception;
 
         return new HttpResponseMessage(_status)
         {

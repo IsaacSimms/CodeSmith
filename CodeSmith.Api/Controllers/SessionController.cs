@@ -6,6 +6,7 @@ using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
 using CodeSmith.Infrastructure.Configuration;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -168,9 +169,14 @@ public class SessionController : ControllerBase
 
     // == Run Code Endpoint == //
 
+    // Authenticated but deliberately NOT [MeteredAi] — a code run costs sandbox CPU, not LLM tokens,
+    // so it is never debited against quota or credits. [Authorize] exists purely to stop anonymous
+    // callers from driving sandbox scale-out (and the resulting compute bill) with a leaked sessionId.
     [HttpPost("session/{sessionId:guid}/run")]  // Executes user code in a sandboxed process with a 10-second timeout
+    [Authorize]
     [ProducesResponseType(typeof(RunCodeResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> RunCode(
         Guid sessionId,

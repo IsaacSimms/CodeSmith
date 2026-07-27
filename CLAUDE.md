@@ -12,7 +12,7 @@ AI-powered interview practice tool with three independent surfaces: **Tutoring**
 | AI            | Anthropic, OpenAI, and xAI/Grok SDKs (provider chosen per session; xAI default) |
 | Payments      | Stripe.net (prepaid credit top-ups) |
 | Auth          | Entra External ID (CIAM) + MSAL SPA; Development `X-Debug-User-Id` allow-list |
-| Code sandbox  | Piston (local Docker default), LocalProcess (dev host), DynamicSessions (Azure) |
+| Code sandbox  | Piston (local Docker default), LocalProcess (dev host), Executor (scale-to-zero Azure Container App), DynamicSessions (retained) |
 | Telemetry     | OpenTelemetry → App Insights when `APPLICATIONINSIGHTS_CONNECTION_STRING` is set |
 | Frontend      | React 19, TypeScript, Vite 6   |
 | Styling       | Tailwind CSS v4                |
@@ -25,11 +25,11 @@ AI-powered interview practice tool with three independent surfaces: **Tutoring**
 ## Folder Structure
 
 - `CodeSmith.Core/` — Domain models, enums, interfaces
-- `CodeSmith.Infrastructure/` — LLM provider adapters, usage/credits, Stripe billing (`Billing/`), code execution (`Piston/`, `DynamicSessions/`, LocalProcess), in-memory session stores, EF persistence
+- `CodeSmith.Infrastructure/` — LLM provider adapters, usage/credits, Stripe billing (`Billing/`), code execution (`Piston/`, `Executor/`, `DynamicSessions/`, LocalProcess), in-memory session stores, EF persistence
 - `CodeSmith.Api/` — ASP.NET Core Web API (HTTPS 7111, HTTP 5175)
   - `Authorization/` — `[MeteredAi]` + login_required 401 handler
   - `Streaming/` — NDJSON stream writer for `/stream` endpoints
-- `CodeSmith.Executor/` — Multi-language Minimal API image for Azure custom Dynamic Sessions
+- `CodeSmith.Executor/` — Multi-language Minimal API sandbox image; deployed as a scale-to-zero Container App
 - `CodeSmith.CLI/` — Command-line interface (blocking JSON)
 - `CodeSmith.Tests/` — Backend unit/integration tests (Api/, CLI/, Core/, Infrastructure/)
 - `CodeSmith.Web/` — React frontend (Vite dev server on port 5173)
@@ -62,8 +62,8 @@ Send a message in an existing session.
 - Stream sibling: `POST /api/session/{sessionId}/chat/stream`
 - Errors: 400, **401**, 402, 404, 429, 502
 
-### POST /api/session/{sessionId}/run
-Execute user code in the configured sandbox (`CodeExecution:Backend`). Not LLM-metered; no `[MeteredAi]`. Dynamic Sessions requires the tutoring session id as the pool identifier.
+### POST /api/session/{sessionId}/run 🔐 `[Authorize]`
+Execute user code in the configured sandbox (`CodeExecution:Backend`). Authenticated but **not** LLM-metered — no `[MeteredAi]`, since a run costs sandbox CPU rather than tokens. `[Authorize]` keeps anonymous callers from driving sandbox scale-out. Dynamic Sessions requires the tutoring session id as the pool identifier; the Executor backend does not.
 
 ### Billing (Stripe prepaid credits)
 

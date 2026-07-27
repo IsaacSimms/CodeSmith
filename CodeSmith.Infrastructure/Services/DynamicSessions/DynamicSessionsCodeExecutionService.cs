@@ -1,11 +1,11 @@
 // == Dynamic Sessions Code Execution Service == //
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using CodeSmith.Core.Enums;
 using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
 using CodeSmith.Infrastructure.Configuration;
+using CodeSmith.Infrastructure.Services.Executor;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -42,7 +42,7 @@ public class DynamicSessionsCodeExecutionService : ICodeExecutionService
             throw new CodeExecutionException(
                 "DynamicSessions requires CodeExecutionRequest.SessionId (tutoring session id) to allocate a sandbox.");
 
-        if (!LanguageMap.TryGetValue(request.Language, out var languageKey))
+        if (!ExecutorLanguageMap.TryGet(request.Language, out var languageKey))
             throw new CodeExecutionException($"Language '{request.Language}' is not supported by DynamicSessions.");
 
         var identifier = request.SessionId.Value.ToString("D"); // guid format is pool-identifier safe
@@ -126,16 +126,4 @@ public class DynamicSessionsCodeExecutionService : ICodeExecutionService
         if (string.IsNullOrEmpty(value) || value.Length <= _options.MaxOutputLength) return value;
         return value[.._options.MaxOutputLength] + "\n[output truncated]";
     }
-
-    // Maps CodeSmith Language enum to executor language keys (stable contract with CodeSmith.Executor).
-    private static readonly Dictionary<Language, string> LanguageMap = new()
-    {
-        [Language.Python]     = "python",
-        [Language.TypeScript] = "typescript",
-        [Language.Go]         = "go",
-        [Language.Cpp]        = "cpp",
-        [Language.Rust]       = "rust",
-        [Language.Java]       = "java",
-        [Language.CSharp]     = "csharp",
-    };
 }
