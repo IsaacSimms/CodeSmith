@@ -37,14 +37,22 @@ az account show --query "{name:name, id:id}" -o table
 "RG=$RG  ACR=$ACR"
 ```
 
-## 1. Create the Container App
+## 1. Create the Container App — with a PUBLIC placeholder image
+
+**Do not create this app against the ACR image.** `--system-assigned` mints the principal *during* create, so it cannot hold AcrPull yet, and the CLI validates the image pull as part of the same operation. Creating against `$ACR.azurecr.io/...` fails with:
+
+```
+Failed to provision revision ... UNAUTHORIZED: authentication required
+```
+
+Create against a public image instead. Step 4 swaps in the real one, so the placeholder never serves traffic.
 
 ```powershell
 az containerapp create `
   --name ca-codesmith-exec-001 `
   --resource-group $RG `
   --environment cae-codesmith-prod-centralus-001 `
-  --image "$ACR.azurecr.io/codesmith-executor:latest" `
+  --image mcr.microsoft.com/k8se/quickstart:latest `
   --system-assigned `
   --ingress internal --target-port 8080 `
   --cpu 1.0 --memory 2Gi `
@@ -56,9 +64,7 @@ az containerapp create `
 
 `--min-replicas 0` is the whole point: no replicas, no CPU/memory charge. The default 300s scale-in cooldown keeps a replica warm across repeated Test Code clicks in one session.
 
-> First create may fail to pull if AcrPull is not yet granted (step 2). That is expected — step 3 re-points it.
-
-Confirm the app exists and captured a principal before continuing:
+Confirm the app exists and captured a principal before continuing — a null `principal` breaks step 2 silently:
 
 ```powershell
 az containerapp show -n ca-codesmith-exec-001 -g $RG `
@@ -76,9 +82,12 @@ az role assignment create `
   --role AcrPull `
   --assignee $EXEC_PRINCIPAL `
   --scope $ACR_ID
+
+# RBAC propagation. Pulling immediately after the grant repeats the same UNAUTHORIZED error.
+Start-Sleep -Seconds 60
 ```
 
-## 3. Point the app at ACR via that identity
+## 3. Point the app at ACR, then swap in the real image
 
 ```powershell
 az containerapp registry set `
@@ -86,9 +95,21 @@ az containerapp registry set `
   --resource-group $RG `
   --server "$ACR.azurecr.io" `
   --identity system
+
+# Replaces the public placeholder from step 1 with the actual executor
+az containerapp update `
+  --name ca-codesmith-exec-001 `
+  --resource-group $RG `
+  --image "$ACR.azurecr.io/codesmith-executor:latest"
 ```
 
-`deploy-executor.yml` re-runs this on every deploy (idempotent).
+`deploy-executor.yml` re-runs `registry set` on every deploy (idempotent) and updates the image to the commit sha.
+
+If this still returns `UNAUTHORIZED`, the role assignment has not propagated — wait and re-run the `update`. Confirm the grant landed with:
+
+```powershell
+az role assignment list --assignee $EXEC_PRINCIPAL --scope $ACR_ID -o table
+```
 
 ## 4. Point the API at the executor
 
