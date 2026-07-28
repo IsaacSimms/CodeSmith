@@ -64,9 +64,36 @@ describe("HomePage", () => {
     expect(link).toHaveAttribute("href", "/system-lab");
   });
 
+  it("lists Paired Programmer before the secondary lab CTAs in the document", () => {
+    renderHomePage();
+    const links = screen
+      .getAllByRole("link")
+      .filter((el) =>
+        ["/pairedprogrammer", "/prompt-lab", "/system-lab"].includes(
+          el.getAttribute("href") ?? ""
+        )
+      );
+    expect(links.map((el) => el.getAttribute("href"))).toEqual([
+      "/pairedprogrammer",
+      "/prompt-lab",
+      "/system-lab",
+    ]);
+  });
+
   it("renders provider buttons as Anthropic, xAI, OpenAI regardless of API order", () => {
     renderHomePage();
     const buttons = screen.getAllByRole("button");
     expect(buttons.map((b) => b.textContent)).toEqual(["Anthropic", "xAI", "OpenAI"]);
+  });
+
+  it("renders the solo-maintainer scale-to-zero note at the bottom", () => {
+    renderHomePage();
+    expect(
+      screen.getByText(/CodeSmith is developed and maintained by one engineer\. \(Hello!\)/i)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/scale to zero wherever possible/i)).toBeInTheDocument();
+    expect(screen.getByText(/give the servers a few seconds to spin up/i)).toBeInTheDocument();
+    expect(screen.getByText(/enjoy the craft of engineering/i)).toBeInTheDocument();
+    expect(screen.getByText(/With love, Isaac/i)).toBeInTheDocument();
   });
 });

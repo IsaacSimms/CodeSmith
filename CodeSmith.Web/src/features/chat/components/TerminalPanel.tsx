@@ -13,7 +13,7 @@ const SANDBOX_HINT_MS = 5_000; // After this pending duration, show cold-start m
 export function TerminalPanel({ result, isRunning, onClear }: TerminalPanelProps) {
   const [showSandboxHint, setShowSandboxHint] = useState(false);
 
-  // == Slow-run hint for Dynamic Sessions cold start == //
+  // == Slow-run hint for sandbox cold start (scale-to-zero) == //
   useEffect(() => {
     if (!isRunning) {
       setShowSandboxHint(false);
