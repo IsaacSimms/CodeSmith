@@ -41,35 +41,38 @@ public class TutoringService : ITutoringService
 
     // == Problem Generation == //
 
-    public Task<ProblemSession> GenerateProblemAsync(Difficulty difficulty, Language language, AiProvider provider, CancellationToken ct = default)
-        => CreateSessionFromGenerationAsync(difficulty, language, provider,
-            () => _problemGenerator.GenerateAsync(difficulty, language, provider, ct));
+    public Task<ProblemSession> GenerateProblemAsync(ProblemSpec spec, CancellationToken ct = default)
+        => CreateSessionFromGenerationAsync(spec, () => _problemGenerator.GenerateAsync(spec, ct));
 
     public Task<ProblemSession> StreamGenerateProblemAsync(
-        Difficulty difficulty, Language language, AiProvider provider,
+        ProblemSpec spec,
         Func<string, CancellationToken, Task> onDescriptionDelta,
         Func<CancellationToken, Task> onReset,
         CancellationToken ct = default)
-        => CreateSessionFromGenerationAsync(difficulty, language, provider,
-            () => _problemGenerator.StreamGenerateAsync(difficulty, language, provider, onDescriptionDelta, onReset, ct));
+        => CreateSessionFromGenerationAsync(spec,
+            () => _problemGenerator.StreamGenerateAsync(spec, onDescriptionDelta, onReset, ct));
 
     private async Task<ProblemSession> CreateSessionFromGenerationAsync(
-        Difficulty difficulty, Language language, AiProvider provider,
-        Func<Task<(string Description, string StarterCode)>> generate)
+        ProblemSpec spec,
+        Func<Task<GeneratedProblem>> generate)
     {
-        var (description, starterCode) = await generate();
+        var generated = await generate();
 
         var session = new ProblemSession
         {
-            Difficulty         = difficulty,
-            Language           = language,
-            Provider           = provider,
-            ProblemDescription = description,
-            StarterCode        = starterCode
+            Difficulty         = spec.Difficulty,
+            Language           = spec.Language,
+            Provider           = spec.Provider,
+            Focus              = generated.Focus,   // Post-roll values, so a Random request still records what was asked for
+            Topic              = generated.Topic,
+            ProblemDescription = generated.Description,
+            StarterCode        = generated.StarterCode
         };
 
         _sessionStore.Set(session);
-        _logger.LogInformation("Created session {SessionId} for {Difficulty} {Language}", session.SessionId, difficulty, language);
+        _logger.LogInformation(
+            "Created session {SessionId} for {Difficulty} {Language} — focus '{Focus}', topic '{Topic}'",
+            session.SessionId, spec.Difficulty, spec.Language, session.Focus, session.Topic);
         return session;
     }
 
@@ -116,7 +119,7 @@ public class TutoringService : ITutoringService
 
             _logger.LogInformation("Processing guidance request for session {SessionId}", sessionId);
 
-            var systemPrompt = _templates.GuidanceSystemPrompt(session.Language, session.ProblemDescription, session.StarterCode, editorContent, guidanceMode);
+            var systemPrompt = _templates.GuidanceSystemPrompt(session.Language, session.ProblemDescription, session.StarterCode, editorContent, guidanceMode, session.Focus);
             var turnRequest  = new GuidanceTurnRequest
             {
                 SystemPrompt = systemPrompt,

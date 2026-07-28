@@ -10,14 +10,14 @@ namespace CodeSmith.Core.Interfaces;
 /// </summary>
 public interface ITutoringService
 {
-    // Generates a new coding problem session using the specified provider
-    Task<ProblemSession> GenerateProblemAsync(Difficulty difficulty, Language language, AiProvider provider, CancellationToken ct = default);
+    // Generates a new coding problem session from the given spec
+    Task<ProblemSession> GenerateProblemAsync(ProblemSpec spec, CancellationToken ct = default);
 
     // Streaming sibling of GenerateProblemAsync: description text streams through onDescriptionDelta
     // as it is written; onReset fires before a retry attempt so shown text can be cleared. The stored
     // session (with parsed starter code) arrives only in the returned value.
     Task<ProblemSession> StreamGenerateProblemAsync(
-        Difficulty difficulty, Language language, AiProvider provider,
+        ProblemSpec spec,
         Func<string, CancellationToken, Task> onDescriptionDelta,
         Func<CancellationToken, Task> onReset,
         CancellationToken ct = default);

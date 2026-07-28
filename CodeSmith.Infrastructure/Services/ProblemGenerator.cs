@@ -32,19 +32,16 @@ public class ProblemGenerator : IProblemGenerator
 
     // == GenerateAsync / StreamGenerateAsync == //
 
-    public Task<(string Description, string StarterCode)> GenerateAsync(
-        Difficulty difficulty, Language language, AiProvider provider, CancellationToken ct = default)
-        => ExecuteGenerationAsync(difficulty, language, provider,
+    public Task<GeneratedProblem> GenerateAsync(ProblemSpec spec, CancellationToken ct = default)
+        => ExecuteGenerationAsync(spec,
             (llm, completion, token) => llm.CompleteAsync(completion, token), onReset: null, ct);
 
-    public Task<(string Description, string StarterCode)> StreamGenerateAsync(
-        Difficulty difficulty,
-        Language language,
-        AiProvider provider,
+    public Task<GeneratedProblem> StreamGenerateAsync(
+        ProblemSpec spec,
         Func<string, CancellationToken, Task> onDescriptionDelta,
         Func<CancellationToken, Task> onReset,
         CancellationToken ct = default)
-        => ExecuteGenerationAsync(difficulty, language, provider,
+        => ExecuteGenerationAsync(spec,
             // A fresh filter per attempt: each retry re-streams its description from a clean scanner state
             (llm, completion, token) => llm.StreamAsync(completion, new DescriptionStreamFilter(onDescriptionDelta).FeedAsync, token),
             onReset, ct);
@@ -54,18 +51,17 @@ public class ProblemGenerator : IProblemGenerator
     // One implementation of the attempt loop (truncation + parse-failure retries with a shared
     // budget) for both operation shapes; onReset fires before each retry so streaming consumers can
     // clear text an abandoned attempt already showed.
-    private async Task<(string Description, string StarterCode)> ExecuteGenerationAsync(
-        Difficulty difficulty,
-        Language language,
-        AiProvider provider,
+    private async Task<GeneratedProblem> ExecuteGenerationAsync(
+        ProblemSpec spec,
         Func<ILlmService, CompletionRequest, CancellationToken, Task<LlmResponse>> invoke,
         Func<CancellationToken, Task>? onReset,
         CancellationToken ct)
     {
-        var request = _templates.ProblemGeneration(difficulty, language);
+        // Resolved once, outside the attempt loop — retries must re-ask for the same focus and topic
+        var request = _templates.ProblemGeneration(spec);
         _logger.LogInformation(
-            "Generating {Difficulty} {Language} problem via {Provider} — category '{Category}', angle '{Angle}'",
-            difficulty, request.LanguageLabel, provider, request.Category, request.Angle);
+            "Generating {Difficulty} {Language} problem via {Provider} — focus '{Focus}', topic '{Topic}'",
+            spec.Difficulty, request.LanguageLabel, spec.Provider, request.Focus, request.Topic);
 
         var lastWasTruncated = false;
 
@@ -82,7 +78,7 @@ public class ProblemGenerator : IProblemGenerator
                 ? $"{request.UserMessage} Note: A previous attempt was cut off due to token limits. Please generate a complete problem."
                 : request.UserMessage;
 
-            var llmResponse = await invoke(_factory.Get(provider),
+            var llmResponse = await invoke(_factory.Get(spec.Provider),
                 CompletionRequest.SingleTurn(request.SystemPrompt, userMessage, ModelTier.Accurate, MaxTokens, "Tutoring:ProblemGeneration"), ct);
 
             lastWasTruncated = llmResponse.WasTruncated;
@@ -102,7 +98,7 @@ public class ProblemGenerator : IProblemGenerator
             attemptSpan?.SetTag("codesmith.parse_complete", parseComplete);
 
             if (parseComplete)
-                return (description, starterCode);
+                return new GeneratedProblem(description, starterCode, request.Focus, request.Topic);
 
             _logger.LogWarning(
                 "Problem generation produced incomplete output on attempt {Attempt}/{Max} — description={Desc} chars, code={Code} chars",

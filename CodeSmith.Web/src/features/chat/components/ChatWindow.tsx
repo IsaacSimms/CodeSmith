@@ -3,8 +3,14 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useNavigationContext } from "../../../contexts/NavigationContext";
 import { useProviderPreference } from "../../../hooks/useProviderPreference";
-import type { ProblemSession, Difficulty, Language, ChatMessage, RunCodeResponse, GuidanceMode } from "../types";
-import { isDifficulty, isLanguage, languageLabels } from "../types";
+import type {
+  ProblemSession, Difficulty, Language, ChatMessage, RunCodeResponse, GuidanceMode,
+  ProblemFocus, ProblemTopic,
+} from "../types";
+import {
+  isDifficulty, isLanguage, isProblemFocus, isProblemTopic,
+  languageLabels, problemFocusLabels, problemTopicLabels,
+} from "../types";
 import { useCreateSession } from "../hooks/useCreateSession";
 import { useSendMessage } from "../hooks/useSendMessage";
 import { useRunCode } from "../hooks/useRunCode";
@@ -40,19 +46,29 @@ export function ChatWindow() {
       setCode("");
       setExecutionResult(null);
       setContextTokensUsed(null);
+      // focus/topic deliberately survive the reset so a drill session costs one selection, not one per problem
     });
     return () => unregisterReset("pairedprogrammer");
   }, [registerReset, unregisterReset]);
 
   // == URL Param Seeding (Option A) == //
+  // focus and topic are optional additions: auto-start still keys only on lang + difficulty, so
+  // every pre-existing bookmark behaves exactly as before.
   const urlLangRaw = searchParams.get("lang");
   const urlDifficultyRaw = searchParams.get("difficulty");
+  const urlFocusRaw = searchParams.get("focus");
+  const urlTopicRaw = searchParams.get("topic");
   const initialLanguage: Language | undefined = isLanguage(urlLangRaw) ? urlLangRaw : undefined;
   const initialDifficulty: Difficulty | undefined = isDifficulty(urlDifficultyRaw) ? urlDifficultyRaw : undefined;
 
+  // The user's *selection*, distinct from the session's *resolved* values below. Held here rather
+  // than in DifficultySelector so a pick survives the nav reset; only a reload returns it to Random.
+  const [focus, setFocus] = useState<ProblemFocus>(isProblemFocus(urlFocusRaw) ? urlFocusRaw : "Random");
+  const [topic, setTopic] = useState<ProblemTopic>(isProblemTopic(urlTopicRaw) ? urlTopicRaw : "Random");
+
   function handleStart(difficulty: Difficulty, language: Language) {
     createSession.mutate(
-      { difficulty, language, provider },
+      { difficulty, language, provider, focus, topic },
       {
         onSuccess: (data) => {
           setSession(data);
@@ -163,6 +179,10 @@ export function ChatWindow() {
               onSelect={handleStart}
               isLoading={createSession.isPending}
               initialLanguage={initialLanguage}
+              focus={focus}
+              topic={topic}
+              onFocusChange={setFocus}
+              onTopicChange={setTopic}
             />
             {createSession.isError && (
               <p className="mt-4 text-center text-red-400">{createSession.error.message}</p>
@@ -176,9 +196,12 @@ export function ChatWindow() {
   return (
     <div className="flex h-full flex-col">
       {/* == Session Badge Row == */}
+      {/* Focus and Topic report what was requested of the provider, not what it delivered */}
       <div className="flex items-center justify-end gap-2 border-b border-gray-700 px-6 py-2">
         <span className="rounded bg-gray-700 px-3 py-1 text-sm text-gray-300">{session.difficulty}</span>
         <span className="rounded bg-gray-700 px-3 py-1 text-sm text-gray-300">{languageLabels[session.language]}</span>
+        <span className="rounded bg-gray-700 px-3 py-1 text-sm text-gray-300">{problemFocusLabels[session.focus]}</span>
+        <span className="rounded bg-gray-700 px-3 py-1 text-sm text-gray-300">{problemTopicLabels[session.topic]}</span>
       </div>
 
       {/* == Split Screen Body == */}
@@ -190,7 +213,10 @@ export function ChatWindow() {
             code={code}
             onCodeChange={setCode}
             language={session.language}
-            onGenerateNew={() => handleStart(session.difficulty, session.language)}  
+            // Difficulty and language come from the session, but focus/topic come from the user's
+            // selection inside handleStart — passing session.focus here would silently pin a Random
+            // pick to whatever the first roll produced and it could never re-roll.
+            onGenerateNew={() => handleStart(session.difficulty, session.language)}
             isGenerating={createSession.isPending}
             onRunCode={handleRunCode}
             isRunning={runCode.isPending}

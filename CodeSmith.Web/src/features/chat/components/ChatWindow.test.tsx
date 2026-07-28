@@ -18,6 +18,8 @@ const mockSession: ProblemSession = {
   sessionId: "test-session-id",
   difficulty: "Easy",
   language: "CSharp",
+  focus: "Refactoring",       // Resolved server-side — a session never carries "Random"
+  topic: "StateMachines",
   problemDescription: "Write a function that adds two numbers.",
   starterCode: "public int Add(int a, int b) {}",
   messages: [],
@@ -26,14 +28,14 @@ const mockSession: ProblemSession = {
 
 const mockChatResponse: ChatResponse = { response: "Try a for loop", contextTokensUsed: 100, contextWindowSize: 200_000 };
 
-function renderChatWindow() {
+function renderChatWindow(route = "/") {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false } },
   });
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[route]}>
         <NavigationProvider>
           <ChatWindow />
         </NavigationProvider>
@@ -42,8 +44,14 @@ function renderChatWindow() {
   );
 }
 
+// The body of the Nth streamCreateSession call
+function requestBody(callIndex = 0) {
+  return vi.mocked(apiClient.streamCreateSession).mock.calls[callIndex]?.[0];
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.clearAllMocks();   // restoreAllMocks leaves mock.calls intact; call-index asserts need a clean slate
 });
 
 describe("ChatWindow", () => {
@@ -76,7 +84,7 @@ describe("ChatWindow", () => {
         expect(screen.getByText("Write a function that adds two numbers.")).toBeInTheDocument();
       });
 
-      expect(vi.mocked(apiClient.streamCreateSession).mock.calls[0]?.[0]).toEqual({ difficulty: "Easy", language: "CSharp", provider: "Anthropic" });
+      expect(vi.mocked(apiClient.streamCreateSession).mock.calls[0]?.[0]).toEqual({ difficulty: "Easy", language: "CSharp", provider: "Anthropic", focus: "Random", topic: "Random" });
     });
 
     it("shows the description streaming while the problem is being written", async () => {
@@ -228,6 +236,119 @@ describe("ChatWindow", () => {
       expect(screen.getByText("half a hint")).toBeInTheDocument();          // partial stays visible, dimmed
       expect(input).toHaveValue("How do I start?");                          // message restored for resend
       expect(screen.queryByText("How do I start?")).not.toBeInTheDocument(); // user bubble rolled back
+    });
+  });
+
+  // == Focus and Topic == //
+
+  describe("focus and topic", () => {
+    async function startSession(route = "/") {
+      const user = userEvent.setup();
+      vi.mocked(apiClient.streamCreateSession).mockResolvedValue(mockSession);
+
+      renderChatWindow(route);
+      await user.click(screen.getByRole("button", { name: "Easy" }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Write a function that adds two numbers.")).toBeInTheDocument();
+      });
+
+      return user;
+    }
+
+    it("renders resolved focus and topic badges in the session row", async () => {
+      await startSession();
+
+      // The session's resolved values, not the user's "Random" selection
+      expect(screen.getByText("Refactoring")).toBeInTheDocument();
+      expect(screen.getByText("State machines")).toBeInTheDocument();
+    });
+
+    it("renders a Standard badge when focus resolves to Standard", async () => {
+      // Standard is a real option, not the absence of one — it badges like any other focus
+      vi.mocked(apiClient.streamCreateSession).mockResolvedValue({ ...mockSession, focus: "Standard" });
+      const user = userEvent.setup();
+      renderChatWindow();
+      await user.click(screen.getByRole("button", { name: "Easy" }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Standard implementation")).toBeInTheDocument();
+      });
+    });
+
+    it("sends the user's selection, not the session's resolved values, when regenerating", async () => {
+      // The load-bearing one: the session came back Refactoring, but the selection was Random, so
+      // regenerating must re-roll rather than silently pin to the first roll.
+      const user = await startSession();
+
+      await user.click(screen.getByRole("button", { name: /new problem/i }));
+
+      await waitFor(() => expect(vi.mocked(apiClient.streamCreateSession)).toHaveBeenCalledTimes(2));
+      expect(requestBody(1)).toMatchObject({ focus: "Random", topic: "Random" });
+    });
+
+    it("repeats a pinned focus when regenerating", async () => {
+      const user = userEvent.setup();
+      vi.mocked(apiClient.streamCreateSession).mockResolvedValue(mockSession);
+      renderChatWindow();
+
+      await user.selectOptions(screen.getByLabelText("Focus"), "Refactoring");
+      await user.click(screen.getByRole("button", { name: "Easy" }));
+      await waitFor(() => {
+        expect(screen.getByText("Write a function that adds two numbers.")).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole("button", { name: /new problem/i }));
+
+      await waitFor(() => expect(vi.mocked(apiClient.streamCreateSession)).toHaveBeenCalledTimes(2));
+      expect(requestBody(1)).toMatchObject({ focus: "Refactoring" });
+    });
+
+    it("seeds the selection from ?focus= and ?topic= params", async () => {
+      const user = userEvent.setup();
+      vi.mocked(apiClient.streamCreateSession).mockResolvedValue(mockSession);
+
+      renderChatWindow("/?focus=BugFix&topic=BitManipulation");
+      await user.click(screen.getByRole("button", { name: "Medium" }));
+
+      await waitFor(() => expect(vi.mocked(apiClient.streamCreateSession)).toHaveBeenCalled());
+      expect(requestBody()).toMatchObject({ focus: "BugFix", topic: "BitManipulation" });
+    });
+
+    it("falls back to Random when the focus and topic params are malformed", async () => {
+      const user = userEvent.setup();
+      vi.mocked(apiClient.streamCreateSession).mockResolvedValue(mockSession);
+
+      renderChatWindow("/?focus=NotAFocus&topic=__proto__");
+      await user.click(screen.getByRole("button", { name: "Medium" }));
+
+      await waitFor(() => expect(vi.mocked(apiClient.streamCreateSession)).toHaveBeenCalled());
+      expect(requestBody()).toMatchObject({ focus: "Random", topic: "Random" });
+    });
+
+    it("auto-starts from lang and difficulty alone, defaulting focus and topic to Random", async () => {
+      // Backward-compatibility guard: every pre-existing bookmark must behave exactly as before
+      vi.mocked(apiClient.streamCreateSession).mockResolvedValue(mockSession);
+
+      renderChatWindow("/?lang=Python&difficulty=Hard");
+
+      await waitFor(() => expect(vi.mocked(apiClient.streamCreateSession)).toHaveBeenCalled());
+      expect(requestBody()).toEqual({
+        difficulty: "Hard",
+        language: "Python",
+        provider: "Anthropic",
+        focus: "Random",
+        topic: "Random",
+      });
+    });
+
+    it("carries focus and topic through an auto-start", async () => {
+      vi.mocked(apiClient.streamCreateSession).mockResolvedValue(mockSession);
+
+      renderChatWindow("/?lang=Python&difficulty=Hard&focus=Refactoring");
+
+      await waitFor(() => expect(vi.mocked(apiClient.streamCreateSession)).toHaveBeenCalled());
+      expect(requestBody()).toMatchObject({ focus: "Refactoring", topic: "Random" });
     });
   });
 });

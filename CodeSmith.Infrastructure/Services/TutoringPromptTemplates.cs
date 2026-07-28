@@ -1,48 +1,70 @@
 // == Tutoring Prompt Templates == //
 using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
+using CodeSmith.Core.Models;
 
 namespace CodeSmith.Infrastructure.Services;
 
 public class TutoringPromptTemplates : ITutoringPromptTemplates
 {
     // == Problem Variety Data == //
-    // "Standard implementation" appears 3× for roughly 30% baseline probability; other entries add creative variety
-    internal static readonly string[] ProblemCategories =
+
+    // Prose handed to the model for each focus. Random is absent by design — it resolves through
+    // WeightedFocusRoll before any lookup happens.
+    internal static readonly IReadOnlyDictionary<ProblemFocus, string> FocusProse = new Dictionary<ProblemFocus, string>
+    {
+        [ProblemFocus.Standard]                = "Standard implementation",
+        [ProblemFocus.BugFix]                  = "Bug fix — the starter code contains one or more subtle bugs the student must find and fix",
+        [ProblemFocus.PerformanceOptimization] = "Performance optimization — a naive solution is provided; the student must improve its time or space complexity",
+        [ProblemFocus.FeatureExtension]        = "Feature extension — working code exists but lacks a specific feature the student must add",
+        [ProblemFocus.UnusualConstraints]      = "Unusual constraints — solve with a restriction such as no built-in library methods, single pass, or O(1) extra space",
+        [ProblemFocus.EdgeCaseGauntlet]        = "Edge-case gauntlet — design tests that specifically stress boundary conditions and non-obvious inputs",
+        [ProblemFocus.RealWorldScenario]       = "Real-world scenario — frame the problem inside an interesting context (e.g., a game loop, compiler pass, OS scheduler, library catalog, financial ledger)",
+        [ProblemFocus.Refactoring]             = "Refactoring — code that works but is poorly structured; the student must improve it without changing behavior",
+    };
+
+    internal static readonly IReadOnlyDictionary<ProblemTopic, string> TopicProse = new Dictionary<ProblemTopic, string>
+    {
+        [ProblemTopic.ArraysAndStrings]               = "arrays and strings",
+        [ProblemTopic.HashMapsAndSets]                = "hash maps and sets",
+        [ProblemTopic.TreesAndGraphs]                 = "trees and graphs",
+        [ProblemTopic.DynamicProgramming]             = "dynamic programming",
+        [ProblemTopic.ObjectOrientedDesign]           = "object-oriented design",
+        [ProblemTopic.FunctionalPatternsAndRecursion] = "functional patterns and recursion",
+        [ProblemTopic.SimulationAndModeling]          = "simulation and modeling",
+        [ProblemTopic.MathAndNumberTheory]            = "math and number theory",
+        [ProblemTopic.StateMachines]                  = "state machines",
+        [ProblemTopic.ParsingAndStringProcessing]     = "parsing and string processing",
+        [ProblemTopic.BitManipulation]                = "bit manipulation",
+        [ProblemTopic.SortingAndSearching]            = "sorting and searching",
+    };
+
+    // Standard appears 3× for a ~30% baseline; every other focus gets 10%. Exposing Focus to the user
+    // did not retune this — an unselected (Random) roll must land where it always has.
+    internal static readonly ProblemFocus[] WeightedFocusRoll =
     [
-        "arrays and strings",
-        "hash maps and sets",
-        "trees and graphs",
-        "dynamic programming",
-        "object-oriented design",
-        "functional patterns and recursion",
-        "real-world simulation",
-        "math and number theory",
-        "state machines",
-        "parsing and string processing",
-        "bit manipulation",
-        "sorting and searching",
+        ProblemFocus.Standard,
+        ProblemFocus.Standard,
+        ProblemFocus.Standard,
+        ProblemFocus.BugFix,
+        ProblemFocus.PerformanceOptimization,
+        ProblemFocus.FeatureExtension,
+        ProblemFocus.UnusualConstraints,
+        ProblemFocus.EdgeCaseGauntlet,
+        ProblemFocus.RealWorldScenario,
+        ProblemFocus.Refactoring,
     ];
 
-    internal static readonly string[] ProblemAngles =
-    [
-        "Standard implementation",
-        "Standard implementation",
-        "Standard implementation",
-        "Bug fix — the starter code contains one or more subtle bugs the student must find and fix",
-        "Performance optimization — a naive solution is provided; the student must improve its time or space complexity",
-        "Feature extension — working code exists but lacks a specific feature the student must add",
-        "Unusual constraints — solve with a restriction such as no built-in library methods, single pass, or O(1) extra space",
-        "Edge-case gauntlet — design tests that specifically stress boundary conditions and non-obvious inputs",
-        "Real-world domain — frame the problem inside an interesting context (e.g., a game loop, compiler pass, OS scheduler, library catalog, financial ledger)",
-        "Refactoring — code that works but is poorly structured; the student must improve it without changing behavior",
-    ];
+    internal static readonly ProblemTopic[] TopicRoll = [.. TopicProse.Keys];   // Uniform across all 12 topics
 
     // == System Prompt Templates == //
     private const string ProblemGenerationSystemPromptTemplate =
         """
         You are an expert coding tutor who creates {0} programming problems.
-        You will receive a topic area and an approach style in the user message — honor them faithfully when generating the problem.
+        You will receive a topic area and an approach style in the user message.
+        The approach style is binding — honor it exactly.
+        The topic area is a strong preference: prefer it, but if the pairing is strained, favor a
+        natural problem in a neighbouring area over a contrived one.
 
         Think creatively about framing. Do not default to "write a function that does X" every time. When the approach calls for it,
         embed the problem in a richer real-world context: a game engine, a text parser, an inventory system, a mini-compiler, a
@@ -100,6 +122,13 @@ public class TutoringPromptTemplates : ITutoringPromptTemplates
         {2}
         """;
 
+    private const string FocusSection =
+        """
+
+
+        This is a {0} exercise — keep your guidance aligned with that kind of work.
+        """;
+
     private const string EditorContentSection =
         """
 
@@ -110,24 +139,36 @@ public class TutoringPromptTemplates : ITutoringPromptTemplates
 
     // == Interface Implementation == //
 
-    public ProblemGenerationRequest ProblemGeneration(Difficulty difficulty, Language language)
+    public ProblemGenerationRequest ProblemGeneration(ProblemSpec spec)
     {
-        var languageLabel = GetLanguageLabel(language);
-        var category      = ProblemCategories[Random.Shared.Next(ProblemCategories.Length)];
-        var angle         = ProblemAngles[Random.Shared.Next(ProblemAngles.Length)];
+        var languageLabel = GetLanguageLabel(spec.Language);
+
+        // Resolved once here, outside the generator's retry loop, so a truncation or parse retry
+        // re-asks for the same problem shape rather than silently switching topics mid-stream
+        var focus = spec.Focus == ProblemFocus.Random
+            ? WeightedFocusRoll[Random.Shared.Next(WeightedFocusRoll.Length)]
+            : spec.Focus;
+        var topic = spec.Topic == ProblemTopic.Random
+            ? TopicRoll[Random.Shared.Next(TopicRoll.Length)]
+            : spec.Topic;
 
         var systemPrompt = string.Format(ProblemGenerationSystemPromptTemplate, languageLabel);
-        var userMessage  = $"Generate a {difficulty} difficulty {languageLabel} coding problem. Topic area: {category}. Approach: {angle}.";
+        var userMessage  = $"Generate a {spec.Difficulty} difficulty {languageLabel} coding problem. Topic area: {TopicProse[topic]}. Approach: {FocusProse[focus]}.";
 
-        return new ProblemGenerationRequest(systemPrompt, userMessage, category, angle, languageLabel);
+        return new ProblemGenerationRequest(systemPrompt, userMessage, focus, topic, languageLabel);
     }
 
     public string GuidanceSystemPrompt(Language language, string problemDescription, string starterCode,
-                                       string? editorContent = null, GuidanceMode guidanceMode = GuidanceMode.Guidance)
+                                       string? editorContent = null, GuidanceMode guidanceMode = GuidanceMode.Guidance,
+                                       ProblemFocus focus = ProblemFocus.Random)
     {
         var languageLabel = GetLanguageLabel(language);
         var template      = guidanceMode == GuidanceMode.CodeAnalysis ? CodeAnalysisSystemPromptTemplate : GuidanceSystemPromptTemplate;
         var prompt        = string.Format(template, languageLabel, problemDescription, starterCode);
+
+        // Random means the caller did not specify a focus, so no exercise-type statement is added
+        if (focus != ProblemFocus.Random)
+            prompt += string.Format(FocusSection, ShortFocusLabel(focus));
 
         if (!string.IsNullOrWhiteSpace(editorContent))
             prompt += string.Format(EditorContentSection, editorContent);
@@ -136,6 +177,10 @@ public class TutoringPromptTemplates : ITutoringPromptTemplates
     }
 
     // == Helpers == //
+
+    // The lead clause of the focus prose, before its explanatory em-dash ("Bug fix", "Refactoring").
+    // Derived rather than stored so there is no second label list to drift out of sync.
+    internal static string ShortFocusLabel(ProblemFocus focus) => FocusProse[focus].Split('—')[0].Trim();
 
     private static string GetLanguageLabel(Language language) => language switch  // Maps Language enum to the human-readable label used in prompts
     {

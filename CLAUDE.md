@@ -50,8 +50,9 @@ The Tutoring endpoints below are the originals; **Prompt Lab** (`/api/prompt-lab
 
 ### POST /api/session 🔒 `[MeteredAi]`
 Create a new coding problem session.
-- Request: `{ "difficulty": "Easy" | "Medium" | "Hard", "language": "CSharp" | "Cpp" | "Go" | "Rust" | "Python" | "Java" | "TypeScript", "provider": "Anthropic" | "OpenAi" | "Xai" }`
-- Response (201): `{ sessionId, difficulty, language, provider, problemDescription, starterCode, messages: [], createdAt }`
+- Request: `{ "difficulty": "Easy" | "Medium" | "Hard", "language": "CSharp" | "Cpp" | "Go" | "Rust" | "Python" | "Java" | "TypeScript", "provider": "Anthropic" | "OpenAi" | "Xai", "focus?": ProblemFocus, "topic?": ProblemTopic }`
+- Response (201): `{ sessionId, difficulty, language, provider, focus, topic, problemDescription, starterCode, messages: [], createdAt }`
+- `focus` / `topic` are the two problem-variety axes. Both default to `"Random"` (the zero enum member), so omitting them keeps the historical fully-random behavior — **never reorder those enums**. The response carries the *resolved* values, never `"Random"`. Full detail in `context.md` → Problem Variety.
 - Stream sibling: `POST /api/session/stream` (description deltas + final `ProblemSession`)
 
 ### POST /api/session/{sessionId}/chat 🔒 `[MeteredAi]`

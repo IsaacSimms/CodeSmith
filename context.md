@@ -98,9 +98,9 @@ Docs/                      — Recaps/, Handoffs.*, general/ (Entra + Dynamic Se
 | Per-user usage lock | `IUserUsageLock` | `UserUsageLock` (singleton SemaphoreSlim registry) |
 | Guidance turn (shared chat) | `IGuidanceConversation` — `RunTurnAsync` + streaming sibling `StreamTurnAsync` | `GuidanceConversation` (append/trim/call/persist/rollback for all three surfaces, one shared core for both shapes) |
 | Tutoring orchestration | `ITutoringService` | `TutoringService` |
-| Problem generation | `IProblemGenerator` — `GenerateAsync` + streaming sibling `StreamGenerateAsync` (description deltas + retry resets) | `ProblemGenerator` (retry-on-truncation loop; stateful `DescriptionStreamFilter` marker scanner on the streaming shape) |
+| Problem generation | `IProblemGenerator` — `GenerateAsync(ProblemSpec)` + streaming sibling `StreamGenerateAsync` (description deltas + retry resets), both returning `GeneratedProblem` | `ProblemGenerator` (retry-on-truncation loop; stateful `DescriptionStreamFilter` marker scanner on the streaming shape) |
 | Problem parsing | `IProblemResponseParser` | `ProblemResponseParser` (DESCRIPTION/STARTER_CODE format) |
-| Tutoring prompts | `ITutoringPromptTemplates` | `TutoringPromptTemplates` |
+| Tutoring prompts | `ITutoringPromptTemplates` | `TutoringPromptTemplates` (also owns variety resolution — see [Problem Variety](#problem-variety-focus--topic)) |
 | Prompt Lab orchestration | `IPromptLabService` | `PromptLabService` |
 | Prompt Lab phases (internal seams) | `IPromptSimulator`, `IPromptEvaluator`, `ITestInputGenerator` | `PromptSimulator`, `PromptEvaluator`, `TestInputGenerator` |
 | System Lab orchestration | `ISystemLabService` | `SystemLabService` |
@@ -186,7 +186,7 @@ All routes are under `/api`. Enums serialize as strings (`JsonStringEnumConverte
 | Method | Route | Request | Response | Notes |
 |--------|-------|---------|----------|-------|
 | GET | `/api/providers` | — | `{ activeProvider, availableProviders[] }` | 200 |
-| POST | `/api/session` 🔒 | `CreateSessionRequest { difficulty, language, provider }` | `ProblemSession` | 201 / 400 |
+| POST | `/api/session` 🔒 | `CreateSessionRequest { difficulty, language, provider, focus?, topic? }` | `ProblemSession` | 201 / 400 |
 | POST | `/api/session/{sessionId}/chat` 🔒 | `ChatRequest { message, editorContent?, guidanceMode? }` | `ChatResponse` | 200 / 400 / 404 |
 | POST | `/api/session/{sessionId}/run` | `RunCodeRequest { language, code }` | `RunCodeResponse { stdout, stderr, exitCode, timedOut }` | 200 / 400 / 404 |
 | POST | `/api/session/stream` 🔒 | `CreateSessionRequest` | **NDJSON stream** → final `data: ProblemSession` | streaming sibling of `POST /api/session`; description deltas + retry resets |
@@ -223,7 +223,9 @@ All routes are under `/api`. Enums serialize as strings (`JsonStringEnumConverte
 | `LlmResponse` | `Content`, `InputTokensUsed`, `OutputTokensUsed`, `Model`, `ContextWindowSize`, `WasTruncated` — provider-agnostic; the single return shape of every LLM call |
 | `ChatMessage` | `Role` (User/Assistant), `Content`, `Timestamp` |
 | `ChatResponse` | `Response`, `ContextTokensUsed`, `ContextWindowSize` |
-| `ProblemSession` | `SessionId`, `Difficulty`, `Language`, `Provider`, `ProblemDescription`, `StarterCode`, `Messages[]`, `CreatedAt` |
+| `ProblemSession` | `SessionId`, `Difficulty`, `Language`, `Provider`, `Focus`, `Topic`, `ProblemDescription`, `StarterCode`, `Messages[]`, `CreatedAt` — `Focus`/`Topic` are the **resolved** (post-roll) values, never `Random` |
+| `ProblemSpec` | `Difficulty`, `Language`, `Provider`, `Focus = Random`, `Topic = Random` — the single parameter carried through `ITutoringPromptTemplates` → `IProblemGenerator` → `ITutoringService`; a new variety axis costs no signature churn |
+| `GeneratedProblem` | `Description`, `StarterCode`, `Focus`, `Topic` — the generator's return; surfaces the resolved variety so `TutoringService` can store it on the session |
 | `PromptLabSession` | `SessionId`, `ChallengeId`, `Provider`, `TestInputs[]`, `DynamicInputsGenerated`, `Attempts[]`, `ChatHistory[]` |
 | `SystemLabSession` | `SessionId`, `ScenarioId`, `Provider`, `Attempts[]`, `ChatHistory[]` |
 | `Challenge` | `ChallengeId`, `Title`, `Description`, `Rubric[]`, `EditableFields[]`, `TestInputs[]`, `LockedSystemPrompt`, `HiddenAdversarialPrompt?` |
@@ -279,6 +281,23 @@ Tests assert spans with an `ActivityListener` (`ActivityCapture` helper); span-e
 ### Tutoring (coding problems)
 
 `SessionController` → `ITutoringService`. Problem creation delegates to `IProblemGenerator`, which builds a prompt from `ITutoringPromptTemplates`, calls the accurate model (MaxTokens 4000 — headroom so truncation retries rarely fire; the reserve holds against it but settle refunds to actuals), and parses the `DESCRIPTION:` / `STARTER_CODE:` markers via `IProblemResponseParser`. It retries up to 2 times on truncation (`LlmResponse.WasTruncated`) or incomplete parse; each attempt emits a `problem.generation.attempt` span. Guidance is multi-turn: the service rebuilds the system prompt each turn (injecting the current editor contents) and hands the turn to the shared `IGuidanceConversation`, which owns the append/trim/call/persist/rollback mechanics; the service projects the returned completion into a `ChatResponse`. Both operations have streaming siblings (`StreamGenerateProblemAsync`, `StreamGuidanceAsync`) sharing one core with the blocking shapes and feeding the `/stream` endpoints. `RunCodeAsync` validates the session exists, then delegates to `ICodeExecutionService` with `CodeExecutionRequest` (including `SessionId` for Dynamic Sessions affinity) — see [Code execution](#code-execution).
+
+#### Problem Variety (Focus + Topic)
+
+Every generated problem carries two independent variety axes, both selectable by the user and both defaulting to `Random`:
+
+- **`ProblemFocus`** (9 members) — the *kind of work*: `Standard`, `BugFix`, `PerformanceOptimization`, `FeatureExtension`, `UnusualConstraints`, `EdgeCaseGauntlet`, `RealWorldScenario`, `Refactoring`, plus `Random`.
+- **`ProblemTopic`** (13 members) — the *subject area*: `ArraysAndStrings`, `DynamicProgramming`, `SimulationAndModeling`, `BitManipulation`, … plus `Random`.
+
+`Random = 0` on both enums is load-bearing: a request body omitting the field deserializes to `default(TEnum)`, so the CLI and any older client keep the historical fully-random behavior with no changes. **Never reorder these enums.** `ProblemSpecTests` guards the invariant.
+
+`TutoringPromptTemplates` owns resolution. `Random` focus rolls through `WeightedFocusRoll`, a 10-entry array holding `Standard` ×3 — preserving the pre-feature 30% / 10% distribution exactly, so adding the control did not retune the product. `Random` topic rolls uniformly over `TopicRoll`. An explicit selection bypasses the roll entirely. Resolution happens **once**, before `ProblemGenerator`'s attempt loop, so a truncation or parse retry re-asks for the same problem shape rather than silently switching topics mid-stream.
+
+The generation system prompt states that **the focus is binding while the topic is a strong-but-bendable preference** — explicit selection makes all 96 topic×focus cells reachable, including strained ones like `BitManipulation` × `Refactoring`, and the model is told to prefer a natural neighbouring problem over a contrived one. Consequently the session's stored `Topic` records **what was requested of the provider, not what it delivered**; the UI badge is a request receipt, not a description of the generated problem.
+
+`GuidanceSystemPrompt` also receives the session's focus so the tutor aligns its nudges (it won't suggest a rewrite during a `Refactoring` exercise). A `Random` focus there means "unspecified" and omits the statement entirely.
+
+On the SPA, the **selection** (which may be `Random`) and the session's **resolved** values are deliberately distinct: `ChatWindow` holds the selection and sends it on every create, including "Generate New Problem", while the badge row renders the session's resolved values. Sending `session.focus` on regenerate would silently pin a `Random` pick to its first roll — `ChatWindow.test.tsx` guards this.
 
 ### Prompt Lab (prompt engineering)
 
@@ -557,6 +576,13 @@ Shared vocabulary. Each word has an ordinary meaning too — these are the proje
 **Chunk contract** — the NDJSON event vocabulary every `/stream` endpoint speaks: **delta** (a piece of assistant/description text), **reset** (a generation retry abandoned already-streamed text — clear it), **final** (the blocking sibling's payload, ending the stream), **error** (a mid-stream failure carrying the status code the request would have had, since the real status line froze at the first delta).
 **Time-to-first-token** — the interval from `llm.call` start to the first delta, stamped as `codesmith.time_to_first_token_ms` on the `llm.call` span; the perceived-latency number the Streaming shape exists to improve.
 **StreamGuard** — the internal adapter helper combining caller cancellation with the idle-between-events timeout and the total stream backstop into one token; a guard timeout surfaces as 502 (`AiServiceException`), never as caller cancellation.
+
+### Domain terms introduced by user-selectable Problem Variety
+**Focus** — one of the two problem-variety axes: *what kind of work* an exercise asks for (bug fix, refactoring, performance optimization…). Modeled as `ProblemFocus`, user-selectable, `Random` by default. Binding on the model — the generation prompt instructs it to honor the focus exactly.
+**Topic** — the other axis: *what the problem is about* (dynamic programming, state machines, bit manipulation…). Modeled as `ProblemTopic`, user-selectable, `Random` by default. Deliberately **not** binding — the prompt permits drifting to a neighbouring area when a topic×focus pairing is strained.
+**Resolved** (of a Focus or Topic) — the concrete post-roll value actually sent to the provider. A `Random` selection resolves once per generation, before the retry loop; a session's stored `Focus`/`Topic` are always resolved and never `Random`. Contrast with **Selection**.
+**Selection** — what the *user* picked, which may be `Random`. Lives in `ChatWindow` state, survives the in-app nav reset (so drilling one focus costs one pick, not one per problem) and resets on reload. Every create request — including "Generate New Problem" — sends the Selection, never the Resolved values; sending Resolved would convert a `Random` pick into a permanent pin after its first roll.
+**Weighted Focus Roll** — the 10-entry `ProblemFocus[]` behind a `Random` focus, holding `Standard` ×3 so the pre-feature 30% / 10% distribution survives the feature unchanged. Tested as data rather than by sampling, so the assertion is deterministic.
 
 ### Domain terms introduced by the Guidance Conversation Seam
 **Guidance Conversation** — the multi-turn Socratic exchange a student has with a surface's tutor (Tutoring, Prompt Lab, or System Lab). The deep Module that owns one round of it is `IGuidanceConversation`; each surface keeps its own system-prompt builder and supplies the result as data.

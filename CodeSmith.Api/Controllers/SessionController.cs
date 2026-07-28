@@ -44,6 +44,10 @@ public class SessionController : ControllerBase
         });
     }
 
+    // Focus and Topic ride through as-is; Random is a real value the templates resolve, not a null case
+    private static ProblemSpec ToSpec(CreateSessionRequest request)
+        => new(request.Difficulty, request.Language, request.Provider, request.Focus, request.Topic);
+
     // == Create Session Endpoint == //
 
     [HttpPost("session")]  // Creates a new coding problem session at the specified difficulty level
@@ -69,7 +73,17 @@ public class SessionController : ControllerBase
             return BadRequest(new { error = "Invalid provider value. Use Anthropic, OpenAi, or Xai." });
         }
 
-        var session = await _tutoringService.GenerateProblemAsync(request.Difficulty, request.Language, request.Provider, ct);
+        if (!Enum.IsDefined(typeof(ProblemFocus), request.Focus))
+        {
+            return BadRequest(new { error = "Invalid focus value. Use Random, Standard, BugFix, PerformanceOptimization, FeatureExtension, UnusualConstraints, EdgeCaseGauntlet, RealWorldScenario, or Refactoring." });
+        }
+
+        if (!Enum.IsDefined(typeof(ProblemTopic), request.Topic))
+        {
+            return BadRequest(new { error = "Invalid topic value." });
+        }
+
+        var session = await _tutoringService.GenerateProblemAsync(ToSpec(request), ct);
 
         return CreatedAtAction(nameof(CreateSession), new { sessionId = session.SessionId }, session);
     }
@@ -91,12 +105,16 @@ public class SessionController : ControllerBase
             return BadRequest(new { error = "Invalid language value. Use CSharp, Cpp, Go, Rust, Python, Java, or TypeScript." });
         if (!Enum.IsDefined(typeof(AiProvider), request.Provider))
             return BadRequest(new { error = "Invalid provider value. Use Anthropic, OpenAi, or Xai." });
+        if (!Enum.IsDefined(typeof(ProblemFocus), request.Focus))
+            return BadRequest(new { error = "Invalid focus value." });
+        if (!Enum.IsDefined(typeof(ProblemTopic), request.Topic))
+            return BadRequest(new { error = "Invalid topic value." });
 
         var writer = new NdjsonStreamWriter(Response);
         try
         {
             var session = await _tutoringService.StreamGenerateProblemAsync(
-                request.Difficulty, request.Language, request.Provider,
+                ToSpec(request),
                 writer.WriteDeltaAsync,
                 writer.WriteResetAsync,
                 ct);

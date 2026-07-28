@@ -54,14 +54,23 @@ describe("createSession", () => {
       })
     );
 
-    const result = await createSession({ difficulty: "Easy", language: "CSharp", provider: "Anthropic" });
+    const result = await createSession({ difficulty: "Easy", language: "CSharp", provider: "Anthropic", focus: "Random", topic: "Random" });
 
     expect(fetch).toHaveBeenCalledWith("/api/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ difficulty: "Easy", language: "CSharp", provider: "Anthropic" }),
+      body: JSON.stringify({ difficulty: "Easy", language: "CSharp", provider: "Anthropic", focus: "Random", topic: "Random" }),
     });
     expect(result).toEqual(mockSession);
+  });
+
+  it("serializes an explicit focus and topic", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) }));
+
+    await createSession({ difficulty: "Hard", language: "Python", provider: "Xai", focus: "Refactoring", topic: "StateMachines" });
+
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string);
+    expect(body).toMatchObject({ focus: "Refactoring", topic: "StateMachines" });
   });
 
   it("attaches Bearer token when access token provider returns a token", async () => {

@@ -49,7 +49,7 @@ public class SessionControllerTests
         };
 
         _tutoringService
-            .GenerateProblemAsync(Difficulty.Easy, Language.CSharp, AiProvider.Anthropic, Arg.Any<CancellationToken>())
+            .GenerateProblemAsync(Arg.Any<ProblemSpec>(), Arg.Any<CancellationToken>())
             .Returns(expectedSession);
 
         var result = await _controller.CreateSession(
@@ -108,7 +108,7 @@ public class SessionControllerTests
     public async Task CreateSession_ForwardsLanguageToService(Language language)
     {
         _tutoringService
-            .GenerateProblemAsync(Difficulty.Medium, language, AiProvider.Anthropic, Arg.Any<CancellationToken>())
+            .GenerateProblemAsync(Arg.Any<ProblemSpec>(), Arg.Any<CancellationToken>())
             .Returns(new ProblemSession { Difficulty = Difficulty.Medium, Language = language });
 
         var result = await _controller.CreateSession(
@@ -116,7 +116,75 @@ public class SessionControllerTests
             CancellationToken.None);
 
         Assert.IsType<CreatedAtActionResult>(result);
-        await _tutoringService.Received(1).GenerateProblemAsync(Difficulty.Medium, language, AiProvider.Anthropic, Arg.Any<CancellationToken>());
+        await _tutoringService.Received(1).GenerateProblemAsync(
+            Arg.Is<ProblemSpec>(s => s.Difficulty == Difficulty.Medium && s.Language == language && s.Provider == AiProvider.Anthropic),
+            Arg.Any<CancellationToken>());
+    }
+
+    // == Focus and Topic Tests == //
+
+    [Fact]
+    public async Task CreateSession_WhenFocusAndTopicOmitted_ForwardsRandom()
+    {
+        // Backward-compatibility guard: an old client body carries neither field, and must keep
+        // getting the historical fully-random behavior rather than a pinned focus.
+        _tutoringService
+            .GenerateProblemAsync(Arg.Any<ProblemSpec>(), Arg.Any<CancellationToken>())
+            .Returns(new ProblemSession());
+
+        await _controller.CreateSession(
+            new CreateSessionRequest { Difficulty = Difficulty.Easy, Language = Language.CSharp, Provider = AiProvider.Anthropic },
+            CancellationToken.None);
+
+        await _tutoringService.Received(1).GenerateProblemAsync(
+            Arg.Is<ProblemSpec>(s => s.Focus == ProblemFocus.Random && s.Topic == ProblemTopic.Random),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateSession_WhenFocusSpecified_ForwardsThatFocus()
+    {
+        _tutoringService
+            .GenerateProblemAsync(Arg.Any<ProblemSpec>(), Arg.Any<CancellationToken>())
+            .Returns(new ProblemSession { Focus = ProblemFocus.Refactoring });
+
+        var result = await _controller.CreateSession(
+            new CreateSessionRequest
+            {
+                Difficulty = Difficulty.Medium,
+                Language   = Language.Python,
+                Provider   = AiProvider.Anthropic,
+                Focus      = ProblemFocus.Refactoring,
+                Topic      = ProblemTopic.StateMachines
+            },
+            CancellationToken.None);
+
+        var created = Assert.IsType<CreatedAtActionResult>(result);
+        Assert.Equal(ProblemFocus.Refactoring, Assert.IsType<ProblemSession>(created.Value).Focus);
+
+        await _tutoringService.Received(1).GenerateProblemAsync(
+            Arg.Is<ProblemSpec>(s => s.Focus == ProblemFocus.Refactoring && s.Topic == ProblemTopic.StateMachines),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateSession_WithInvalidFocus_Returns400()
+    {
+        var result = await _controller.CreateSession(
+            new CreateSessionRequest { Difficulty = Difficulty.Easy, Language = Language.CSharp, Focus = (ProblemFocus)999 },
+            CancellationToken.None);
+
+        Assert.Equal(400, Assert.IsType<BadRequestObjectResult>(result).StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateSession_WithInvalidTopic_Returns400()
+    {
+        var result = await _controller.CreateSession(
+            new CreateSessionRequest { Difficulty = Difficulty.Easy, Language = Language.CSharp, Topic = (ProblemTopic)999 },
+            CancellationToken.None);
+
+        Assert.Equal(400, Assert.IsType<BadRequestObjectResult>(result).StatusCode);
     }
 
     // == Chat Tests == //
@@ -300,7 +368,7 @@ public class SessionControllerTests
     public async Task CreateSessionStream_WritesDeltasResetAndFinalSession()
     {
         _tutoringService
-            .StreamGenerateProblemAsync(Difficulty.Easy, Language.Python, AiProvider.Xai,
+            .StreamGenerateProblemAsync(Arg.Any<ProblemSpec>(),
                 Arg.Any<Func<string, CancellationToken, Task>>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
             .Returns(async callInfo =>
             {
@@ -321,6 +389,37 @@ public class SessionControllerTests
         Assert.Equal(["delta", "reset", "delta", "final"], events.Select(e => e.GetProperty("type").GetString()).ToArray());
         Assert.Equal("Whole problem", events[^1].GetProperty("data").GetProperty("problemDescription").GetString());
         Assert.Equal("def y():",      events[^1].GetProperty("data").GetProperty("starterCode").GetString());
+    }
+
+    [Fact]
+    public async Task CreateSessionStream_WhenFocusSpecified_FinalEventCarriesThatFocus()
+    {
+        _tutoringService
+            .StreamGenerateProblemAsync(Arg.Any<ProblemSpec>(),
+                Arg.Any<Func<string, CancellationToken, Task>>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(new ProblemSession { Focus = ProblemFocus.Refactoring, Topic = ProblemTopic.StateMachines });
+        var (controller, body) = StreamingController();
+
+        await controller.CreateSessionStream(
+            new CreateSessionRequest
+            {
+                Difficulty = Difficulty.Easy,
+                Language   = Language.Python,
+                Provider   = AiProvider.Xai,
+                Focus      = ProblemFocus.Refactoring,
+                Topic      = ProblemTopic.StateMachines
+            },
+            CancellationToken.None);
+
+        // Resolved variety rides the session already in the final event — no new chunk type
+        var final = NdjsonEndpointHarness.ReadEvents(body)[^1];
+        Assert.Equal("final",         final.GetProperty("type").GetString());
+        Assert.Equal("Refactoring",   final.GetProperty("data").GetProperty("focus").GetString());
+        Assert.Equal("StateMachines", final.GetProperty("data").GetProperty("topic").GetString());
+
+        await _tutoringService.Received(1).StreamGenerateProblemAsync(
+            Arg.Is<ProblemSpec>(s => s.Focus == ProblemFocus.Refactoring && s.Topic == ProblemTopic.StateMachines),
+            Arg.Any<Func<string, CancellationToken, Task>>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

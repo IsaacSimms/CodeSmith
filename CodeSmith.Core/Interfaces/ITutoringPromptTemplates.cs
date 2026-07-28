@@ -1,5 +1,6 @@
 // == Tutoring Prompt Templates Interface == //
 using CodeSmith.Core.Enums;
+using CodeSmith.Core.Models;
 
 namespace CodeSmith.Core.Interfaces;
 
@@ -9,20 +10,22 @@ namespace CodeSmith.Core.Interfaces;
 /// </summary>
 public interface ITutoringPromptTemplates
 {
-    // Selects a random category and angle, then builds the system prompt and user message for problem generation
-    ProblemGenerationRequest ProblemGeneration(Difficulty difficulty, Language language);
+    // Resolves any Random focus/topic on the spec, then builds the system prompt and user message
+    ProblemGenerationRequest ProblemGeneration(ProblemSpec spec);
 
-    // Builds the system prompt for a guidance or code-analysis turn, optionally appending the editor snapshot
+    // Builds the system prompt for a guidance or code-analysis turn, optionally appending the editor
+    // snapshot. A Random focus means "unspecified" and omits the focus statement entirely.
     string GuidanceSystemPrompt(Language language, string problemDescription, string starterCode,
-                                string? editorContent = null, GuidanceMode guidanceMode = GuidanceMode.Guidance);
+                                string? editorContent = null, GuidanceMode guidanceMode = GuidanceMode.Guidance,
+                                ProblemFocus focus = ProblemFocus.Random);
 
 }
 
-// Carries everything TutoringService needs from a single ProblemGeneration call,
-// including Category and Angle so the caller can log what was selected.
+// Carries everything the generator needs from a single ProblemGeneration call. Focus and Topic are
+// the post-roll resolved values — never Random — so the caller can log them and store them on the session.
 public record ProblemGenerationRequest(
-    string SystemPrompt,
-    string UserMessage,
-    string Category,
-    string Angle,
-    string LanguageLabel);
+    string       SystemPrompt,
+    string       UserMessage,
+    ProblemFocus Focus,
+    ProblemTopic Topic,
+    string       LanguageLabel);

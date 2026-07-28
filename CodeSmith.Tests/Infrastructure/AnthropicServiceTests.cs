@@ -85,33 +85,39 @@ public class TutoringServiceTests
     [Fact]
     public async Task GenerateProblemAsync_ReturnsSessionWithCorrectFields()
     {
+        var spec = new ProblemSpec(Difficulty.Hard, Language.Python, AiProvider.Anthropic);
+
         var problemGenerator = Substitute.For<IProblemGenerator>();
-        problemGenerator.GenerateAsync(Difficulty.Hard, Language.Python, AiProvider.Anthropic, Arg.Any<CancellationToken>())
-            .Returns(("Find the nth Fibonacci number.", "def fib(n): pass"));
+        problemGenerator.GenerateAsync(spec, Arg.Any<CancellationToken>())
+            .Returns(new GeneratedProblem("Find the nth Fibonacci number.", "def fib(n): pass", ProblemFocus.Refactoring, ProblemTopic.DynamicProgramming));
 
         var service = BuildService(problemGenerator: problemGenerator);
 
-        var session = await service.GenerateProblemAsync(Difficulty.Hard, Language.Python, AiProvider.Anthropic, CancellationToken.None);
+        var session = await service.GenerateProblemAsync(spec, CancellationToken.None);
 
         Assert.Equal(Difficulty.Hard,                  session.Difficulty);
         Assert.Equal(Language.Python,                  session.Language);
         Assert.Equal(AiProvider.Anthropic,             session.Provider);
         Assert.Equal("Find the nth Fibonacci number.", session.ProblemDescription);
         Assert.Equal("def fib(n): pass",               session.StarterCode);
+
+        // Resolved variety comes from the generator, not the spec — a Random request still records what was asked for
+        Assert.Equal(ProblemFocus.Refactoring,         session.Focus);
+        Assert.Equal(ProblemTopic.DynamicProgramming,  session.Topic);
     }
 
     [Fact]
     public async Task GenerateProblemAsync_StoresNewSession()
     {
         var problemGenerator = Substitute.For<IProblemGenerator>();
-        problemGenerator.GenerateAsync(Arg.Any<Difficulty>(), Arg.Any<Language>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
-            .Returns(("Reverse a string.", "string Reverse(string s) => null!;"));
+        problemGenerator.GenerateAsync(Arg.Any<ProblemSpec>(), Arg.Any<CancellationToken>())
+            .Returns(new GeneratedProblem("Reverse a string.", "string Reverse(string s) => null!;", ProblemFocus.Standard, ProblemTopic.ArraysAndStrings));
 
         var store = Substitute.For<ISessionStore<ProblemSession>>();
 
         var service = BuildService(problemGenerator: problemGenerator, store: store);
 
-        var session = await service.GenerateProblemAsync(Difficulty.Easy, Language.CSharp, AiProvider.Anthropic, CancellationToken.None);
+        var session = await service.GenerateProblemAsync(new ProblemSpec(Difficulty.Easy, Language.CSharp, AiProvider.Anthropic), CancellationToken.None);
 
         store.Received(1).Set(Arg.Is<ProblemSession>(s => s.SessionId == session.SessionId));
     }

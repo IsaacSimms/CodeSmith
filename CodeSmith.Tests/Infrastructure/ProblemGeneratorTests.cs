@@ -35,13 +35,24 @@ public class ProblemGeneratorTests
         return (llmService, factory);
     }
 
-    private static ITutoringPromptTemplates TemplatesReturning(string category = "arrays", string angle = "Standard implementation", string languageLabel = "Python")
+    private static ITutoringPromptTemplates TemplatesReturning(
+        ProblemFocus focus = ProblemFocus.Standard,
+        ProblemTopic topic = ProblemTopic.ArraysAndStrings,
+        string languageLabel = "Python")
     {
         var templates = Substitute.For<ITutoringPromptTemplates>();
-        templates.ProblemGeneration(Arg.Any<Difficulty>(), Arg.Any<Language>())
-            .Returns(new ProblemGenerationRequest("sys", "user", category, angle, languageLabel));
+        templates.ProblemGeneration(Arg.Any<ProblemSpec>())
+            .Returns(new ProblemGenerationRequest("sys", "user", focus, topic, languageLabel));
         return templates;
     }
+
+    private static ProblemSpec Spec(
+        Difficulty difficulty = Difficulty.Easy,
+        Language language     = Language.Python,
+        AiProvider provider   = AiProvider.Anthropic,
+        ProblemFocus focus    = ProblemFocus.Random,
+        ProblemTopic topic    = ProblemTopic.Random)
+        => new(difficulty, language, provider, focus, topic);
 
     // Wires an ILlmService whose StreamAsync pushes the given delta sequences (one per attempt) and
     // returns the concatenated content, with per-attempt truncation flags.
@@ -80,10 +91,10 @@ public class ProblemGeneratorTests
 
         var generator = BuildGenerator(templates: TemplatesReturning(), factory: factory, parser: parser);
 
-        var (description, starterCode) = await generator.GenerateAsync(Difficulty.Hard, Language.Python, AiProvider.Anthropic, CancellationToken.None);
+        var generated = await generator.GenerateAsync(Spec(Difficulty.Hard, Language.Python), CancellationToken.None);
 
-        Assert.Equal("Find the nth Fibonacci number.", description);
-        Assert.Equal("def fib(n): pass",               starterCode);
+        Assert.Equal("Find the nth Fibonacci number.", generated.Description);
+        Assert.Equal("def fib(n): pass",               generated.StarterCode);
     }
 
     [Fact]
@@ -97,9 +108,9 @@ public class ProblemGeneratorTests
 
         var generator = BuildGenerator(templates: templates, factory: factory, parser: parser);
 
-        await generator.GenerateAsync(Difficulty.Medium, Language.Go, AiProvider.Anthropic, CancellationToken.None);
+        await generator.GenerateAsync(Spec(Difficulty.Medium, Language.Go), CancellationToken.None);
 
-        templates.Received(1).ProblemGeneration(Difficulty.Medium, Language.Go);
+        templates.Received(1).ProblemGeneration(Arg.Is<ProblemSpec>(s => s.Difficulty == Difficulty.Medium && s.Language == Language.Go));
     }
 
     [Fact]
@@ -112,7 +123,7 @@ public class ProblemGeneratorTests
 
         var generator = BuildGenerator(templates: TemplatesReturning(languageLabel: "TypeScript"), factory: factory, parser: parser);
 
-        await generator.GenerateAsync(Difficulty.Easy, Language.TypeScript, AiProvider.OpenAi, CancellationToken.None);
+        await generator.GenerateAsync(Spec(Difficulty.Easy, Language.TypeScript, AiProvider.OpenAi), CancellationToken.None);
 
         factory.Received(1).Get(AiProvider.OpenAi);
     }
@@ -127,7 +138,7 @@ public class ProblemGeneratorTests
 
         var generator = BuildGenerator(templates: TemplatesReturning(languageLabel: "Rust"), factory: factory, parser: parser);
 
-        await generator.GenerateAsync(Difficulty.Medium, Language.Rust, AiProvider.Xai, CancellationToken.None);
+        await generator.GenerateAsync(Spec(Difficulty.Medium, Language.Rust, AiProvider.Xai), CancellationToken.None);
 
         factory.Received(1).Get(AiProvider.Xai);
     }
@@ -152,10 +163,10 @@ public class ProblemGeneratorTests
 
         var generator = BuildGenerator(templates: TemplatesReturning(), factory: factory, parser: parser);
 
-        var (description, starterCode) = await generator.GenerateAsync(Difficulty.Easy, Language.Python, AiProvider.Anthropic, CancellationToken.None);
+        var generated = await generator.GenerateAsync(Spec(), CancellationToken.None);
 
-        Assert.Equal("A complete description.", description);
-        Assert.Equal("def solve(): pass",       starterCode);
+        Assert.Equal("A complete description.", generated.Description);
+        Assert.Equal("def solve(): pass",       generated.StarterCode);
 
         // Second call must carry the truncation hint
         await llmService.Received(1).CompleteAsync(Arg.Is<CompletionRequest>(r => r.Messages.Any(m => m.Content.Contains("cut off due to token limits"))), Arg.Any<CancellationToken>());
@@ -174,7 +185,7 @@ public class ProblemGeneratorTests
         var generator = BuildGenerator(templates: TemplatesReturning(), factory: factory);
 
         await Assert.ThrowsAsync<AiServiceException>(
-            () => generator.GenerateAsync(Difficulty.Easy, Language.Python, AiProvider.Anthropic, CancellationToken.None));
+            () => generator.GenerateAsync(Spec(), CancellationToken.None));
 
         // 3 attempts total (MaxRetries = 2)
         await llmService.Received(3).CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>());
@@ -194,10 +205,10 @@ public class ProblemGeneratorTests
 
         var generator = BuildGenerator(templates: TemplatesReturning(), factory: factory, parser: parser);
 
-        var (description, starterCode) = await generator.GenerateAsync(Difficulty.Easy, Language.Python, AiProvider.Anthropic, CancellationToken.None);
+        var generated = await generator.GenerateAsync(Spec(), CancellationToken.None);
 
-        Assert.Equal("A valid description", description);
-        Assert.Equal("def solve(): pass",   starterCode);
+        Assert.Equal("A valid description", generated.Description);
+        Assert.Equal("def solve(): pass",   generated.StarterCode);
         await llmService.Received(2).CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>());
     }
 
@@ -212,7 +223,7 @@ public class ProblemGeneratorTests
         var generator = BuildGenerator(templates: TemplatesReturning(), factory: factory, parser: parser);
 
         await Assert.ThrowsAsync<AiServiceException>(
-            () => generator.GenerateAsync(Difficulty.Easy, Language.Python, AiProvider.Anthropic, CancellationToken.None));
+            () => generator.GenerateAsync(Spec(), CancellationToken.None));
 
         // 3 attempts total: attempt 0, 1, 2 (MaxParseRetries = 2)
         await llmService.Received(3).CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>());
@@ -230,7 +241,7 @@ public class ProblemGeneratorTests
 
         var generator = BuildGenerator(templates: TemplatesReturning(), factory: factory, parser: parser);
 
-        await generator.GenerateAsync(Difficulty.Hard, Language.Python, AiProvider.Anthropic, CancellationToken.None);
+        await generator.GenerateAsync(Spec(Difficulty.Hard), CancellationToken.None);
 
         // 4000 keeps truncation retries rare; reserve estimates against it but settle refunds to actuals
         await llmService.Received(1).CompleteAsync(Arg.Is<CompletionRequest>(r => r.MaxTokens == 4000), Arg.Any<CancellationToken>());
@@ -258,7 +269,7 @@ public class ProblemGeneratorTests
 
         var generator = BuildGenerator(templates: TemplatesReturning(), factory: factory, parser: parser);
 
-        await generator.GenerateAsync(Difficulty.Easy, Language.Python, AiProvider.Anthropic, CancellationToken.None);
+        await generator.GenerateAsync(Spec(), CancellationToken.None);
 
         var attempts = capture.All("problem.generation.attempt");
         Assert.Equal(2, attempts.Count);
@@ -282,16 +293,16 @@ public class ProblemGeneratorTests
         var generator = BuildGenerator(templates: TemplatesReturning(), factory: factory, parser: new ProblemResponseParser());
 
         var streamed = new List<string>();
-        var (description, starterCode) = await generator.StreamGenerateAsync(
-            Difficulty.Easy, Language.Python, AiProvider.Xai,
+        var generated = await generator.StreamGenerateAsync(
+            Spec(provider: AiProvider.Xai),
             (text, _) => { streamed.Add(text); return Task.CompletedTask; },
             _ => Task.CompletedTask);
 
         Assert.Equal("Two Sum problem", string.Concat(streamed).Trim());
         Assert.DoesNotContain(streamed, s => s.Contains("def x()"));
         Assert.DoesNotContain(streamed, s => s.Contains("DESCRIPTION", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal("Two Sum problem", description);
-        Assert.Equal("def x():", starterCode);
+        Assert.Equal("Two Sum problem", generated.Description);
+        Assert.Equal("def x():", generated.StarterCode);
     }
 
     [Fact]
@@ -305,17 +316,64 @@ public class ProblemGeneratorTests
         var generator = BuildGenerator(templates: TemplatesReturning(), factory: factory, parser: new ProblemResponseParser());
 
         var events = new List<string>();   // interleaved log proves reset lands between the attempts
-        var (description, starterCode) = await generator.StreamGenerateAsync(
-            Difficulty.Easy, Language.Python, AiProvider.Xai,
+        var generated = await generator.StreamGenerateAsync(
+            Spec(provider: AiProvider.Xai),
             (text, _) => { events.Add("delta:" + text); return Task.CompletedTask; },
             _ => { events.Add("reset"); return Task.CompletedTask; });
 
-        Assert.Equal("Whole problem", description);
-        Assert.Equal("def y():", starterCode);
+        Assert.Equal("Whole problem", generated.Description);
+        Assert.Equal("def y():", generated.StarterCode);
 
         var resetIndex = events.IndexOf("reset");
         Assert.True(resetIndex > 0, "reset must come after attempt 1's deltas");
         Assert.Contains(events[..resetIndex],  e => e.Contains("half a prob"));
         Assert.Contains(events[(resetIndex + 1)..], e => e.Contains("Whole problem"));
+    }
+
+    // == Resolved Variety == //
+
+    [Fact]
+    public async Task GenerateAsync_ReturnsResolvedFocusAndTopicOnGeneratedProblem()
+    {
+        var (_, factory) = LlmReturning("raw");
+
+        var parser = Substitute.For<IProblemResponseParser>();
+        parser.Parse(Arg.Any<string>()).Returns(("Description.", "def solve(): pass"));
+
+        var templates = TemplatesReturning(focus: ProblemFocus.Refactoring, topic: ProblemTopic.StateMachines);
+        var generator = BuildGenerator(templates: templates, factory: factory, parser: parser);
+
+        // The caller asked for Random; what comes back is what was actually requested of the provider
+        var generated = await generator.GenerateAsync(Spec(), CancellationToken.None);
+
+        Assert.Equal(ProblemFocus.Refactoring,  generated.Focus);
+        Assert.Equal(ProblemTopic.StateMachines, generated.Topic);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_WhenTruncationRetryOccurs_ResolvesVarietyOnlyOnce()
+    {
+        // Resolution must sit outside the attempt loop: a retry re-asks for the same problem shape
+        // rather than silently rolling a new focus and topic mid-generation.
+        var llmService = Substitute.For<ILlmService>();
+        var factory    = Substitute.For<ILlmServiceFactory>();
+        factory.Get(Arg.Any<AiProvider>()).Returns(llmService);
+
+        llmService.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Returns(
+                new LlmResponse { Content = "",    WasTruncated = true,  InputTokensUsed = 5,  ContextWindowSize = 200_000 },
+                new LlmResponse { Content = "raw", WasTruncated = false, InputTokensUsed = 10, ContextWindowSize = 200_000 });
+
+        var parser = Substitute.For<IProblemResponseParser>();
+        parser.Parse("raw").Returns(("A complete description.", "def solve(): pass"));
+
+        var templates = TemplatesReturning(focus: ProblemFocus.BugFix, topic: ProblemTopic.TreesAndGraphs);
+        var generator = BuildGenerator(templates: templates, factory: factory, parser: parser);
+
+        var generated = await generator.GenerateAsync(Spec(), CancellationToken.None);
+
+        templates.Received(1).ProblemGeneration(Arg.Any<ProblemSpec>());
+        Assert.Equal(ProblemFocus.BugFix,          generated.Focus);
+        Assert.Equal(ProblemTopic.TreesAndGraphs,  generated.Topic);
     }
 }
