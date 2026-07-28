@@ -9,6 +9,7 @@ import {
   setAccessTokenProvider,
   resolveApiUrl,
 } from "./apiClient";
+import type { CreateSessionRequest } from "../features/chat/types";
 
 // == Hermetic env: ambient VITE_API_BASE_URL (CI deploy vars, local .env) must not leak into URL asserts == //
 beforeEach(() => {
@@ -33,6 +34,12 @@ describe("resolveApiUrl", () => {
     expect(resolveApiUrl("/api/session")).toBe("https://api.example.com/api/session");
   });
 });
+
+// Minimal valid body for tests that exercise transport concerns (headers, base URL, error mapping)
+// rather than the request shape itself
+function sessionBody(overrides: Partial<CreateSessionRequest> = {}): CreateSessionRequest {
+  return { difficulty: "Easy", language: "CSharp", provider: "Anthropic", focus: "Random", topic: "Random", ...overrides };
+}
 
 describe("createSession", () => {
   it("sends POST to /api/session with difficulty and returns ProblemSession", async () => {
@@ -93,7 +100,7 @@ describe("createSession", () => {
       })
     );
 
-    await createSession({ difficulty: "Easy", language: "CSharp", provider: "Anthropic" });
+    await createSession(sessionBody());
 
     expect(fetch).toHaveBeenCalledWith("/api/session", {
       method: "POST",
@@ -101,7 +108,7 @@ describe("createSession", () => {
         "Content-Type": "application/json",
         Authorization: "Bearer test-access-token",
       },
-      body: JSON.stringify({ difficulty: "Easy", language: "CSharp", provider: "Anthropic" }),
+      body: JSON.stringify(sessionBody()),   // these two cover headers; body shape is asserted above
     });
   });
 
@@ -125,12 +132,12 @@ describe("createSession", () => {
       })
     );
 
-    await createSession({ difficulty: "Easy", language: "CSharp", provider: "Anthropic" });
+    await createSession(sessionBody());
 
     expect(fetch).toHaveBeenCalledWith("/api/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ difficulty: "Easy", language: "CSharp", provider: "Anthropic" }),
+      body: JSON.stringify(sessionBody()),   // these two cover headers; body shape is asserted above
     });
   });
 
@@ -154,7 +161,7 @@ describe("createSession", () => {
       })
     );
 
-    await createSession({ difficulty: "Easy", language: "CSharp", provider: "Xai" });
+    await createSession(sessionBody({ provider: "Xai" }));
 
     expect(fetch).toHaveBeenCalledWith(
       "https://ca-codesmith-api-001.example.azurecontainerapps.io/api/session",
@@ -175,7 +182,7 @@ describe("createSession", () => {
     );
 
     try {
-      await createSession({ difficulty: "Easy", language: "CSharp", provider: "Anthropic" });
+      await createSession(sessionBody());
       expect.fail("Should have thrown");
     } catch (err) {
       expect(err).toBeInstanceOf(ApiClientError);
@@ -349,7 +356,7 @@ describe("streamCreateSession", () => {
 
     const events: string[] = [];
     const result = await streamCreateSession(
-      { difficulty: "Easy", language: "Python", provider: "Xai" },
+      sessionBody({ language: "Python", provider: "Xai" }),
       { onDelta: (t) => events.push(`delta:${t}`), onReset: () => events.push("reset") }
     );
 
