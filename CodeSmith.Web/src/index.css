@@ -7,10 +7,10 @@
   --color-gray-900: #1F1F1F;  /* editor bg, cards, active tabs */
   --color-gray-850: #202020;
   --color-gray-800: #252526;
-  --color-gray-700: #2B2B2B;  /* borders, dividers */
-  --color-gray-600: #313131;  /* inputs, dropdowns */
-  --color-gray-500: #3C3C3C;
-  --color-gray-400: #6E7681;  /* line numbers, secondary text */
+  --color-gray-700: #2B2B2B;  /* borders, dividers, chips */
+  --color-gray-600: #6E7681;  /* quiet labels, counters, kbd hints; light borders */
+  --color-gray-500: #8B949E;  /* section headers, muted meta */
+  --color-gray-400: #A0A8B0;  /* secondary body text, nav links */
   --color-gray-300: #8B949E;
   --color-gray-200: #C9D1D9;
   --color-gray-100: #CCCCCC;  /* primary text */
