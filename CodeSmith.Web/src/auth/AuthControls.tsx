@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { buildGoogleLoginRequest, buildLoginRequest, isMsalConfigured } from "./msalConfig";
+import { resolveAccountLabel } from "./resolveAccountLabel";
 
 export function AuthControls() {
   if (!isMsalConfigured()) return null;
@@ -54,7 +55,7 @@ function AuthControlsInner() {
   };
 
   if (isAuthenticated) {
-    const label = accounts[0]?.username ?? accounts[0]?.name ?? "Signed in";
+    const label = resolveAccountLabel(accounts[0]);
     return (
       <div className="ml-auto flex items-center gap-3">
         <span className="hidden max-w-[14rem] truncate text-xs text-gray-400 sm:inline" title={label}>

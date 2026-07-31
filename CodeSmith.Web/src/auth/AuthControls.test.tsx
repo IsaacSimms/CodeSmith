@@ -99,6 +99,25 @@ describe("AuthControls", () => {
     expect(screen.getByText("user@example.com")).toBeInTheDocument();
   });
 
+  it("signed in with a federated account shows the email claim, not the GUID UPN", () => {
+    useIsAuthenticated.mockReturnValue(true);
+    useMsal.mockReturnValue({
+      instance: { loginRedirect, logoutRedirect },
+      accounts: [
+        {
+          username: "be36f73c-1993-4e1c-8064-8a4156082144@codesmithapp.onmicrosoft.com",
+          name: "IsaacTestGoogleAuth",
+          idTokenClaims: { email: "isaacsimms11@gmail.com" },
+        },
+      ],
+    });
+
+    render(<AuthControls />);
+
+    expect(screen.getByText("isaacsimms11@gmail.com")).toBeInTheDocument();
+    expect(screen.queryByText(/be36f73c/)).not.toBeInTheDocument();
+  });
+
   it("Sign out calls logoutRedirect", async () => {
     const user = userEvent.setup();
     const account = { username: "user@example.com", name: "User" };
