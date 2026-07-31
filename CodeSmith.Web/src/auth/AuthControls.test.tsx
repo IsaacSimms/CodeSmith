@@ -55,6 +55,9 @@ describe("AuthControls", () => {
     expect(screen.getByRole("menuitem", { name: "Continue with email" })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Continue with Google" })).toBeInTheDocument();
     expect(screen.getByText("Use the same sign-in method next time.")).toBeInTheDocument();
+    expect(
+      screen.getByText("ciamlogin.com is CodeSmith's Microsoft sign-in host.")
+    ).toBeInTheDocument();
   });
 
   it("Continue with email calls loginRedirect without domain_hint", async () => {

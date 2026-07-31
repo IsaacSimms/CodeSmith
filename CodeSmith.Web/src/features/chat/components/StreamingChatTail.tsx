@@ -1,11 +1,13 @@
 // == Streaming Chat Tail Component == //
+import { FailureNotice } from "../../shared/FailureNotice";
+import type { ClientFailure } from "../../../lib/clientError";
 import { MessageBubble } from "./MessageBubble";
 
-// A turn that died mid-stream: the partial reply stays visible (dimmed) with the error under it,
-// while the user's message goes back to the input for one-tap resend. Cleared on the next send.
+// A turn that died: optional partial reply stays visible (dimmed); ClientFailure drives FailureNotice.
+// Incomplete-reply framing is only shown when partial text is non-empty (mid-stream death).
 export interface FailedTurn {
-  partial: string;
-  message: string;
+  failure: ClientFailure;
+  partial?: string;
 }
 
 interface StreamingChatTailProps {
@@ -15,20 +17,25 @@ interface StreamingChatTailProps {
 }
 
 /// Renders the live tail of a streaming chat: the in-flight assistant reply as it accumulates,
-/// and the dimmed remains of a turn that failed mid-stream. Shared by all three surfaces' chats.
+/// and the remains of a turn that failed. Shared by all three surfaces' chats.
 export function StreamingChatTail({ isStreaming, streamingText, failedTurn }: StreamingChatTailProps) {
+  const partial = failedTurn?.partial?.trim() ? failedTurn.partial : undefined;
+
   return (
     <>
       {failedTurn && !isStreaming && (
         <div data-testid="failed-turn">
-          {failedTurn.partial && (
+          {partial && (
             <div className="opacity-60">
-              <MessageBubble role="Assistant" content={failedTurn.partial} />
+              <MessageBubble role="Assistant" content={partial} />
             </div>
           )}
-          <p className="mt-1 text-xs text-red-400">
-            {failedTurn.message} — this reply is incomplete and was not saved. Your message is back in the box below.
-          </p>
+          <FailureNotice failure={failedTurn.failure} className="mt-1" />
+          {partial && (
+            <p className="mt-1 text-xs text-red-400/80">
+              This reply is incomplete and was not saved. Your message is back in the box below.
+            </p>
+          )}
         </div>
       )}
       {isStreaming &&

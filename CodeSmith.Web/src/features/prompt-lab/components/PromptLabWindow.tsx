@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import { useNavigationContext } from "../../../contexts/NavigationContext";
 import { useProviderPreference } from "../../../hooks/useProviderPreference";
+import { interpretError } from "../../../lib/clientError";
+import { FailureNotice } from "../../shared/FailureNotice";
 import type { ChallengeResponse, AttemptResult, PromptLabSession, PromptLabChatMessage } from "../types";
 import { useGetChallenges } from "../hooks/useGetChallenges";
 import { useStartChallenge } from "../hooks/useStartChallenge";
@@ -35,8 +37,9 @@ export function PromptLabWindow() {
 
   const { leftPercent, dividerProps, containerRef } = useResizableSplit(75);
 
-  // Vertical split for left panel (editors top / results bottom)
-  const resultsOpen = submitAttempt.isPending || lastResult !== null;
+  // Vertical split for left panel (editors top / results bottom) — open on submit error too
+  const resultsOpen =
+    submitAttempt.isPending || lastResult !== null || submitAttempt.isError;
   const { topPercent, setTopPercent, dividerProps: vertDividerProps, containerRef: vertContainerRef } =
     useResizableVerticalSplit(60);
 
@@ -144,15 +147,22 @@ export function PromptLabWindow() {
           setChatMessages((prev) => [...prev, { role: "assistant", content: data.response }]);
         },
         onError: (error) => {
-          // The server rolled the turn back — mirror it: drop the optimistic user bubble, keep
-          // the partial reply visible as a failed turn, and put the message back in the input.
           setChatMessages((prev) => prev.slice(0, -1));
-          setFailedChatTurn({ partial: sendChat.getStreamedText(), message: error.message });
+          const partial = sendChat.getStreamedText();
+          setFailedChatTurn({
+            failure: interpretError(error),
+            partial: partial.trim() ? partial : undefined,
+          });
           setChatDraft({ text: message });
         },
       }
     );
   }
+
+  const submitError =
+    submitAttempt.isError && submitAttempt.error && !submitAttempt.isPending
+      ? interpretError(submitAttempt.error)
+      : null;
 
   // == No session: show challenge selector == //
   if (!session || !challenge) {
@@ -165,13 +175,15 @@ export function PromptLabWindow() {
             isStarting={startChallenge.isPending}
             onSelect={handleSelectChallenge}
           />
-          {getChallenges.isError && (
-            <p className="mt-4 text-center text-sm text-red-400">
-              Failed to load challenges: {getChallenges.error.message}
-            </p>
+          {getChallenges.isError && getChallenges.error && (
+            <div className="mt-4 flex justify-center">
+              <FailureNotice failure={interpretError(getChallenges.error)} className="text-center" />
+            </div>
           )}
-          {startChallenge.isError && (
-            <p className="mt-4 text-center text-sm text-red-400">{startChallenge.error.message}</p>
+          {startChallenge.isError && startChallenge.error && (
+            <div className="mt-4 flex justify-center">
+              <FailureNotice failure={interpretError(startChallenge.error)} className="text-center" />
+            </div>
           )}
         </div>
       </div>
@@ -240,6 +252,7 @@ export function PromptLabWindow() {
                 result={lastResult}
                 isEvaluating={submitAttempt.isPending}
                 onClear={() => setLastResult(null)}
+                error={submitError}
               />
             </div>
           )}
@@ -262,6 +275,7 @@ export function PromptLabWindow() {
             lastAttempt={lastResult}
             attemptCount={session.attempts.length}
             onSubmit={handleSubmit}
+            submitError={submitError}
             chatMessages={chatMessages}
             onSendMessage={handleSendChat}
             isSendingChat={sendChat.isPending}

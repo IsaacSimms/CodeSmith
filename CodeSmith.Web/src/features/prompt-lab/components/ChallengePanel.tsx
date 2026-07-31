@@ -1,4 +1,6 @@
 // == Challenge Panel Component == //
+import type { ClientFailure } from "../../../lib/clientError";
+import { FailureNotice } from "../../shared/FailureNotice";
 import type { ChallengeResponse, AttemptResult, TestInputSummary } from "../types";
 
 interface ChallengePanelProps {
@@ -8,6 +10,7 @@ interface ChallengePanelProps {
   lastAttempt: AttemptResult | null;
   attemptCount: number;
   onSubmit: () => void;
+  submitError: ClientFailure | null;
 }
 
 export function ChallengePanel({
@@ -17,6 +20,7 @@ export function ChallengePanel({
   lastAttempt,
   attemptCount,
   onSubmit,
+  submitError,
 }: ChallengePanelProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -103,6 +107,11 @@ export function ChallengePanel({
         </p>
         {attemptCount > 0 && !isSubmitting && (
           <p className="mt-1 text-center text-xs text-gray-600">Attempt {attemptCount + 1}</p>
+        )}
+        {submitError && !isSubmitting && (
+          <div className="mt-3">
+            <FailureNotice failure={submitError} />
+          </div>
         )}
       </div>
     </div>

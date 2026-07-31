@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import { useNavigationContext } from "../../../contexts/NavigationContext";
 import { useProviderPreference } from "../../../hooks/useProviderPreference";
+import { interpretError } from "../../../lib/clientError";
+import { FailureNotice } from "../../shared/FailureNotice";
 import type { ScenarioResponse, AttemptResult, SystemLabSession, SystemLabChatMessage } from "../types";
 import { useGetScenarios } from "../hooks/useGetScenarios";
 import { useStartSession } from "../hooks/useStartSession";
@@ -35,8 +37,9 @@ export function SystemLabWindow() {
   // Horizontal split: left (editor + results) / right (info + chat)
   const { leftPercent, dividerProps, containerRef } = useResizableSplit(75);
 
-  // Vertical split for left panel: editor top / results bottom
-  const resultsOpen = submitAttempt.isPending || lastResult !== null;
+  // Vertical split for left panel: editor top / results bottom — open on submit error too
+  const resultsOpen =
+    submitAttempt.isPending || lastResult !== null || submitAttempt.isError;
   const { topPercent, setTopPercent, dividerProps: vertDividerProps, containerRef: vertContainerRef } =
     useResizableVerticalSplit(60);
 
@@ -108,15 +111,22 @@ export function SystemLabWindow() {
           setChatMessages((prev) => [...prev, { role: "assistant", content: data.response }]);
         },
         onError: (error) => {
-          // The server rolled the turn back — mirror it: drop the optimistic user bubble, keep
-          // the partial reply visible as a failed turn, and put the message back in the input.
           setChatMessages((prev) => prev.slice(0, -1));
-          setFailedChatTurn({ partial: sendChat.getStreamedText(), message: error.message });
+          const partial = sendChat.getStreamedText();
+          setFailedChatTurn({
+            failure: interpretError(error),
+            partial: partial.trim() ? partial : undefined,
+          });
           setChatDraft({ text: message });
         },
       }
     );
   }
+
+  const submitError =
+    submitAttempt.isError && submitAttempt.error && !submitAttempt.isPending
+      ? interpretError(submitAttempt.error)
+      : null;
 
   // == No session: show scenario selector == //
   if (!session || !scenario) {
@@ -129,13 +139,15 @@ export function SystemLabWindow() {
             isStarting={startSession.isPending}
             onSelect={handleSelectScenario}
           />
-          {getScenarios.isError && (
-            <p className="mt-4 text-center text-sm text-red-400">
-              Failed to load scenarios: {getScenarios.error.message}
-            </p>
+          {getScenarios.isError && getScenarios.error && (
+            <div className="mt-4 flex justify-center">
+              <FailureNotice failure={interpretError(getScenarios.error)} className="text-center" />
+            </div>
           )}
-          {startSession.isError && (
-            <p className="mt-4 text-center text-sm text-red-400">{startSession.error.message}</p>
+          {startSession.isError && startSession.error && (
+            <div className="mt-4 flex justify-center">
+              <FailureNotice failure={interpretError(startSession.error)} className="text-center" />
+            </div>
           )}
         </div>
       </div>
@@ -154,22 +166,6 @@ export function SystemLabWindow() {
         <span className="rounded bg-gray-700 px-3 py-1 text-xs text-gray-300">
           {scenario.evaluationMode.replace(/([A-Z])/g, " $1").trim()}
         </span>
-        {session.attempts.length > 0 && (
-          <span className="text-xs text-gray-500">
-            Attempt {session.attempts.length + 1}
-          </span>
-        )}
-
-        {/* == Submit Button (in header for quick access) == */}
-        <div className="ml-auto">
-          <button
-            onClick={handleSubmit}
-            disabled={submitAttempt.isPending || !justification.trim()}
-            className="rounded bg-accent px-4 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {submitAttempt.isPending ? "Evaluating…" : "Submit"}
-          </button>
-        </div>
       </div>
 
       {/* == Split Screen Body == */}
@@ -203,6 +199,7 @@ export function SystemLabWindow() {
                 result={lastResult}
                 isEvaluating={submitAttempt.isPending}
                 onClear={() => setLastResult(null)}
+                error={submitError}
               />
             </div>
           )}
@@ -220,6 +217,11 @@ export function SystemLabWindow() {
         <div className="min-w-0" style={{ width: `${100 - leftPercent}%` }}>
           <SystemLabRightPanel
             scenario={scenario}
+            isSubmitting={submitAttempt.isPending}
+            canSubmit={justification.trim().length > 0}
+            attemptCount={session.attempts.length}
+            onSubmit={handleSubmit}
+            submitError={submitError}
             chatMessages={chatMessages}
             onSendMessage={handleSendChat}
             isSending={sendChat.isPending}

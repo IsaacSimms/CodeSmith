@@ -28,6 +28,19 @@ const mockSession: ProblemSession = {
 
 const mockChatResponse: ChatResponse = { response: "Try a for loop", contextTokensUsed: 100, contextWindowSize: 200_000 };
 
+// Shape matches ApiClientError without importing the real class (module is fully mocked).
+function quotaClientError() {
+  return Object.assign(new Error("Out of credits."), {
+    name: "ApiClientError",
+    statusCode: 402,
+    apiError: {
+      title: "Insufficient quota or credits",
+      detail: "Out of credits.",
+      status: 402,
+    },
+  });
+}
+
 function renderChatWindow(route = "/") {
   const queryClient = new QueryClient({
     defaultOptions: { mutations: { retry: false } },
@@ -123,7 +136,7 @@ describe("ChatWindow", () => {
       });
     });
 
-    it("shows error message when session creation fails", async () => {
+    it("shows FailureNotice when session creation fails", async () => {
       const user = userEvent.setup();
       vi.mocked(apiClient.streamCreateSession).mockRejectedValue(new Error("API unavailable"));
 
@@ -131,8 +144,9 @@ describe("ChatWindow", () => {
       await user.click(screen.getByRole("button", { name: "Easy" }));
 
       await waitFor(() => {
-        expect(screen.getByText("API unavailable")).toBeInTheDocument();
+        expect(screen.getByTestId("failure-notice")).toBeInTheDocument();
       });
+      expect(screen.getByText("API unavailable")).toBeInTheDocument();
     });
   });
 
@@ -234,8 +248,38 @@ describe("ChatWindow", () => {
         expect(screen.getByTestId("failed-turn")).toBeInTheDocument();
       });
       expect(screen.getByText("half a hint")).toBeInTheDocument();          // partial stays visible, dimmed
+      expect(screen.getByText(/incomplete and was not saved/i)).toBeInTheDocument();
       expect(input).toHaveValue("How do I start?");                          // message restored for resend
       expect(screen.queryByText("How do I start?")).not.toBeInTheDocument(); // user bubble rolled back
+    });
+
+    it("shows paywall FailureNotice without incomplete framing when chat returns 402", async () => {
+      // Duck-typed ApiClientError — full vi.mock of apiClient replaces the real class
+      vi.mocked(apiClient.streamChat).mockRejectedValue(quotaClientError());
+      const user = await renderWithSession();
+
+      await user.type(screen.getByPlaceholderText("Ask for guidance..."), "Help{Enter}");
+
+      await waitFor(() => {
+        expect(screen.getByTestId("failure-notice")).toBeInTheDocument();
+      });
+      expect(screen.getByText("Out of free quota and credits")).toBeInTheDocument();
+      expect(screen.queryByText(/incomplete and was not saved/i)).not.toBeInTheDocument();
+    });
+
+    it("shows FailureNotice near Generate New when regeneration fails and keeps the session", async () => {
+      const user = await renderWithSession();
+
+      vi.mocked(apiClient.streamCreateSession).mockRejectedValue(quotaClientError());
+
+      await user.click(screen.getByRole("button", { name: "Generate New Problem" }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("failure-notice")).toBeInTheDocument();
+      });
+      expect(screen.getByText("Out of free quota and credits")).toBeInTheDocument();
+      // Current problem stays mounted
+      expect(screen.getByText("Write a function that adds two numbers.")).toBeInTheDocument();
     });
   });
 

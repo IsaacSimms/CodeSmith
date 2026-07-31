@@ -86,9 +86,10 @@ public sealed class GuidanceConversation : IGuidanceConversation
             // must never contain a partial assistant message (providers reject malformed alternation).
             RollBackTrailingUserTurn(history);
 
-            // AiServiceException is already the clean domain shape; cancellation must keep its own
-            // mapping (→ 499). Everything else is wrapped so the surface gets a uniform 502.
-            if (ex is AiServiceException or OperationCanceledException)
+            // Domain signals and cancellation must keep their HTTP mapping (402 / 499 / existing
+            // AiServiceException → 502). Only unknown failures are wrapped into a uniform guidance 502.
+            // Passthrough: InsufficientQuotaException, AiServiceException, OperationCanceledException.
+            if (ex is InsufficientQuotaException or AiServiceException or OperationCanceledException)
                 throw;
 
             _logger.LogError(ex, "Guidance turn failed for feature {Feature}", request.Feature);

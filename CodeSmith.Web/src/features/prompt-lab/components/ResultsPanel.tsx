@@ -1,14 +1,17 @@
 // == Results Panel Component == //
 import { useState } from "react";
+import type { ClientFailure } from "../../../lib/clientError";
+import { FailureNotice } from "../../shared/FailureNotice";
 import type { AttemptResult, TestInputResult } from "../types";
 
 interface ResultsPanelProps {
   result: AttemptResult | null;
   isEvaluating: boolean;
   onClear: () => void;
+  error?: ClientFailure | null; // submit failed (e.g. 402) — show when no result
 }
 
-export function ResultsPanel({ result, isEvaluating, onClear }: ResultsPanelProps) {
+export function ResultsPanel({ result, isEvaluating, onClear, error = null }: ResultsPanelProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* == Panel Header == */}
@@ -41,7 +44,9 @@ export function ResultsPanel({ result, isEvaluating, onClear }: ResultsPanelProp
           <span className="text-gray-500">Running your prompt against test inputs…</span>
         )}
 
-        {!isEvaluating && !result && (
+        {!isEvaluating && !result && error && <FailureNotice failure={error} />}
+
+        {!isEvaluating && !result && !error && (
           <span className="text-gray-500">Submit a prompt to see results here.</span>
         )}
 

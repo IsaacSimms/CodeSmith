@@ -1,8 +1,10 @@
 // == System Lab Right Panel Component == //
-// Top: collapsible scenario info (description, constraints, rubric, tradeoffs)
+// Top: collapsible scenario info (description, constraints, rubric, tradeoffs) + submit footer
 // Bottom: guidance chat (messages + input)
 // Resizable vertical split mirrors ChatPanel in features/chat.
 import { useRef, useEffect, useState } from "react";
+import type { ClientFailure } from "../../../lib/clientError";
+import { FailureNotice } from "../../shared/FailureNotice";
 import type { ScenarioResponse, SystemLabChatMessage } from "../types";
 import { useResizableVerticalSplit } from "../../chat/hooks/useResizableVerticalSplit";
 import { MessageBubble } from "../../chat/components/MessageBubble";
@@ -11,6 +13,11 @@ import { StreamingChatTail, type FailedTurn } from "../../chat/components/Stream
 
 interface SystemLabRightPanelProps {
   scenario: ScenarioResponse;
+  isSubmitting: boolean;
+  canSubmit: boolean;               // false while the justification is empty
+  attemptCount: number;
+  onSubmit: () => void;
+  submitError: ClientFailure | null;
   chatMessages: SystemLabChatMessage[];
   onSendMessage: (message: string) => void;
   isSending: boolean;
@@ -21,6 +28,11 @@ interface SystemLabRightPanelProps {
 
 export function SystemLabRightPanel({
   scenario,
+  isSubmitting,
+  canSubmit,
+  attemptCount,
+  onSubmit,
+  submitError,
   chatMessages,
   onSendMessage,
   isSending,
@@ -100,6 +112,33 @@ export function SystemLabRightPanel({
               </section>
             </div>
           )}
+
+          {/* == Submit Button == */}
+          {/* mt-auto keeps the footer pinned to the bottom when the info body is collapsed away */}
+          <div className="mt-auto border-t border-gray-700 px-4 py-4">
+            <button
+              onClick={onSubmit}
+              disabled={isSubmitting || !canSubmit}
+              className="w-full rounded bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSubmitting ? "Evaluating…" : "Submit Justification"}
+            </button>
+            <p className="mt-2 text-center text-xs text-gray-600">
+              {isSubmitting ? (
+                <span>Evaluating {"·".repeat(3)}</span>
+              ) : (
+                <span><kbd className="rounded bg-gray-700 px-1 py-0.5 font-mono text-gray-400">Enter</kbd> to submit · <kbd className="rounded bg-gray-700 px-1 py-0.5 font-mono text-gray-400">Shift+Enter</kbd> for new line</span>
+              )}
+            </p>
+            {attemptCount > 0 && !isSubmitting && (
+              <p className="mt-1 text-center text-xs text-gray-600">Attempt {attemptCount + 1}</p>
+            )}
+            {submitError && !isSubmitting && (
+              <div className="mt-3">
+                <FailureNotice failure={submitError} />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* == Drag Divider == */}

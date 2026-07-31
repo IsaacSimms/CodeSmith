@@ -138,6 +138,22 @@ public class PromptLabServiceTests
         Assert.False(session.DynamicInputsGenerated);
     }
 
+    [Fact]
+    public async Task StartChallengeAsync_WhenGeneratorThrowsInsufficientQuota_DoesNotFallbackToStatic()
+    {
+        var challengeId = _service.GetChallenges()[0].ChallengeId;
+        var original = new InsufficientQuotaException("user-1", "Insufficient quota or credits for this request.");
+
+        _generator.GenerateAsync(Arg.Any<Challenge>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
+            .Returns<List<TestInput>>(_ => throw original);
+
+        var thrown = await Assert.ThrowsAsync<InsufficientQuotaException>(
+            () => _service.StartChallengeAsync(challengeId));
+
+        Assert.Same(original, thrown);
+        _sessionStore.DidNotReceive().Set(Arg.Any<PromptLabSession>());
+    }
+
     // == SubmitAttemptAsync Tests == //
 
     [Fact]
@@ -270,6 +286,29 @@ public class PromptLabServiceTests
         var completed = await Task.WhenAny(submit, Task.Delay(TimeSpan.FromSeconds(5)));
         Assert.Same(submit, completed);
         await submit;
+    }
+
+    [Fact]
+    public async Task SubmitAttemptAsync_WhenSimulatorThrowsInsufficientQuota_RethrowsWithoutWrapping()
+    {
+        var challengeId = _service.GetChallenges()[0].ChallengeId;
+        var session = new PromptLabSession
+        {
+            ChallengeId = challengeId,
+            Provider = AiProvider.Anthropic,
+            TestInputs = [new TestInput { InputId = "i1", Label = "One", UserMessage = "a" }],
+        };
+        _sessionStore.Get(session.SessionId.ToString()).Returns(session);
+
+        var original = new InsufficientQuotaException("user-1", "Insufficient quota or credits for this request.");
+        _simulator.SimulateOneAsync(Arg.Any<Challenge>(), Arg.Any<TestInput>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
+            .Returns<SimulatedInput>(_ => throw original);
+
+        var thrown = await Assert.ThrowsAsync<InsufficientQuotaException>(
+            () => _service.SubmitAttemptAsync(session.SessionId, "sys", "user", CancellationToken.None));
+
+        Assert.Same(original, thrown);
+        Assert.Empty(session.Attempts);
     }
 
     // == Submit Mock Helpers == //

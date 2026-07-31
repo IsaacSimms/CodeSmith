@@ -172,5 +172,33 @@ describe("PromptLabWindow", () => {
         expect(screen.getAllByText("4/5 pts").length).toBeGreaterThanOrEqual(1);
       });
     });
+
+    it("shows FailureNotice near Submit when evaluation returns 402", async () => {
+      // Duck-typed ApiClientError — full vi.mock of apiClient replaces the real class
+      const quotaError = Object.assign(new Error("Out of credits."), {
+        name: "ApiClientError",
+        statusCode: 402,
+        apiError: {
+          title: "Insufficient quota or credits",
+          detail: "Out of credits.",
+          status: 402,
+        },
+      });
+      vi.mocked(apiClient.getChallenges).mockResolvedValue([mockChallenge]);
+      vi.mocked(apiClient.startPromptLabChallenge).mockResolvedValue(mockSession);
+      vi.mocked(apiClient.submitPromptLabAttempt).mockRejectedValue(quotaError);
+
+      renderPromptLabWindow();
+
+      await waitFor(() => screen.getByText("JSON Only"));
+      await userEvent.click(screen.getByText("JSON Only"));
+      await waitFor(() => screen.getByText("Submit Prompt"));
+      await userEvent.click(screen.getByText("Submit Prompt"));
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId("failure-notice").length).toBeGreaterThanOrEqual(1);
+      });
+      expect(screen.getAllByText("Out of free quota and credits").length).toBeGreaterThanOrEqual(1);
+    });
   });
 });

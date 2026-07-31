@@ -62,6 +62,11 @@ public class PromptLabService : IPromptLabService
             testInputs             = await _generator.GenerateAsync(challenge, provider, ct);
             dynamicInputsGenerated = true;
         }
+        catch (InsufficientQuotaException)
+        {
+            // Out of credits is not a "generation quality" failure — do not lie with static inputs.
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Test input generation failed for {ChallengeId}; falling back to static inputs", challengeId);
@@ -122,13 +127,54 @@ public class PromptLabService : IPromptLabService
                 _logger.LogInformation("Attempt complete for session {SessionId}: {Score}/{Max}", sessionId, attempt.TotalScore, attempt.MaxScore);
                 return attempt;
             }
-            catch (Exception ex) when (ex is not AiServiceException and not SessionNotFoundException and not ChallengeNotFoundException)
+            catch (Exception ex)
             {
+                // Domain signals (incl. quota from a parallel chain inside AggregateException) keep
+                // their HTTP mapping. Only unknown failures become a uniform evaluate 502.
+                if (TryUnwrapDomainException(ex, out var domain))
+                    throw domain;
+
                 _logger.LogError(ex, "Failed to process attempt for session {SessionId}", sessionId);
                 throw new AiServiceException("Failed to evaluate prompt attempt. Please try again.", ex);
             }
         }, ct);
     }
+
+    // == Domain Exception Passthrough == //
+
+    // Passthrough set: InsufficientQuotaException, AiServiceException, OperationCanceledException,
+    // SessionNotFoundException, ChallengeNotFoundException. AggregateException is flattened so a
+    // quota failure on one parallel simulate/evaluate chain still surfaces as 402.
+    private static bool TryUnwrapDomainException(Exception ex, out Exception domain)
+    {
+        if (IsDomainException(ex))
+        {
+            domain = ex;
+            return true;
+        }
+
+        if (ex is AggregateException aggregate)
+        {
+            foreach (var inner in aggregate.Flatten().InnerExceptions)
+            {
+                if (IsDomainException(inner))
+                {
+                    domain = inner;
+                    return true;
+                }
+            }
+        }
+
+        domain = ex;
+        return false;
+    }
+
+    private static bool IsDomainException(Exception ex)
+        => ex is InsufficientQuotaException
+            or AiServiceException
+            or OperationCanceledException
+            or SessionNotFoundException
+            or ChallengeNotFoundException;
 
     // == ChatAsync / StreamChatAsync == //
 

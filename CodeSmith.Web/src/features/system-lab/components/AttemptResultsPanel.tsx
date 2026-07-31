@@ -1,14 +1,17 @@
 // == Attempt Results Panel Component == //
 import { useState } from "react";
+import type { ClientFailure } from "../../../lib/clientError";
+import { FailureNotice } from "../../shared/FailureNotice";
 import type { AttemptResult, CriterionScore, TradeoffResult } from "../types";
 
 interface AttemptResultsPanelProps {
   result: AttemptResult | null;
   isEvaluating: boolean;
   onClear: () => void;
+  error?: ClientFailure | null;
 }
 
-export function AttemptResultsPanel({ result, isEvaluating, onClear }: AttemptResultsPanelProps) {
+export function AttemptResultsPanel({ result, isEvaluating, onClear, error = null }: AttemptResultsPanelProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* == Panel Header == */}
@@ -38,7 +41,8 @@ export function AttemptResultsPanel({ result, isEvaluating, onClear }: AttemptRe
         {isEvaluating && !result && (
           <span className="text-gray-500">Evaluating your justification…</span>
         )}
-        {!isEvaluating && !result && (
+        {!isEvaluating && !result && error && <FailureNotice failure={error} />}
+        {!isEvaluating && !result && !error && (
           <span className="text-gray-500">Submit your justification to see evaluation results here.</span>
         )}
         {result && (

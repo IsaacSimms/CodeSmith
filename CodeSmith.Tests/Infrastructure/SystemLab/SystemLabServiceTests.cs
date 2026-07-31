@@ -158,6 +158,24 @@ public class SystemLabServiceTests
         Assert.Empty(session.Attempts);
     }
 
+    [Fact]
+    public async Task SubmitAttemptAsync_WhenEvaluatorThrowsInsufficientQuota_RethrowsWithoutWrapping()
+    {
+        var scenarioId = _service.GetScenarios()[0].ScenarioId;
+        var session    = new SystemLabSession { ScenarioId = scenarioId };
+
+        _sessionStore.Get(session.SessionId.ToString()).Returns(session);
+        var original = new InsufficientQuotaException("user-1", "Insufficient quota or credits for this request.");
+        _evaluator.EvaluateAsync(Arg.Any<Scenario>(), Arg.Any<string>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<ScenarioAttempt>(original));
+
+        var thrown = await Assert.ThrowsAsync<InsufficientQuotaException>(
+            () => _service.SubmitAttemptAsync(session.SessionId, "my justification"));
+
+        Assert.Same(original, thrown);
+        Assert.Empty(session.Attempts);
+    }
+
     // == ChatAsync Tests == //
 
     [Fact]

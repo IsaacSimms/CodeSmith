@@ -170,4 +170,5 @@ export interface ApiError {
   title?: string;   // RFC 7807 short description
   detail?: string;  // Safe, human-readable error message
   status: number;   // HTTP status code
+  code?: string;    // Optional machine code (e.g. login_required from ProblemDetails extensions)
 }

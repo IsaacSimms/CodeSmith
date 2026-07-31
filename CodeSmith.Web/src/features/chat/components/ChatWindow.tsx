@@ -11,6 +11,8 @@ import {
   isDifficulty, isLanguage, isProblemFocus, isProblemTopic,
   languageLabels, problemFocusLabels, problemTopicLabels,
 } from "../types";
+import { interpretError } from "../../../lib/clientError";
+import { FailureNotice } from "../../shared/FailureNotice";
 import { useCreateSession } from "../hooks/useCreateSession";
 import { useSendMessage } from "../hooks/useSendMessage";
 import { useRunCode } from "../hooks/useRunCode";
@@ -121,9 +123,13 @@ export function ChatWindow() {
         },
         onError: (error) => {
           // The server rolled the turn back — mirror it: drop the optimistic user bubble, keep
-          // the partial reply visible as a failed turn, and put the message back in the input.
+          // any partial reply, and put the message back in the input.
           setMessages((prev) => prev.slice(0, -1));
-          setFailedTurn({ partial: sendMessage.getStreamedText(), message: error.message });
+          const partial = sendMessage.getStreamedText();
+          setFailedTurn({
+            failure: interpretError(error),
+            partial: partial.trim() ? partial : undefined,
+          });
           setDraft({ text: message });
         },
       }
@@ -184,14 +190,21 @@ export function ChatWindow() {
               onFocusChange={setFocus}
               onTopicChange={setTopic}
             />
-            {createSession.isError && (
-              <p className="mt-4 text-center text-red-400">{createSession.error.message}</p>
+            {createSession.isError && createSession.error && (
+              <div className="mt-4 flex justify-center">
+                <FailureNotice failure={interpretError(createSession.error)} className="text-center" />
+              </div>
             )}
           </div>
         )}
       </div>
     );
   }
+
+  const generateError =
+    session && createSession.isError && createSession.error && !createSession.isPending
+      ? interpretError(createSession.error)
+      : null;
 
   return (
     <div className="flex h-full flex-col">
@@ -218,6 +231,7 @@ export function ChatWindow() {
             // pick to whatever the first roll produced and it could never re-roll.
             onGenerateNew={() => handleStart(session.difficulty, session.language)}
             isGenerating={createSession.isPending}
+            generateError={generateError}
             onRunCode={handleRunCode}
             isRunning={runCode.isPending}
             executionResult={executionResult}

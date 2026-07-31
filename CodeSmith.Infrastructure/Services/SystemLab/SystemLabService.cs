@@ -82,7 +82,13 @@ public class SystemLabService : ISystemLabService
                 _logger.LogInformation("Attempt complete for session {SessionId}: {Score}/{Max}", sessionId, attempt.TotalScore, attempt.MaxScore);
                 return attempt;
             }
-            catch (Exception ex) when (ex is not AiServiceException and not SessionNotFoundException and not ScenarioNotFoundException)
+            // Passthrough: InsufficientQuotaException, AiServiceException, SessionNotFoundException,
+            // ScenarioNotFoundException (and cancellation if it surfaces here).
+            catch (Exception ex) when (ex is not InsufficientQuotaException
+                and not AiServiceException
+                and not SessionNotFoundException
+                and not ScenarioNotFoundException
+                and not OperationCanceledException)
             {
                 _logger.LogError(ex, "Failed to evaluate attempt for session {SessionId}", sessionId);
                 throw new AiServiceException("Failed to evaluate justification. Please try again.", ex);

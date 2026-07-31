@@ -105,9 +105,11 @@ function AuthControlsInner() {
           >
             Continue with Google
           </button>
-          <p className="border-t border-gray-700 px-3 py-2 text-xs text-gray-400">
-            Use the same sign-in method next time.
-          </p>
+          <div className="space-y-1 border-t border-gray-700 px-3 py-2 text-xs text-gray-400">
+            <p>Use the same sign-in method next time.</p>
+            {/* Google's consent screen labels the Entra federation callback host, not CodeSmith */}
+            <p>ciamlogin.com is CodeSmith's Microsoft sign-in host.</p>
+          </div>
         </div>
       )}
     </div>

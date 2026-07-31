@@ -3,6 +3,8 @@ import { useEffect } from "react";
 import Editor from "@monaco-editor/react";
 import type { Language, RunCodeResponse } from "../types";
 import { monacoLanguageIds } from "../types";
+import type { ClientFailure } from "../../../lib/clientError";
+import { FailureNotice } from "../../shared/FailureNotice";
 import { useResizableVerticalSplit } from "../hooks/useResizableVerticalSplit";
 import { TerminalPanel } from "./TerminalPanel";
 import { defineVsCodeDarkTheme } from "../../shared/monacoTheme";
@@ -13,6 +15,7 @@ interface CodePanelProps {
   language: Language;
   onGenerateNew: () => void;
   isGenerating: boolean;
+  generateError: ClientFailure | null; // Generate New (or in-session create) failure — session stays
   onRunCode: () => void;
   isRunning: boolean;
   executionResult: RunCodeResponse | null;
@@ -25,6 +28,7 @@ export function CodePanel({
   language,
   onGenerateNew,
   isGenerating,
+  generateError,
   onRunCode,
   isRunning,
   executionResult,
@@ -60,6 +64,11 @@ export function CodePanel({
           </button>
         </div>
       </div>
+      {generateError && !isGenerating && (
+        <div className="border-b border-gray-800 px-4 py-2">
+          <FailureNotice failure={generateError} />
+        </div>
+      )}
 
       {/* == Editor + Terminal Split == */}
       <div ref={containerRef} className="flex flex-1 flex-col overflow-hidden">

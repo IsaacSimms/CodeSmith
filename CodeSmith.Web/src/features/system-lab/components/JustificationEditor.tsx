@@ -42,14 +42,6 @@ export function JustificationEditor({ value, onChange, onSubmit, isSubmitting }:
         className="flex-1 resize-none bg-gray-900 p-4 font-mono text-sm text-gray-200 placeholder-gray-600 outline-none disabled:opacity-60"
         spellCheck={false}
       />
-
-      {/* == Footer Hint == */}
-      <div className="border-t border-gray-700 px-4 py-1.5">
-        <p className="text-xs text-gray-600">
-          <kbd className="rounded bg-gray-700 px-1 py-0.5 font-mono text-gray-400">Enter</kbd> to submit ·{" "}
-          <kbd className="rounded bg-gray-700 px-1 py-0.5 font-mono text-gray-400">Shift+Enter</kbd> for new line
-        </p>
-      </div>
     </div>
   );
 }

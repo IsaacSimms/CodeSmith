@@ -175,6 +175,27 @@ public class GuidanceConversationTests
         Assert.Empty(history); // cancellation must not leave a dangling user turn, and must not become a 502
     }
 
+    [Fact]
+    public async Task RunTurnAsync_WhenLlmThrowsInsufficientQuota_RethrowsWithoutWrapping()
+    {
+        var history = new List<ChatMessage>
+        {
+            new() { Role = MessageRole.User,      Content = "earlier" },
+            new() { Role = MessageRole.Assistant, Content = "reply" },
+        };
+        var persistHits = 0;
+        var original = new InsufficientQuotaException("user-1", "Insufficient quota or credits for this request.");
+        _llm.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
+            .Returns<LlmResponse>(_ => throw original);
+
+        var thrown = await Assert.ThrowsAsync<InsufficientQuotaException>(
+            () => _conversation.RunTurnAsync(AiProvider.Anthropic, history, Request(user: "new"), () => persistHits++));
+
+        Assert.Same(original, thrown);
+        Assert.Equal(2, history.Count); // optimistic user turn rolled back
+        Assert.Equal(0, persistHits);
+    }
+
     // == Streaming Turn: same invariant, deltas pass through == //
 
     [Fact]

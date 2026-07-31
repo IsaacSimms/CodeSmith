@@ -3,6 +3,7 @@
 // Bottom: guidance chat (messages + input)
 // Resizable vertical split mirrors SystemLabRightPanel in features/system-lab.
 import { useRef, useEffect } from "react";
+import type { ClientFailure } from "../../../lib/clientError";
 import type { ChallengeResponse, AttemptResult, TestInputSummary, PromptLabChatMessage } from "../types";
 import { useResizableVerticalSplit } from "../../chat/hooks/useResizableVerticalSplit";
 import { MessageBubble } from "../../chat/components/MessageBubble";
@@ -17,6 +18,7 @@ interface PromptLabRightPanelProps {
   lastAttempt: AttemptResult | null;
   attemptCount: number;
   onSubmit: () => void;
+  submitError: ClientFailure | null;
   chatMessages: PromptLabChatMessage[];
   onSendMessage: (message: string) => void;
   isSendingChat: boolean;
@@ -32,6 +34,7 @@ export function PromptLabRightPanel({
   lastAttempt,
   attemptCount,
   onSubmit,
+  submitError,
   chatMessages,
   onSendMessage,
   isSendingChat,
@@ -59,6 +62,7 @@ export function PromptLabRightPanel({
             lastAttempt={lastAttempt}
             attemptCount={attemptCount}
             onSubmit={onSubmit}
+            submitError={submitError}
           />
         </div>
 
