@@ -39,7 +39,7 @@ closed tickets because they were settled before any ticket existed.
 | 3 | **Pack catalog.** New `GET /api/billing/packs` reads the Stripe Price objects for the allow-listed ids and returns amount/currency/name, cached briefly in memory. Stripe stays the single source of truth for price so the displayed amount can never drift from the charged amount. `StripeOptions.PriceIds` remains the gate on what is purchasable. |
 | 4 | **Post-checkout landing.** `StripeOptions.SuccessUrl`/`CancelUrl` point at `/account?checkout=success|cancel`. `BillingResultPage.tsx` is **deleted** — it exists only because there was no account page (its own header says `Inc 1 — no account UI`). The page shows a "top-up processing" state and polls within bounds, because the Stripe redirect normally beats the webhook. |
 | 5 | **Provider picker relocates.** It is removed from `HomePage.tsx` entirely (including the display-order assertion at `HomePage.test.tsx:83-86`) and lives only on the account page. Deliberate decluttering of the landing surface. |
-| 6 | **Free quota presentation.** Shown in **tokens** with a window expiry, reusing `TokenUsageBar.tsx` as-is. No token→USD conversion — an estimate rendered as currency becomes a number users hold you to. |
+| 6 | **Free quota presentation.** Free tokens are a **one-time per-account grant with no expiry and no reset** — the 48h window is eliminated as a product mechanic (see [Decide free-window expiry presentation](tickets/001-decide-free-window-expiry-presentation.md)). Shown in **tokens** via `TokenUsageBar.tsx`, with its red-at-80% ramp overridden for this instance. No token→USD conversion — an estimate rendered as currency becomes a number users hold you to. |
 | 7 | **Page structure.** Plain composition: `AccountPage` renders section components, each owning its own queries, with anchor ids (`#credits`) for deep links. No section registry, no nested routes — one consumer is a hypothetical seam, and the deletion test collapses a registry into two JSX lines. Convert to nested routes later if the section count justifies it. |
 | 8 | **Unauthenticated access.** `/account` renders its shell with a sign-in prompt rather than redirecting, so a bookmarked URL is not silently discarded. Plus a dev-only nav entry gated on the existing `isMsalConfigured()` check, because `AuthControls.tsx:8` returns `null` in local dev and would otherwise leave the page unreachable. |
 | 9 | **Transaction history.** One list with filter chips — All / Purchases / Usage — defaulting to All. Client-side filtering over the single existing ledger query. `Feature` gives usage rows meaning. |
@@ -58,15 +58,38 @@ closed tickets because they were settled before any ticket existed.
 
 <!-- DERIVED. Regenerated on every close. Do not edit by hand. -->
 
-- [Decide free-window expiry presentation](tickets/001-decide-free-window-expiry-presentation.md) — grilling
-- [Define the pack-catalog endpoint contract](tickets/003-define-pack-catalog-endpoint-contract.md) — grilling
-- [Design the provider-preference context](tickets/004-design-provider-preference-context.md) — grilling
 - [Choose the account page layout](tickets/005-choose-account-page-layout.md) — grilling
 - [Decide top-up completion signal and polling bounds](tickets/006-decide-topup-completion-signal.md) — grilling
+- [Design the nav-dropdown balance summary](tickets/007-design-nav-dropdown-balance-summary.md) — grilling
+- [Decide free-covered ledger row semantics](tickets/008-decide-free-covered-ledger-row-semantics.md) — grilling
+- [Remove the free-token time window from enforcement](tickets/009-remove-free-token-time-window.md) — grilling
+- [Resolve the request provider from AiOptions.ActiveProvider](tickets/010-resolve-request-provider-from-active-provider.md) — grilling
 
 ## Decisions so far
 
-<!-- Empty. Charting session only. -->
+- [Decide free-window expiry presentation](tickets/001-decide-free-window-expiry-presentation.md) —
+  the 48h window is **eliminated**: free tokens are a one-time per-account grant, no expiry, no
+  reset. Free and paid render as two distinct cards; an exhausted grant collapses permanently to a
+  muted line; the account grant is the headline number, with a notice only when per-IP headroom
+  binds. The quota endpoint therefore ships **no timestamps**.
+- [Define the free-quota endpoint contract](tickets/002-define-free-quota-endpoint-contract.md) —
+  `GET /api/usage/quota` `[Authorize]` on a new `UsageController`, returning
+  `{ freeTokensUsed, freeQuotaMax, ipConstraint }`. Backed by a new `GetQuotaAsync` read on
+  `IUsageEnforcer` so the remaining-quota rule is never re-derived outside the module that enforces
+  it. IP headroom crosses as a three-state enum, never a number — the endpoint is pollable and a raw
+  value would meter co-tenants on a shared NAT. The read is lock-free and never creates a row.
+- [Define the pack-catalog endpoint contract](tickets/003-define-pack-catalog-endpoint-contract.md) —
+  `GET /api/billing/packs` `[Authorize]`; Product name + decimal major USD amount + currency;
+  order follows `PriceIds`; 5 min in-memory success cache (load only); Stripe down → 502;
+  unusable allow-list ids skipped (all-bad → `200 []`).
+- [Design the provider-preference context](tickets/004-design-provider-preference-context.md) —
+  new `ProviderPreferenceContext` at `Layout` exposing
+  `{ provider, setProvider, availableProviders, isReady }`, with `useProviderPreference` surviving
+  as its internal storage adapter. `isReady = hasStoredChoice || query.isSuccess` gates the Start
+  control on all three surfaces, so no request ever carries a provisional provider — but the gate is
+  labeled and bounded at ~3s, after which Start omits `provider` and lets the server decide. Display
+  order and labels move to the account page picker; the `localStorage` key is unchanged and
+  self-heals invalid values. Uncovered a server-side twin of the same defect — see ticket 010.
 
 ## Not yet specified
 
@@ -78,9 +101,17 @@ closed tickets because they were settled before any ticket existed.
   the ordinary redirect-beats-webhook lag covered by ticket 006.
 - **Config-driven pack ordering and badges.** "Most popular" and non-price-derived ordering
   would need config metadata alongside the Stripe-sourced amount.
-- **`FreeMonthlyTokenQuota` naming.** `UsageOptions.cs:8` says *monthly*; `CreditBalance.cs:9`
-  documents a one-time 48-hour window. One is wrong, and this page makes it public. Whether the
-  correction rides in this map is unresolved.
+- **Never-decaying per-IP free cap.** `IpFreeTokenCap = 60_000` (`UsageEnforcer.cs:33`) is an
+  aggregate across all objectIds on an IP, and `IpFreeUsage` only ever increments
+  (`EfUsageStore.cs:63`). A shared NAT — office, campus, household — permanently exhausts after
+  roughly three users' worth, and every legitimate user behind it afterward gets zero free tokens
+  forever. The cap itself stays (it is the multi-account defense); whether it should decay, and on
+  what basis, is enforcement work outside this page's presentation scope.
+- **Aggregate spend rollups.** Spend by `Feature` / `Provider` over time. The data supports it —
+  `UsageLedgerEntry` persists `Feature`, `Provider`, `Model`, `TimestampUtc` — but it needs
+  aggregation `IUsageLedgerRepository` does not have, and it collides with the unresolved
+  pagination question above. Constraint 9's per-row list covers "where did my money go" at the
+  resolution needed to ship.
 - **Provider as account state rather than device state.** `useProviderPreference` is
   `localStorage`-backed and per-device. Putting it on an *account* page implies otherwise.
   Server-persisting it is new settings architecture, deliberately excluded from this destination.
