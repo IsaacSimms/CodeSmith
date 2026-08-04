@@ -1,6 +1,6 @@
 ---
 name: account-page
-status: working
+status: closed
 ---
 
 # Account Page
@@ -58,10 +58,32 @@ closed tickets because they were settled before any ticket existed.
 
 <!-- DERIVED. Regenerated on every close. Do not edit by hand. -->
 
-- [Design the nav-dropdown balance summary](tickets/007-design-nav-dropdown-balance-summary.md) — grilling
-- [Decide free-covered ledger row semantics](tickets/008-decide-free-covered-ledger-row-semantics.md) — grilling
-- [Remove the free-token time window from enforcement](tickets/009-remove-free-token-time-window.md) — grilling
-- [Resolve the request provider from AiOptions.ActiveProvider](tickets/010-resolve-request-provider-from-active-provider.md) — grilling
+*Empty — every decision ticket is closed. The map is closed; what remains is implementation.*
+
+## Work items
+
+<!-- DERIVED from the tickets. Point a fresh agent at one file. -->
+
+Backend — the three roots run in parallel:
+
+- [Remove the free-token time window from enforcement](work/001-remove-free-token-window-from-enforcement.md) — no deps
+  - [Correct free-covered ledger row semantics](work/002-correct-free-covered-ledger-row-semantics.md)
+  - [Add the free-quota read endpoint](work/003-add-usage-quota-endpoint.md)
+- [Add the pack-catalog endpoint](work/004-add-pack-catalog-endpoint.md) — no deps
+- [Make AiOptions.ActiveProvider binding at request time](work/005-make-active-provider-binding.md) — no deps
+
+Frontend:
+
+- [Add the provider-preference context](work/006-add-provider-preference-context.md) — after 005
+- [Build the account page shell and AccountSection wrapper](work/007-build-account-page-shell.md) — no deps
+- [Add account data hooks, prefetch, and turn-settle invalidation](work/008-add-account-data-hooks-and-invalidation.md) — after 002, 003, 004
+- [Convert AuthControls to a dropdown with a balance summary](work/009-add-nav-dropdown-balance-summary.md) — after 007, 008
+- [Build the credits card and pack purchase](work/010-build-credits-card-and-purchase.md) — after 007, 008
+- [Build the free-quota card and extract the UsageBar primitive](work/011-build-free-quota-card-and-usage-bar.md) — after 007, 008
+- [Build the transaction history section](work/012-build-transaction-history-section.md) — after 007, 008
+- [Build the post-checkout flow and delete BillingResultPage](work/013-build-post-checkout-flow.md) — after 010
+- [Build the Preferences and Account sections](work/014-build-preferences-and-account-sections.md) — after 006, 007
+- [Route paywall and login failures to the account page](work/015-route-paywall-errors-to-account.md) — after 007
 
 ## Decisions so far
 
@@ -104,6 +126,44 @@ closed tickets because they were settled before any ticket existed.
   into `Preferences` (provider, "applies to this browser") and `Account` (sign out, closure
   contact). Ledger rows are single-line ≥`sm` with a `Feature` label map. Amends constraints 6
   and 7; 006's applying-credits banner is page-level, above the wallet row.
+- [Design the nav-dropdown balance summary](tickets/007-design-nav-dropdown-balance-summary.md) —
+  passive lifecycle mode switch in the authenticated nav dropdown: free **remaining** while
+  `freeTokensUsed < freeQuotaMax`, paid USD (including `$0.00`) after account-grant exhaustion; IP
+  stays off the nav. Prefetch shared `['usage','quota']` / `['billing','balance']` when
+  authenticated; invalidate both on turn settle and on top-up detection. Loading is a muted
+  placeholder; error omits the summary row. Not a link — Account and Sign out remain real items.
+  *Amended by [ticket 008](tickets/008-decide-free-covered-ledger-row-semantics.md)*: `$0.00` is
+  reserved for a true zero balance, and the invalidation set gains `['billing','ledger']`.
+- [Decide free-covered ledger row semantics](tickets/008-decide-free-covered-ledger-row-semantics.md) —
+  `UsageLedgerEntry.CostUsd` on a Spend row becomes the amount **actually debited** (`$0` when free
+  tokens covered the call), with a new nullable `FreeTokensCovered` column keeping the free portion
+  auditable; the debit and the stored value must be one computed decimal so ledger sums reconcile
+  against `PaidCreditsBalance`. A fully covered row renders **"Free"**, not `$0.00`; the
+  once-per-account partial row renders as an ordinary paid row. Spend rows format 4dp, TopUp rows
+  2dp, and balances 2dp with `< $0.01` for a spendable sub-cent remainder. **No backfill** — the
+  ledger is a recent-N window, so pre-fix rows age out. `LedgerEntryResponse` gains
+  `isFreeCovered: bool` and still no token counts; filter chips stay 1:1 with `LedgerEntryType`, so
+  a Free row is a Usage row. Implements **after** ticket 009 — both edit `SettleAsync`. Amends
+  ticket 007 twice.
+- [Remove the free-token time window from enforcement](tickets/009-remove-free-token-time-window.md) —
+  delete `WindowActive`; free rem is always grant remaining (still min'd with IP). Accept
+  retroactive grant (no freeze). Drop `CreditBalance.FirstSeenUtc`. Rename
+  `FreeMonthlyTokenQuota` → `FreeTokenQuota`, `FreeTokensUsedInWindow` → `FreeTokensUsed`
+  (property + column). Keep per-row `FreeQuotaMax` snapshot. One EF migration, no data backfill.
+  Live docs only (`context.md`, README, USER_TESTING, appsettings). `IpFreeUsage.FirstSeenUtc`
+  stays. Implement **before** ticket 008.
+- [Resolve the request provider from AiOptions.ActiveProvider](tickets/010-resolve-request-provider-from-active-provider.md) —
+  `AiOptions.ActiveProvider` is retyped `string` → `AiProvider` with `.ValidateOnStart()`, and a
+  sealed concrete `AiProviderResolver` applies it at all four LLM-creating endpoints. All three
+  request DTOs converge on `AiProvider?` so omission is expressible; PromptLab's `?? Anthropic` and
+  `IPromptLabService`'s default parameter both go. An undefined value throws
+  `UnknownProviderException` → one middleware table row → 400, which deletes `SessionController`'s
+  two guards **and** fixes the 500 that Prompt Lab and System Lab return today. All three responses
+  echo the resolved provider (`SystemLabSessionResponse` gains `Provider`). **No interface** — an
+  `IAiProviderResolver` would be mocked in the very controller tests that must prove config reaches
+  a request. CLI unchanged; its provider consciously flips Anthropic → xAI. Four omission tests, one
+  per creation endpoint including the stream sibling, carry the regression load.
+  **Unblocks ticket 004 decision 7.** No ordering coupling with 008/009.
 
 ## Not yet specified
 
