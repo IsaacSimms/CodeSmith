@@ -1,7 +1,7 @@
 // == System Lab Window Component == //
 import { useEffect, useState } from "react";
 import { useNavigationContext } from "../../../contexts/NavigationContext";
-import { useProviderPreference } from "../../../hooks/useProviderPreference";
+import { useProviderPreferenceContext } from "../../../contexts/ProviderPreferenceContext";
 import { interpretError } from "../../../lib/clientError";
 import { FailureNotice } from "../../shared/FailureNotice";
 import type { ScenarioResponse, AttemptResult, SystemLabSession, SystemLabChatMessage } from "../types";
@@ -26,7 +26,7 @@ export function SystemLabWindow() {
   const [failedChatTurn, setFailedChatTurn]     = useState<FailedTurn | null>(null);
   const [chatDraft, setChatDraft]               = useState<{ text: string } | null>(null);
 
-  const { provider }  = useProviderPreference();
+  const { provider, isReady } = useProviderPreferenceContext();
   const getScenarios  = useGetScenarios();
   const startSession  = useStartSession();
   const submitAttempt = useSubmitAttempt();
@@ -67,7 +67,10 @@ export function SystemLabWindow() {
     if (!found) return;
 
     startSession.mutate(
-      { scenarioId, provider },
+      {
+        scenarioId,
+        ...(provider !== undefined ? { provider } : {}),
+      },
       {
         onSuccess: (data) => {
           setSession(data);
@@ -137,6 +140,7 @@ export function SystemLabWindow() {
             scenarios={getScenarios.data ?? []}
             isLoading={getScenarios.isLoading}
             isStarting={startSession.isPending}
+            isReady={isReady}
             onSelect={handleSelectScenario}
           />
           {getScenarios.isError && getScenarios.error && (

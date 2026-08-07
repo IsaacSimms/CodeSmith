@@ -1,7 +1,7 @@
 ---
 id: 003
 title: Add the free-quota read endpoint
-status: todo
+status: done
 implements: [002]
 depends_on: [001]
 ---

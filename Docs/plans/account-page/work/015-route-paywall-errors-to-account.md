@@ -1,7 +1,7 @@
 ---
 id: 015
 title: Route paywall and login failures to the account page
-status: todo
+status: done
 implements: [005]
 depends_on: [007]
 ---

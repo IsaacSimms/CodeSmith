@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useNavigationContext } from "../../../contexts/NavigationContext";
-import { useProviderPreference } from "../../../hooks/useProviderPreference";
+import { useProviderPreferenceContext } from "../../../contexts/ProviderPreferenceContext";
 import type {
   ProblemSession, Difficulty, Language, ChatMessage, RunCodeResponse, GuidanceMode,
   ProblemFocus, ProblemTopic,
@@ -36,7 +36,7 @@ export function ChatWindow() {
   const createSession = useCreateSession();
   const sendMessage = useSendMessage();
   const runCode = useRunCode();
-  const { provider } = useProviderPreference();
+  const { provider, isReady } = useProviderPreferenceContext();
   const { leftPercent, dividerProps, containerRef } = useResizableSplit(75);
   const { registerReset, unregisterReset } = useNavigationContext();
 
@@ -70,7 +70,13 @@ export function ChatWindow() {
 
   function handleStart(difficulty: Difficulty, language: Language) {
     createSession.mutate(
-      { difficulty, language, provider, focus, topic },
+      {
+        difficulty,
+        language,
+        focus,
+        topic,
+        ...(provider !== undefined ? { provider } : {}),
+      },
       {
         onSuccess: (data) => {
           setSession(data);
@@ -84,16 +90,18 @@ export function ChatWindow() {
 
   // == Auto-start when both URL params are present == //
   // One-shot ref guard prevents StrictMode double-fire and retry loops on error.
+  // Wait for isReady so we never fire with a provisional Anthropic guess.
   const autoStartedRef = useRef(false);
   useEffect(() => {
     if (autoStartedRef.current) return;
     if (session) return;
     if (!initialDifficulty || !initialLanguage) return;
+    if (!isReady) return;
 
     autoStartedRef.current = true;
     handleStart(initialDifficulty, initialLanguage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isReady]);
 
   // == Send Chat Message == //
   function handleSendMessage(message: string, guidanceMode: GuidanceMode = "Guidance") {
@@ -184,6 +192,7 @@ export function ChatWindow() {
             <DifficultySelector
               onSelect={handleStart}
               isLoading={createSession.isPending}
+              isReady={isReady}
               initialLanguage={initialLanguage}
               focus={focus}
               topic={topic}

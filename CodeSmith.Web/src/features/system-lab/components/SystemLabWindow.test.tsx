@@ -10,8 +10,13 @@ import { NavigationProvider } from "../../../contexts/NavigationContext";
 import type { ScenarioResponse, SystemLabSession, AttemptResult } from "../types";
 
 vi.mock("../../../lib/apiClient");
-vi.mock("../../../hooks/useProviderPreference", () => ({
-  useProviderPreference: () => ({ provider: "Anthropic", setProvider: vi.fn() }),
+vi.mock("../../../contexts/ProviderPreferenceContext", () => ({
+  useProviderPreferenceContext: () => ({
+    provider: "Xai",
+    setProvider: vi.fn(),
+    availableProviders: ["Anthropic", "OpenAi", "Xai"],
+    isReady: true,
+  }),
 }));
 
 const mockScenario: ScenarioResponse = {
@@ -104,6 +109,22 @@ describe("SystemLabWindow", () => {
         expect(screen.getByRole("button", { name: "Submit Justification" })).toBeInTheDocument();
       });
     }
+
+    it("sends the selected provider from context, not a hardcoded Anthropic default", async () => {
+      vi.mocked(apiClient.getScenarios).mockResolvedValue([mockScenario]);
+      vi.mocked(apiClient.startSystemLabSession).mockResolvedValue(mockSession);
+
+      renderSystemLabWindow();
+      await waitFor(() => screen.getByText(mockScenario.title));
+      await userEvent.click(screen.getByText(mockScenario.title));
+
+      await waitFor(() => {
+        expect(vi.mocked(apiClient.startSystemLabSession).mock.calls[0]?.[0]).toEqual({
+          scenarioId: "storage-access-01",
+          provider: "Xai",
+        });
+      });
+    });
 
     // The submit control mirrors Prompt Lab's: a full-width button anchored under the
     // scenario info in the right panel, not a compact button in the session badge row.

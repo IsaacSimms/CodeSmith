@@ -1,61 +1,66 @@
 // == App Layout == //
 import { Link, Outlet } from "react-router-dom";
 import { useNavigationContext } from "../contexts/NavigationContext";
+import { ProviderPreferenceProvider } from "../contexts/ProviderPreferenceContext";
 import { AuthControls } from "../auth/AuthControls";
 import { isMsalConfigured } from "../auth/msalConfig";
+import { AccountDataPrefetch } from "../features/account/hooks/useAccountDataPrefetch";
 
 export function Layout() {
   const { resetAll } = useNavigationContext();
 
   return (
-    <div className="flex h-screen flex-col bg-gray-950">
-      {/* == Top Nav == */}
-      <nav className="flex items-center gap-6 border-b border-gray-700 px-6 py-3">
-        <Link
-          to="/home"
-          onClick={resetAll}
-          className="text-lg font-bold text-white transition-colors hover:text-accent"
-        >
-          CodeSmith
-        </Link>
-        <Link
-          to="/pairedprogrammer"
-          onClick={resetAll}
-          className="text-sm text-gray-400 transition-colors hover:text-white"
-        >
-          Paired Programmer
-        </Link>
-        <Link
-          to="/prompt-lab"
-          onClick={resetAll}
-          className="text-sm text-gray-400 transition-colors hover:text-white"
-        >
-          Prompt Lab
-        </Link>
-        <Link
-          to="/system-lab"
-          onClick={resetAll}
-          className="text-sm text-gray-400 transition-colors hover:text-white"
-        >
-          System Lab
-        </Link>
-        {/* Dev-only: AuthControls is null without MSAL, so /account would be unreachable */}
-        {!isMsalConfigured() && (
+    <ProviderPreferenceProvider>
+      <AccountDataPrefetch />
+      <div className="flex h-screen flex-col bg-gray-950">
+        {/* == Top Nav == */}
+        <nav className="flex items-center gap-6 border-b border-gray-700 px-6 py-3">
           <Link
-            to="/account"
+            to="/home"
             onClick={resetAll}
-            className="ml-auto text-sm text-gray-400 transition-colors hover:text-white"
+            className="text-lg font-bold text-white transition-colors hover:text-accent"
           >
-            Account
+            CodeSmith
           </Link>
-        )}
-        <AuthControls />
-      </nav>
+          <Link
+            to="/pairedprogrammer"
+            onClick={resetAll}
+            className="text-sm text-gray-400 transition-colors hover:text-white"
+          >
+            Paired Programmer
+          </Link>
+          <Link
+            to="/prompt-lab"
+            onClick={resetAll}
+            className="text-sm text-gray-400 transition-colors hover:text-white"
+          >
+            Prompt Lab
+          </Link>
+          <Link
+            to="/system-lab"
+            onClick={resetAll}
+            className="text-sm text-gray-400 transition-colors hover:text-white"
+          >
+            System Lab
+          </Link>
+          {/* Dev-only: AuthControls is null without MSAL, so /account would be unreachable */}
+          {!isMsalConfigured() && (
+            <Link
+              to="/account"
+              onClick={resetAll}
+              className="ml-auto text-sm text-gray-400 transition-colors hover:text-white"
+            >
+              Account
+            </Link>
+          )}
+          <AuthControls />
+        </nav>
 
-      {/* == Route Content == */}
-      <main className="flex-1 overflow-hidden">
-        <Outlet />
-      </main>
-    </div>
+        {/* == Route Content == */}
+        <main className="flex-1 overflow-hidden">
+          <Outlet />
+        </main>
+      </div>
+    </ProviderPreferenceProvider>
   );
 }

@@ -12,7 +12,8 @@ public interface ILlmPricing
     // Raw provider cost (what we pay the provider). Recorded as ProviderCostUsd; basis for margin reporting.
     decimal ComputeCostUsd(AiProvider provider, string model, int inputTokens, int outputTokens);
 
-    // Customer-facing charge = raw cost × markup. This is what's debited from PaidCreditsBalance and recorded as CostUsd.
+    // Customer-facing notional charge = raw cost × markup. SettleAsync prorates this by the paid-token
+    // fraction into the actual debit (CostUsd / PaidCreditsBalance); free coverage yields $0.
     decimal ComputeChargeUsd(AiProvider provider, string model, int inputTokens, int outputTokens);
 
     // Conservative upper bound on the customer charge for the pre-call gate (highest rate × markup — no per-model resolution before call)

@@ -22,9 +22,11 @@ public class UsageLedgerEntry
 
     public int OutputTokens { get; set; }
 
-    public decimal CostUsd { get; set; }                   // Spend: charged amount debited. TopUp: credited amount added.
+    public decimal CostUsd { get; set; }                   // Spend: amount actually debited from PaidCreditsBalance ($0 when free-covered). TopUp: amount credited.
 
     public decimal? ProviderCostUsd { get; set; }          // Raw provider cost (what we pay the provider); nullable for rows written before this column existed
+
+    public int? FreeTokensCovered { get; set; }            // Free tokens applied on this Spend; null = written before this column existed (same convention as ProviderCostUsd)
 
     public string? Feature { get; set; }                   // e.g. "Tutoring:Guidance", "PromptLab:Evaluate" (simple string per decision)
 

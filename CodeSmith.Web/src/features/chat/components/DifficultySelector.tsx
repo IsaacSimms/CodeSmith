@@ -12,6 +12,7 @@ import {
 interface DifficultySelectorProps {
   onSelect: (difficulty: Difficulty, language: Language) => void;
   isLoading: boolean;
+  isReady?: boolean; // provider preference resolved; default true for isolated unit tests
   initialLanguage?: Language;
   // Focus and Topic are controlled by ChatWindow so a pick survives "generate new problem" and the
   // in-app nav reset; only a page reload returns them to Random.
@@ -38,6 +39,7 @@ const selectClasses =
 export function DifficultySelector({
   onSelect,
   isLoading,
+  isReady = true,
   initialLanguage,
   focus,
   topic,
@@ -45,6 +47,7 @@ export function DifficultySelector({
   onTopicChange,
 }: DifficultySelectorProps) {
   const [language, setLanguage] = useState<Language>(initialLanguage ?? DEFAULT_LANGUAGE);
+  const gated = !isReady;
 
   return (
     <div className="flex flex-col items-center gap-6 p-8">
@@ -62,7 +65,7 @@ export function DifficultySelector({
               role="radio"
               aria-checked={isSelected}
               onClick={() => setLanguage(lang)}
-              disabled={isLoading}
+              disabled={isLoading || gated}
               className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 ${
                 isSelected
                   ? "border-accent bg-accent text-white"
@@ -84,7 +87,7 @@ export function DifficultySelector({
           id="problem-focus"
           value={focus}
           onChange={(e) => onFocusChange(e.target.value as ProblemFocus)}
-          disabled={isLoading}
+          disabled={isLoading || gated}
           className={selectClasses}
         >
           {problemFocuses.map((f) => (
@@ -114,7 +117,7 @@ export function DifficultySelector({
               id="problem-topic"
               value={topic}
               onChange={(e) => onTopicChange(e.target.value as ProblemTopic)}
-              disabled={isLoading}
+              disabled={isLoading || gated}
               className={selectClasses}
             >
               {problemTopics.map((t) => (
@@ -127,18 +130,29 @@ export function DifficultySelector({
         </div>
       </details>
 
-      {/* == Difficulty Buttons == */}
+      {/* == Difficulty Buttons (Start controls) == */}
+      {/* Labeled gate: never an inert disabled button while provider preference resolves */}
       <div className="flex gap-4">
-        {difficulties.map((d) => (
+        {gated ? (
           <button
-            key={d}
-            onClick={() => onSelect(d, language)}
-            disabled={isLoading}
-            className={`rounded-lg px-6 py-3 font-semibold text-white transition-colors disabled:opacity-50 ${difficultyColors[d]}`}
+            type="button"
+            disabled
+            className="rounded-lg bg-gray-700 px-6 py-3 font-semibold text-gray-300"
           >
-            {d}
+            Starting up…
           </button>
-        ))}
+        ) : (
+          difficulties.map((d) => (
+            <button
+              key={d}
+              onClick={() => onSelect(d, language)}
+              disabled={isLoading}
+              className={`rounded-lg px-6 py-3 font-semibold text-white transition-colors disabled:opacity-50 ${difficultyColors[d]}`}
+            >
+              {d}
+            </button>
+          ))
+        )}
       </div>
 
       {isLoading && <p className="text-gray-400">Generating problem...</p>}

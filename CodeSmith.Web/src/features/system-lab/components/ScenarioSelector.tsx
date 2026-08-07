@@ -6,10 +6,17 @@ interface ScenarioSelectorProps {
   scenarios: ScenarioResponse[];
   isLoading: boolean;
   isStarting: boolean;
+  isReady?: boolean; // provider preference resolved; default true for isolated unit tests
   onSelect: (scenarioId: string) => void;
 }
 
-export function ScenarioSelector({ scenarios, isLoading, isStarting, onSelect }: ScenarioSelectorProps) {
+export function ScenarioSelector({
+  scenarios,
+  isLoading,
+  isStarting,
+  isReady = true,
+  onSelect,
+}: ScenarioSelectorProps) {
   const categories = Object.keys(categoryLabels) as SystemLabCategory[];
   const byCategory = categories.reduce<Record<SystemLabCategory, ScenarioResponse[]>>(
     (acc, cat) => {
@@ -21,6 +28,29 @@ export function ScenarioSelector({ scenarios, isLoading, isStarting, onSelect }:
 
   if (isLoading) {
     return <p className="text-center text-gray-500">Loading scenarios…</p>;
+  }
+
+  // Labeled gate while provider preference resolves — never an inert disabled list
+  if (!isReady) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-xl font-bold text-white">System Lab</h1>
+          <p className="mt-1 text-sm text-gray-400">
+            Practice infrastructure and platform engineering judgment. Write a prose justification for each scenario; an AI evaluator scores your reasoning.
+          </p>
+        </div>
+        <div className="flex justify-center">
+          <button
+            type="button"
+            disabled
+            className="rounded-lg bg-gray-700 px-6 py-3 text-sm font-semibold text-gray-300"
+          >
+            Starting up…
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

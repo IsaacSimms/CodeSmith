@@ -85,10 +85,17 @@ Stripe completion webhook — **anonymous, signature-verified, raw body** (no mo
 Returns the caller's paid credits: `{ "paidCreditsUsd": <decimal> }`.
 
 #### GET /api/billing/ledger?take=20 🔐 `[Authorize]`
-Returns the caller's recent ledger rows (top-ups and spends). DTO omits `ProviderCostUsd` (margin) and `RowVersion`.
+Returns the caller's recent ledger rows (top-ups and spends). DTO includes `isFreeCovered`; omits `ProviderCostUsd` (margin), token counts, and `RowVersion`.
 
 #### GET /api/billing/packs 🔐 `[Authorize]`
 Returns the allow-listed credit packs from Stripe Price objects (Product name + amount + currency), in `StripeOptions.PriceIds` order. Bare JSON array: `[{ "priceId", "name", "amount", "currency" }]`. Successful lists are cached 5 minutes in-memory per process (load reduction only — failures are never cached). Unusable allow-list entries (missing, inactive, non-USD, blank Product name) are skipped; all unusable → `200 []`. Stripe unreachable → **502** so the purchase section can fail independently of balance/ledger/quota.
+
+### Usage (free-quota read)
+
+Lives outside billing so **billing never references `IUsageEnforcer`**. Backed by `IUsageEnforcer.GetQuotaAsync` (same free-headroom rule as reserve).
+
+#### GET /api/usage/quota 🔐 `[Authorize]`
+Returns the caller's free-token grant snapshot: `{ "freeTokensUsed": long, "freeQuotaMax": long, "ipConstraint": "None" | "Limited" | "Exhausted" }`. No timestamps. Missing `CreditBalance` row → used `0` and max from `Usage:FreeTokenQuota` (no row created). Lock-free; may include in-flight reserve holds. Never `[MeteredAi]` — reading quota must not cost quota. Errors: **401**.
 
 ## Dev Commands
 

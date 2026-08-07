@@ -1,7 +1,7 @@
 ---
 id: 008
 title: Add account data hooks, prefetch, and turn-settle invalidation
-status: todo
+status: done
 implements: [002, 003, 007, 008]
 depends_on: [002, 003, 004]
 ---

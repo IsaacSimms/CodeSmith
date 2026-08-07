@@ -1,7 +1,7 @@
 ---
 id: 013
 title: Build the post-checkout flow and delete BillingResultPage
-status: todo
+status: done
 implements: [005, 006]
 depends_on: [010]
 ---

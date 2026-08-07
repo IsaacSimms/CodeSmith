@@ -7,7 +7,16 @@ import {
   isMsalConfigured,
 } from "../../../auth/msalConfig";
 import { resolveAccountLabel } from "../../../auth/resolveAccountLabel";
+import {
+  usePostCheckoutFlow,
+  type PostCheckoutBanner,
+} from "../hooks/usePostCheckoutFlow";
+import { AccountActions } from "./AccountActions";
 import { AccountSection } from "./AccountSection";
+import { AccountWalletRow } from "./AccountWalletRow";
+import { CreditsCard } from "./CreditsCard";
+import { ProviderPicker } from "./ProviderPicker";
+import { TransactionHistorySection } from "./TransactionHistorySection";
 
 /// Own scroller (Layout main is overflow-hidden). Identity + section slots; data cards fill later.
 export function AccountPage() {
@@ -38,6 +47,8 @@ function AccountPageWithAuth() {
 
 // == Authenticated (or MSAL-off) layout: identity → banner → wallet → history → prefs → account == //
 function AccountShell({ identityLabel }: { identityLabel: string }) {
+  const { banner, dismissBanner } = usePostCheckoutFlow();
+
   return (
     <AccountScroller>
       <header data-testid="account-identity-header" className="mb-8">
@@ -45,34 +56,57 @@ function AccountShell({ identityLabel }: { identityLabel: string }) {
         <h1 className="truncate text-2xl font-semibold text-white">{identityLabel}</h1>
       </header>
 
-      {/* Post-checkout banner slot (work 013); reserves no height when empty */}
-      <div data-testid="account-banner-slot" />
-
-      {/* Wallet row: credits + free quota side by side (work 010 / 011 fill bodies) */}
-      <div
-        data-testid="account-wallet-row"
-        className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2"
-      >
-        <AccountSection title="Credits" anchorId="credits" isLoading={false} error={null}>
-          {null}
-        </AccountSection>
-        <AccountSection title="Free tokens" anchorId="free-quota" isLoading={false} error={null}>
-          {null}
-        </AccountSection>
+      {/* Transient: reserves no height when empty; does not block the rest of Account */}
+      <div data-testid="account-banner-slot">
+        {banner ? (
+          <PostCheckoutBannerView banner={banner} onDismiss={dismissBanner} />
+        ) : null}
       </div>
 
+      {/* Wallet row: credits + free quota; collapses to full-width credits when grant spent */}
+      <AccountWalletRow credits={<CreditsCard />} />
+
       <div className="flex flex-col gap-6">
-        <AccountSection title="History" anchorId="history" isLoading={false} error={null}>
-          {null}
-        </AccountSection>
+        <TransactionHistorySection />
         <AccountSection title="Preferences" anchorId="preferences" isLoading={false} error={null}>
-          {null}
+          <ProviderPicker />
         </AccountSection>
         <AccountSection title="Account" anchorId="account" isLoading={false} error={null}>
-          {null}
+          <AccountActions />
         </AccountSection>
       </div>
     </AccountScroller>
+  );
+}
+
+// == Inline post-checkout status (applying / added / give-up / cancel) == //
+function PostCheckoutBannerView({
+  banner,
+  onDismiss,
+}: {
+  banner: PostCheckoutBanner;
+  onDismiss: () => void;
+}) {
+  const dismissible = banner.kind === "giveUp" || banner.kind === "canceled";
+
+  return (
+    <div
+      data-testid="account-post-checkout-banner"
+      data-banner-kind={banner.kind}
+      role="status"
+      className="mb-6 flex items-start justify-between gap-3 rounded-lg border border-gray-700 bg-gray-900/80 px-4 py-3 text-sm text-gray-200"
+    >
+      <p>{banner.message}</p>
+      {dismissible ? (
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="shrink-0 text-gray-400 underline-offset-2 hover:text-white hover:underline"
+        >
+          Dismiss
+        </button>
+      ) : null}
+    </div>
   );
 }
 

@@ -10,9 +10,10 @@ using Microsoft.Extensions.Options;
 namespace CodeSmith.Infrastructure.Services.Usage;
 
 /// <summary>
-/// Enforces the one-time free token grant and paid credit limits as a reserve → settle / release
-/// lifecycle. The grant never expires, so no wall-clock value gates it: free headroom is always
-/// <c>FreeQuotaMax − FreeTokensUsed</c>, min'd with the per-IP cap.
+/// Enforces the one-time free token grant and paid credit limits. Spend is a reserve → settle /
+/// release lifecycle; free-quota display is a lock-free <see cref="GetQuotaAsync"/> read on the same
+/// inputs the gate uses. The grant never expires, so no wall-clock value gates it: free headroom is
+/// always <c>FreeQuotaMax − FreeTokensUsed</c>, min'd with the per-IP cap.
 /// <see cref="ReserveAsync"/> holds an upper-bound estimate against that free headroom, the
 /// per-IP aggregate, and paid credits — and *persists* that hold before releasing the lock. Because the
 /// hold is written, concurrent completions for the same user (the Prompt Lab parallel simulate/evaluate
@@ -183,9 +184,14 @@ public class UsageEnforcer : IUsageEnforcer
             if (freeUsedThisCall > 0)
                 balance.FreeTokensUsed += freeUsedThisCall;
 
+            // One prorated local for both the balance debit and the ledger CostUsd so sums reconcile
+            // against PaidCreditsBalance. $0 when free tokens fully covered the call.
             var paidTokens = actualTokens - freeUsedThisCall;
-            if (paidTokens > 0 && actualTokens > 0)
-                balance.PaidCreditsBalance -= chargeUsd * paidTokens / actualTokens;
+            var debitedUsd = paidTokens > 0 && actualTokens > 0
+                ? chargeUsd * paidTokens / actualTokens
+                : 0m;
+            if (debitedUsd > 0)
+                balance.PaidCreditsBalance -= debitedUsd;
 
             var entry = new UsageLedgerEntry
             {
@@ -194,8 +200,9 @@ public class UsageEnforcer : IUsageEnforcer
                 Model = model,
                 InputTokens = actualInput,
                 OutputTokens = actualOutput,
-                CostUsd = chargeUsd,              // amount charged to the customer
-                ProviderCostUsd = providerCostUsd, // raw provider cost (margin = CostUsd - ProviderCostUsd)
+                CostUsd = debitedUsd,                        // amount actually debited (not notional charge)
+                ProviderCostUsd = providerCostUsd,           // raw provider cost (margin = CostUsd - ProviderCostUsd when paid)
+                FreeTokensCovered = (int)freeUsedThisCall,   // free portion kept auditable once CostUsd is the debit
                 Feature = feature,
                 TimestampUtc = DateTime.UtcNow
             };
@@ -206,8 +213,8 @@ public class UsageEnforcer : IUsageEnforcer
             await _store.PersistAsync(balance, normalizedIp, ipIssuedDelta: netIp, ledgerEntry: entry, ct);
 
             _logger.LogInformation(
-                "Settled usage for {ObjectId}: {In}+{Out} tokens, charge {Charge} (cost {Cost}) via {Provider}/{Model} (free:{Free})",
-                objectId, actualInput, actualOutput, chargeUsd, providerCostUsd, reservation.Provider, model, freeUsedThisCall);
+                "Settled usage for {ObjectId}: {In}+{Out} tokens, debited {Debited} (notional {Charge}, cost {Cost}) via {Provider}/{Model} (free:{Free})",
+                objectId, actualInput, actualOutput, debitedUsd, chargeUsd, providerCostUsd, reservation.Provider, model, freeUsedThisCall);
         }
         finally
         {
@@ -254,6 +261,47 @@ public class UsageEnforcer : IUsageEnforcer
             ipGate?.Release();
             objectGate.Release();
         }
+    }
+
+    // == GetQuotaAsync == //
+
+    public async Task<QuotaSnapshot> GetQuotaAsync(string objectId, string? clientIp, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(objectId))
+            throw new InvalidOperationException("objectId is required for usage enforcement.");
+
+        // Lock-free by design: reports persisted state (including in-flight holds). Never creates a row.
+        var snapshot = await _store.GetSnapshotAsync(objectId, Normalize(clientIp), ct);
+
+        long freeTokensUsed;
+        long freeQuotaMax;
+        if (snapshot.Balance is null)
+        {
+            freeTokensUsed = 0;
+            freeQuotaMax = _options.FreeTokenQuota;
+        }
+        else
+        {
+            freeTokensUsed = snapshot.Balance.FreeTokensUsed;
+            freeQuotaMax = snapshot.Balance.FreeQuotaMax;
+        }
+
+        var objectFreeRem = freeQuotaMax - freeTokensUsed;
+        var ipRem = IpFreeTokenCap - snapshot.IpFreeTokensIssued;
+        var ipConstraint = ClassifyIpConstraint(objectFreeRem, ipRem);
+
+        return new QuotaSnapshot(freeTokensUsed, freeQuotaMax, ipConstraint);
+    }
+
+    // IP headroom as a three-state enum using the same min-rule inputs as ComputeFreeCover —
+    // object free rem and IP rem — without exposing raw IP remaining on the wire.
+    private static IpConstraint ClassifyIpConstraint(long objectFreeRem, long ipRem)
+    {
+        if (ipRem <= 0)
+            return IpConstraint.Exhausted;
+        if (ipRem < objectFreeRem)
+            return IpConstraint.Limited;
+        return IpConstraint.None;
     }
 
     // == Balance helpers == //

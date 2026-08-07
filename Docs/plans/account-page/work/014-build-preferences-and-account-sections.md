@@ -1,7 +1,7 @@
 ---
 id: 014
 title: Build the Preferences and Account sections and relocate the provider picker
-status: todo
+status: done
 implements: [004, 005]
 depends_on: [006, 007]
 ---

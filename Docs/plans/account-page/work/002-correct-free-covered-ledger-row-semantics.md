@@ -1,7 +1,7 @@
 ---
 id: 002
 title: Correct free-covered ledger row semantics
-status: todo
+status: done
 implements: [008]
 depends_on: [001]
 ---

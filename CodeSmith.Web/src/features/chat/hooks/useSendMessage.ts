@@ -1,7 +1,8 @@
 // == Send Message Hook == //
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { streamChat } from "../../../lib/apiClient";
 import { useStreamingText } from "../../../hooks/useStreamingText";
+import { invalidateAccountUsageQueries } from "../../account/hooks/invalidateAccountUsageQueries";
 import type { ChatResponse, GuidanceMode } from "../types";
 
 interface SendMessageVariables {
@@ -15,6 +16,7 @@ interface SendMessageVariables {
 /// mutation still resolves with the final ChatResponse — isPending / data / error semantics are
 /// unchanged from the blocking version. getStreamedText() snapshots the partial for failure UI.
 export function useSendMessage() {
+  const queryClient = useQueryClient();
   const { text: streamingText, append, reset, getText } = useStreamingText();
 
   const mutation = useMutation<ChatResponse, Error, SendMessageVariables>({
@@ -22,6 +24,7 @@ export function useSendMessage() {
       reset();
       return streamChat(sessionId, { message, editorContent, guidanceMode }, { onDelta: append });
     },
+    onSuccess: () => invalidateAccountUsageQueries(queryClient),
   });
 
   return { ...mutation, streamingText, getStreamedText: getText };

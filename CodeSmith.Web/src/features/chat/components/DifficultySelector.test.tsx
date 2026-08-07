@@ -52,6 +52,28 @@ describe("DifficultySelector", () => {
     expect(screen.getByRole("button", { name: "Hard" })).toBeInTheDocument();
   });
 
+  it("renders a labeled Starting up… control while provider preference is not ready", () => {
+    function Harness() {
+      const [focus, setFocus] = useState<ProblemFocus>("Random");
+      const [topic, setTopic] = useState<ProblemTopic>("Random");
+      return (
+        <DifficultySelector
+          onSelect={vi.fn()}
+          isLoading={false}
+          isReady={false}
+          focus={focus}
+          topic={topic}
+          onFocusChange={setFocus}
+          onTopicChange={setTopic}
+        />
+      );
+    }
+    render(<Harness />);
+
+    expect(screen.getByRole("button", { name: "Starting up…" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Easy" })).not.toBeInTheDocument();
+  });
+
   it("renders the title and subtitle", () => {
     renderSelector();
 

@@ -5,6 +5,11 @@ import {
   sendMessage,
   streamChat,
   streamCreateSession,
+  getQuota,
+  getBalance,
+  getLedger,
+  getPacks,
+  createCheckout,
   ApiClientError,
   setAccessTokenProvider,
   resolveApiUrl,
@@ -363,5 +368,75 @@ describe("streamCreateSession", () => {
     expect(fetch).toHaveBeenCalledWith("/api/session/stream", expect.objectContaining({ method: "POST" }));
     expect(events).toEqual(["delta:half a prob", "reset", "delta:Whole problem"]);
     expect(result).toMatchObject({ sessionId: "abc-123" });
+  });
+});
+
+// == Account / usage reads == //
+
+describe("getQuota", () => {
+  it("GETs /api/usage/quota and returns freeTokensUsed, freeQuotaMax, ipConstraint", async () => {
+    const body = { freeTokensUsed: 1200, freeQuotaMax: 20000, ipConstraint: "Limited" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(body) }));
+
+    const result = await getQuota();
+
+    expect(fetch).toHaveBeenCalledWith("/api/usage/quota", expect.objectContaining({ method: "GET" }));
+    expect(result).toEqual(body);
+  });
+});
+
+describe("getBalance", () => {
+  it("GETs /api/billing/balance and returns paidCreditsUsd", async () => {
+    const body = { paidCreditsUsd: 12.4 };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(body) }));
+
+    const result = await getBalance();
+
+    expect(fetch).toHaveBeenCalledWith("/api/billing/balance", expect.objectContaining({ method: "GET" }));
+    expect(result).toEqual(body);
+  });
+});
+
+describe("getLedger", () => {
+  it("GETs /api/billing/ledger with take and returns isFreeCovered rows", async () => {
+    const body = [
+      { type: "Spend", amountUsd: 0, isFreeCovered: true, feature: "Tutoring:Guidance", timestampUtc: "2026-08-01T00:00:00Z" },
+    ];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(body) }));
+
+    const result = await getLedger(20);
+
+    expect(fetch).toHaveBeenCalledWith("/api/billing/ledger?take=20", expect.objectContaining({ method: "GET" }));
+    expect(result).toEqual(body);
+  });
+});
+
+describe("getPacks", () => {
+  it("GETs /api/billing/packs and returns a bare array", async () => {
+    const body = [{ priceId: "price_1", name: "Starter", amount: 10, currency: "usd" }];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(body) }));
+
+    const result = await getPacks();
+
+    expect(fetch).toHaveBeenCalledWith("/api/billing/packs", expect.objectContaining({ method: "GET" }));
+    expect(result).toEqual(body);
+  });
+});
+
+describe("createCheckout", () => {
+  it("POSTs /api/billing/checkout with priceId and returns the hosted URL", async () => {
+    const body = { url: "https://checkout.stripe.com/c/pay/cs_test" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(body) }));
+
+    const result = await createCheckout("price_pro");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/billing/checkout",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ priceId: "price_pro" }),
+      })
+    );
+    expect(result).toEqual(body);
   });
 });

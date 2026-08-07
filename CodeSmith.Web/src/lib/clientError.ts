@@ -2,22 +2,30 @@
 
 export type ClientFailureKind = "paywall" | "login" | "notFound" | "ai" | "generic";
 
+export interface ClientFailureAction {
+  label: string;
+  href: string;
+}
+
 export interface ClientFailure {
   kind: ClientFailureKind;
   title: string;
   detail: string;
+  action?: ClientFailureAction; // Optional CTA — interpretError sets for paywall / login
 }
 
 // Fixed SPA copy — product wording, not raw ProblemDetails.detail.
-const COPY: Record<ClientFailureKind, { title: string; detail: string }> = {
+const COPY: Record<ClientFailureKind, { title: string; detail: string; action?: ClientFailureAction }> = {
   paywall: {
     title: "Out of free quota and credits",
     detail:
       "You don't have enough remaining free usage or purchased credits for this request.",
+    action: { label: "Add credits", href: "/account#credits" },
   },
   login: {
     title: "Sign in required",
     detail: "Sign in with an account to use AI features.",
+    action: { label: "Sign in", href: "/account" },
   },
   notFound: {
     title: "Not found",
@@ -60,14 +68,20 @@ export function interpretError(error: unknown): ClientFailure {
       const detail = error.message?.trim() || COPY.generic.detail;
       return { kind, title: COPY.generic.title, detail };
     }
-    return { kind, title: COPY[kind].title, detail: COPY[kind].detail };
+    const copy = COPY[kind];
+    return {
+      kind,
+      title: copy.title,
+      detail: copy.detail,
+      ...(copy.action ? { action: copy.action } : {}),
+    };
   }
 
   if (error instanceof Error && error.message.trim()) {
     return { kind: "generic", title: COPY.generic.title, detail: error.message };
   }
 
-  return { ...COPY.generic, kind: "generic" };
+  return { kind: "generic", title: COPY.generic.title, detail: COPY.generic.detail };
 }
 
 function kindFromStatus(

@@ -1,4 +1,5 @@
 // == Token Usage Bar Component == //
+import { UsageBar } from "./UsageBar";
 
 interface TokenUsageBarProps {
   tokensUsed: number;
@@ -8,8 +9,7 @@ interface TokenUsageBarProps {
 }
 
 export function TokenUsageBar({ tokensUsed, contextWindowSize, label, description }: TokenUsageBarProps) {
-  const pct     = Math.min((tokensUsed / contextWindowSize) * 100, 100);
-  const display = Math.max(pct, 0.3); // Minimum visual fill so the bar is never invisible
+  const pct = Math.min((tokensUsed / contextWindowSize) * 100, 100);
 
   const barColor =
     pct >= 80 ? "bg-red-500" :
@@ -32,13 +32,8 @@ export function TokenUsageBar({ tokensUsed, contextWindowSize, label, descriptio
           <p className="text-xs text-gray-300">{description}</p>
         </div>
 
-        {/* == Fill Bar == */}
-        <div className="h-1 w-full overflow-hidden rounded-full bg-gray-700">
-          <div
-            className={`h-full rounded-full transition-all duration-500 ${barColor}`}
-            style={{ width: `${display}%` }}
-          />
-        </div>
+        {/* == Fill Bar (shared primitive) == */}
+        <UsageBar used={tokensUsed} max={contextWindowSize} fillClassName={barColor} />
 
       </div>
     </div>

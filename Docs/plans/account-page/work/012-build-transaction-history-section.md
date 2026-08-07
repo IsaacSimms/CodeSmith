@@ -1,7 +1,7 @@
 ---
 id: 012
 title: Build the transaction history section
-status: todo
+status: done
 implements: [005, 008]
 depends_on: [007, 008]
 ---

@@ -1,7 +1,7 @@
 ---
 id: 009
 title: Convert AuthControls to a dropdown with a balance summary
-status: todo
+status: done
 implements: [007]
 depends_on: [007, 008]
 ---

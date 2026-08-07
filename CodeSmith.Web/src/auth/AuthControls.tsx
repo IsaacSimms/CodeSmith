@@ -1,8 +1,26 @@
-// == Nav auth controls (Sign in chooser / Sign out) == //
-import { useEffect, useRef, useState } from "react";
+// == Nav auth controls (Sign in chooser / authenticated balance dropdown) == //
+import {
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type RefObject,
+  type SetStateAction,
+} from "react";
+import { Link } from "react-router-dom";
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
+import type { UseQueryResult } from "@tanstack/react-query";
 import { buildGoogleLoginRequest, buildLoginRequest, isMsalConfigured } from "./msalConfig";
 import { resolveAccountLabel } from "./resolveAccountLabel";
+import { useBalance } from "../features/account/hooks/useBalance";
+import { useQuota } from "../features/account/hooks/useQuota";
+import {
+  formatBalanceUsd,
+  formatTokenCount,
+  freeTokensRemaining,
+} from "../features/account/formatters";
+import type { BalanceResponse, QuotaResponse } from "../features/account/types";
 
 export function AuthControls() {
   if (!isMsalConfigured()) return null;
@@ -15,7 +33,7 @@ function AuthControlsInner() {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // == Dismiss chooser on outside click / Escape == //
+  // == Dismiss chooser / account menu on outside click / Escape == //
   useEffect(() => {
     if (!menuOpen) return;
 
@@ -55,20 +73,14 @@ function AuthControlsInner() {
   };
 
   if (isAuthenticated) {
-    const label = resolveAccountLabel(accounts[0]);
     return (
-      <div className="ml-auto flex items-center gap-3">
-        <span className="hidden max-w-[14rem] truncate text-xs text-gray-400 sm:inline" title={label}>
-          {label}
-        </span>
-        <button
-          type="button"
-          onClick={onSignOut}
-          className="rounded-md border border-gray-600 px-3 py-1.5 text-sm text-gray-200 transition-colors hover:border-gray-400 hover:text-white"
-        >
-          Sign out
-        </button>
-      </div>
+      <AuthenticatedMenu
+        label={resolveAccountLabel(accounts[0])}
+        menuOpen={menuOpen}
+        setMenuOpen={setMenuOpen}
+        menuRef={menuRef}
+        onSignOut={onSignOut}
+      />
     );
   }
 
@@ -112,6 +124,126 @@ function AuthControlsInner() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// == Authenticated nav dropdown: label toggle + balance summary → Account → Sign out == //
+// Hooks stay mounted while authenticated (menu open or closed) so Layout prefetch + turn-settle
+// invalidation keep one shared cache warm — never fetch-on-open (ticket 007 #6/#7).
+function AuthenticatedMenu({
+  label,
+  menuOpen,
+  setMenuOpen,
+  menuRef,
+  onSignOut,
+}: {
+  label: string;
+  menuOpen: boolean;
+  setMenuOpen: Dispatch<SetStateAction<boolean>>;
+  menuRef: RefObject<HTMLDivElement | null>;
+  onSignOut: () => void;
+}) {
+  const quota = useQuota();
+  const balance = useBalance();
+
+  return (
+    <div className="relative ml-auto" ref={menuRef}>
+      <button
+        type="button"
+        onClick={() => setMenuOpen((open) => !open)}
+        aria-expanded={menuOpen}
+        aria-haspopup="menu"
+        title={label}
+        className="max-w-[14rem] truncate rounded-md border border-gray-600 px-3 py-1.5 text-sm text-gray-200 transition-colors hover:border-gray-400 hover:text-white"
+      >
+        {label}
+      </button>
+
+      {menuOpen && (
+        <div
+          role="menu"
+          className="absolute right-0 z-50 mt-2 w-64 rounded-md border border-gray-600 bg-gray-900 py-1 shadow-lg"
+        >
+          <BalanceSummaryRow quota={quota} balance={balance} />
+          <Link
+            to="/account"
+            role="menuitem"
+            onClick={() => setMenuOpen(false)}
+            className="block w-full px-3 py-2 text-left text-sm text-gray-100 transition-colors hover:bg-gray-800"
+          >
+            Account
+          </Link>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={onSignOut}
+            className="block w-full px-3 py-2 text-left text-sm text-gray-100 transition-colors hover:bg-gray-800"
+          >
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// == Passive balance summary: free remaining while grant has headroom, paid USD after == //
+// IP constraint never appears here (ticket 007 #4). Error → omit row; loading → muted slot.
+function BalanceSummaryRow({
+  quota,
+  balance,
+}: {
+  quota: UseQueryResult<QuotaResponse, Error>;
+  balance: UseQueryResult<BalanceResponse, Error>;
+}) {
+  if (quota.isError) return null;
+
+  // Mode unknown until quota succeeds — stable muted slot, never invent a figure.
+  if (quota.isPending || quota.isLoading || !quota.data) {
+    return <PassiveSummarySlot muted>—</PassiveSummarySlot>;
+  }
+
+  const { freeTokensUsed, freeQuotaMax } = quota.data;
+  const freeActive = freeTokensUsed < freeQuotaMax;
+
+  if (freeActive) {
+    const remaining = freeTokensRemaining(freeTokensUsed, freeQuotaMax);
+    return (
+      <PassiveSummarySlot>
+        {formatTokenCount(remaining)} free tokens
+      </PassiveSummarySlot>
+    );
+  }
+
+  // Paid mode: balance backs the active figure.
+  if (balance.isError) return null;
+  if (balance.isPending || balance.isLoading || !balance.data) {
+    return <PassiveSummarySlot muted>—</PassiveSummarySlot>;
+  }
+
+  return (
+    <PassiveSummarySlot>
+      {formatBalanceUsd(balance.data.paidCreditsUsd)} credits
+    </PassiveSummarySlot>
+  );
+}
+
+// Passive text — not a menuitem, not a link, not focusable navigation (ticket 007 #5).
+function PassiveSummarySlot({
+  children,
+  muted = false,
+}: {
+  children: ReactNode;
+  muted?: boolean;
+}) {
+  return (
+    <div
+      data-testid="balance-summary"
+      className={`select-none px-3 py-2 text-sm ${muted ? "text-gray-500" : "text-gray-300"}`}
+      aria-live="polite"
+    >
+      {children}
     </div>
   );
 }

@@ -132,7 +132,7 @@ export interface ProblemSession {
 export interface CreateSessionRequest {
   difficulty: Difficulty;
   language: Language;
-  provider: AiProvider;
+  provider?: AiProvider; // omit → server applies ActiveProvider (bounded fallback path)
   focus: ProblemFocus;   // "Random" lets the server roll one
   topic: ProblemTopic;   // "Random" lets the server roll one
 }

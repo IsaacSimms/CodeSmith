@@ -1,7 +1,7 @@
 // == Prompt Lab Window Component == //
 import { useEffect, useState } from "react";
 import { useNavigationContext } from "../../../contexts/NavigationContext";
-import { useProviderPreference } from "../../../hooks/useProviderPreference";
+import { useProviderPreferenceContext } from "../../../contexts/ProviderPreferenceContext";
 import { interpretError } from "../../../lib/clientError";
 import { FailureNotice } from "../../shared/FailureNotice";
 import type { ChallengeResponse, AttemptResult, PromptLabSession, PromptLabChatMessage } from "../types";
@@ -32,7 +32,7 @@ export function PromptLabWindow() {
   const startChallenge = useStartChallenge();
   const submitAttempt  = useSubmitAttempt();
   const sendChat       = usePromptLabChat();
-  const { provider } = useProviderPreference();
+  const { provider, isReady } = useProviderPreferenceContext();
   const { registerReset, unregisterReset } = useNavigationContext();
 
   const { leftPercent, dividerProps, containerRef } = useResizableSplit(75);
@@ -92,7 +92,10 @@ export function PromptLabWindow() {
     if (!found) return;
 
     startChallenge.mutate(
-      { challengeId, provider },
+      {
+        challengeId,
+        ...(provider !== undefined ? { provider } : {}),
+      },
       {
         onSuccess: (data) => {
           setSession(data);
@@ -173,6 +176,7 @@ export function PromptLabWindow() {
             challenges={getChallenges.data ?? []}
             isLoading={getChallenges.isLoading}
             isStarting={startChallenge.isPending}
+            isReady={isReady}
             onSelect={handleSelectChallenge}
           />
           {getChallenges.isError && getChallenges.error && (

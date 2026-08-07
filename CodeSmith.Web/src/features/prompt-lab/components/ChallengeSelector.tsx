@@ -7,6 +7,7 @@ interface ChallengeSelectorProps {
   challenges: ChallengeResponse[];
   isLoading: boolean;
   isStarting: boolean;
+  isReady?: boolean; // provider preference resolved; default true for isolated unit tests
   onSelect: (challengeId: string) => void;
 }
 
@@ -14,12 +15,36 @@ export function ChallengeSelector({
   challenges,
   isLoading,
   isStarting,
+  isReady = true,
   onSelect,
 }: ChallengeSelectorProps) {
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center">
         <span className="text-sm text-gray-400">Loading challenges…</span>
+      </div>
+    );
+  }
+
+  // Labeled gate while provider preference resolves — never an inert disabled list
+  if (!isReady) {
+    return (
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="border-b border-gray-700 px-5 py-4">
+          <h1 className="text-lg font-bold text-gray-100">Prompt Lab</h1>
+          <p className="mt-1 text-xs text-gray-400">
+            Select a challenge to begin. Craft prompts that work across all test inputs.
+          </p>
+        </div>
+        <div className="flex flex-1 items-center justify-center">
+          <button
+            type="button"
+            disabled
+            className="rounded-lg bg-gray-700 px-6 py-3 text-sm font-semibold text-gray-300"
+          >
+            Starting up…
+          </button>
+        </div>
       </div>
     );
   }

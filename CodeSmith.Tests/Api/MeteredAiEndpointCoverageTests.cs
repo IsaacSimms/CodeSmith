@@ -51,6 +51,7 @@ public class MeteredAiEndpointCoverageTests
         nameof(BillingController.CreateCheckout),
         nameof(BillingController.GetBalance),
         nameof(BillingController.GetLedger),
+        nameof(BillingController.GetPacks),
     };
 
     [Theory]
@@ -58,6 +59,18 @@ public class MeteredAiEndpointCoverageTests
     public void BillingAuthorizedActions_HaveAuthorizeButNotMeteredAi(string methodName)
     {
         var method = typeof(BillingController).GetMethod(methodName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+        Assert.NotNull(method);
+
+        Assert.NotNull(method.GetCustomAttribute<AuthorizeAttribute>());
+        Assert.Null(method.GetCustomAttribute<MeteredAiAttribute>());
+    }
+
+    // == Usage quota is a read — [Authorize] only, never [MeteredAi] == //
+
+    [Fact]
+    public void UsageGetQuota_HasAuthorizeButNotMeteredAi()
+    {
+        var method = typeof(UsageController).GetMethod(nameof(UsageController.GetQuota), BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
         Assert.NotNull(method);
 
         Assert.NotNull(method.GetCustomAttribute<AuthorizeAttribute>());

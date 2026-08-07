@@ -10,8 +10,13 @@ import { NavigationProvider } from "../../../contexts/NavigationContext";
 import type { ChallengeResponse, PromptLabSession, AttemptResult } from "../types";
 
 vi.mock("../../../lib/apiClient");
-vi.mock("../../../hooks/useProviderPreference", () => ({
-  useProviderPreference: () => ({ provider: "Anthropic", setProvider: vi.fn() }),
+vi.mock("../../../contexts/ProviderPreferenceContext", () => ({
+  useProviderPreferenceContext: () => ({
+    provider: "Xai",
+    setProvider: vi.fn(),
+    availableProviders: ["Anthropic", "OpenAi", "Xai"],
+    isReady: true,
+  }),
 }));
 vi.mock("@monaco-editor/react", () => ({ // Monaco doesn't run in jsdom
   default: ({ onChange, value }: { onChange?: (v: string) => void; value?: string }) => (
@@ -136,6 +141,22 @@ describe("PromptLabWindow", () => {
         expect(screen.getByText("Submit Prompt")).toBeInTheDocument();
       });
     }
+
+    it("sends the selected provider from context, not a hardcoded Anthropic default", async () => {
+      vi.mocked(apiClient.getChallenges).mockResolvedValue([mockChallenge]);
+      vi.mocked(apiClient.startPromptLabChallenge).mockResolvedValue(mockSession);
+
+      renderPromptLabWindow();
+      await waitFor(() => screen.getByText("JSON Only"));
+      await userEvent.click(screen.getByText("JSON Only"));
+
+      await waitFor(() => {
+        expect(vi.mocked(apiClient.startPromptLabChallenge).mock.calls[0]?.[0]).toEqual({
+          challengeId: "format-json-01",
+          provider: "Xai",
+        });
+      });
+    });
 
     it("shows the challenge panel with Submit Prompt button", async () => {
       await renderWithSession();

@@ -116,6 +116,7 @@ public class UsageEnforcerTests
         Assert.Equal(98m, store.Current.PaidCreditsBalance); // refund $10 hold, charge actual $2
         var captured = Assert.Single(store.Ledger);
         Assert.Equal(2m, captured.CostUsd);
+        Assert.Equal(0, captured.FreeTokensCovered);       // fully paid path stamps zero free, not null
         Assert.Equal(1m, captured.ProviderCostUsd);
     }
 
@@ -175,6 +176,62 @@ public class UsageEnforcerTests
         Assert.Equal(20_000, store.Current.FreeTokensUsed);
         Assert.Equal(2m, store.Current.PaidCreditsBalance); // 1300/1800 of $18 charge = $13; 15 - 13 = 2
         Assert.Equal(500, store.IpIssued);                  // the free portion reached the IP aggregate
+    }
+
+    // == Free-covered settle writes the amount actually debited, not the notional charge == //
+
+    [Fact]
+    public async Task SettleAsync_FullyFreeCovered_WritesZeroCostAndFreeTokensCovered()
+    {
+        // Full free grant covers the call; paid balance must not move, and CostUsd must not claim
+        // revenue that never arrived (the pre-fix bug stored the undivided chargeUsd).
+        var store = new FakeUsageStore(Balance(freeQuotaMax: 20_000, freeTokensUsed: 0, paid: 10m));
+
+        var enforcer = BuildEnforcer(store, CreatePerTokenPricing());
+
+        await enforcer.SettleAsync(
+            EmptyReservation(),
+            "model",
+            actualInput: 40,
+            actualOutput: 60,
+            chargeUsd: 0.42m,
+            providerCostUsd: 0.21m);
+
+        Assert.Equal(10m, store.Current.PaidCreditsBalance); // nothing debited
+        Assert.Equal(100, store.Current.FreeTokensUsed);
+
+        var entry = Assert.Single(store.Ledger);
+        Assert.Equal(0m, entry.CostUsd);
+        Assert.Equal(100, entry.FreeTokensCovered);
+        Assert.Equal(0.21m, entry.ProviderCostUsd); // raw cost still recorded for margin
+    }
+
+    [Fact]
+    public async Task SettleAsync_PartiallyFreeCovered_WritesProratedDebitAndFreeTokensCovered()
+    {
+        // 500 free remaining of 1800 tokens → free covers 500, paid covers 1300/1800 of $18 = $13.
+        // CostUsd must be that same prorated debit so Spend sums reconcile to PaidCreditsBalance.
+        const decimal startingPaid = 15m;
+        var store = new FakeUsageStore(Balance(freeQuotaMax: 20_000, freeTokensUsed: 19_500, paid: startingPaid));
+
+        var enforcer = BuildEnforcer(store, CreatePerTokenPricing());
+
+        await enforcer.SettleAsync(
+            EmptyReservation(),
+            "model",
+            actualInput: 100,
+            actualOutput: 1700,
+            chargeUsd: 18m,
+            providerCostUsd: 9m);
+
+        var entry = Assert.Single(store.Ledger);
+        Assert.Equal(13m, entry.CostUsd);            // 1300/1800 × $18
+        Assert.Equal(500, entry.FreeTokensCovered);
+
+        var paidDelta = startingPaid - store.Current.PaidCreditsBalance;
+        Assert.Equal(13m, paidDelta);
+        Assert.Equal(entry.CostUsd, paidDelta);      // one computed local: ledger sum == balance debit
+        Assert.Equal(2m, store.Current.PaidCreditsBalance);
     }
 
     // == Reserve gate: coverage boundaries == //
@@ -319,6 +376,63 @@ public class UsageEnforcerTests
         Assert.Equal(300, store.IpIssued); // the free-token grant is still refunded
     }
 
+    // == GetQuotaAsync: lock-free read, never creates a row == //
+
+    [Fact]
+    public async Task GetQuotaAsync_NoBalanceRow_ReturnsZerosAndConfigMax_WithoutCreatingRow()
+    {
+        var store = new FakeUsageStore(seed: null);
+        var enforcer = BuildEnforcer(store, freeQuota: 20_000);
+
+        var quota = await enforcer.GetQuotaAsync(ObjectId, ClientIp);
+
+        Assert.Equal(0, quota.FreeTokensUsed);
+        Assert.Equal(20_000, quota.FreeQuotaMax);
+        Assert.False(store.HasBalance);
+        Assert.Equal(0, store.PersistCallCount);
+    }
+
+    [Fact]
+    public async Task GetQuotaAsync_WithBalanceRow_ReturnsPersistedUsedAndMax()
+    {
+        // FreeQuotaMax is the per-row snapshot, not live config — a config raise must not rewrite history.
+        var store = new FakeUsageStore(Balance(freeQuotaMax: 15_000, freeTokensUsed: 4_200));
+        var enforcer = BuildEnforcer(store, freeQuota: 99_999);
+
+        var quota = await enforcer.GetQuotaAsync(ObjectId, ClientIp);
+
+        Assert.Equal(4_200, quota.FreeTokensUsed);
+        Assert.Equal(15_000, quota.FreeQuotaMax);
+        Assert.Equal(0, store.PersistCallCount);
+    }
+
+    [Theory]
+    [InlineData(0, IpConstraint.None)]           // full IP headroom — not binding
+    [InlineData(59_500, IpConstraint.Limited)]   // 500 IP rem < 20_000 object rem — IP binds, some left
+    [InlineData(60_000, IpConstraint.Exhausted)] // IP aggregate fully spent
+    public async Task GetQuotaAsync_IpHeadroom_MapsToConstraintEnum(long ipIssued, IpConstraint expected)
+    {
+        var store = new FakeUsageStore(Balance(freeQuotaMax: 20_000, freeTokensUsed: 0), ipIssued: ipIssued);
+        var enforcer = BuildEnforcer(store);
+
+        var quota = await enforcer.GetQuotaAsync(ObjectId, ClientIp);
+
+        Assert.Equal(expected, quota.IpConstraint);
+    }
+
+    [Fact]
+    public async Task GetQuotaAsync_NoBalanceRow_StillReportsIpConstraint()
+    {
+        // IP aggregate is independent of whether the caller has a balance row yet.
+        var store = new FakeUsageStore(seed: null, ipIssued: 60_000);
+        var enforcer = BuildEnforcer(store, freeQuota: 20_000);
+
+        var quota = await enforcer.GetQuotaAsync(ObjectId, ClientIp);
+
+        Assert.Equal(IpConstraint.Exhausted, quota.IpConstraint);
+        Assert.False(store.HasBalance);
+    }
+
     // == Fixtures == //
 
     private static CreditBalance Balance(long freeQuotaMax, long freeTokensUsed, decimal paid = 0m)
@@ -369,6 +483,7 @@ public class UsageEnforcerTests
         public CreditBalance Current => _balance!;              // stored state, for assertions
         public bool HasBalance => _balance is not null;
         public long IpIssued => _ipIssued;
+        public int PersistCallCount { get; private set; }
         public List<UsageLedgerEntry> Ledger { get; } = [];
 
         public async Task<UsageSnapshot> GetSnapshotAsync(string objectId, string clientIp, CancellationToken ct = default)
@@ -380,6 +495,7 @@ public class UsageEnforcerTests
         public async Task PersistAsync(CreditBalance? balance, string clientIp, long ipIssuedDelta, UsageLedgerEntry? ledgerEntry = null, CancellationToken ct = default)
         {
             await Task.Yield();
+            PersistCallCount++;
             if (balance is not null)
                 _balance = Clone(balance);
             if (ipIssuedDelta != 0)

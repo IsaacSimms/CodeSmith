@@ -27,6 +27,12 @@ import type {
   SystemLabSession,
   AttemptResult as SystemLabAttemptResult,
 } from "../features/system-lab/types";
+import type {
+  BalanceResponse,
+  LedgerEntryResponse,
+  PackResponse,
+  QuotaResponse,
+} from "../features/account/types";
 
 class ApiClientError extends Error {
   statusCode: number;
@@ -263,6 +269,32 @@ export function sendSystemLabChat(sessionId: string, body: SystemLabChatRequest)
   return request<SystemLabChatResponse>(`/api/system-lab/sessions/${sessionId}/chat`, {
     method: "POST",
     body: JSON.stringify(body),
+  });
+}
+
+// == Account / usage reads (shared cache keys live with the TanStack hooks) == //
+
+export function getQuota(): Promise<QuotaResponse> {
+  return request<QuotaResponse>("/api/usage/quota", { method: "GET" });
+}
+
+export function getBalance(): Promise<BalanceResponse> {
+  return request<BalanceResponse>("/api/billing/balance", { method: "GET" });
+}
+
+export function getLedger(take = 20): Promise<LedgerEntryResponse[]> {
+  return request<LedgerEntryResponse[]>(`/api/billing/ledger?take=${take}`, { method: "GET" });
+}
+
+export function getPacks(): Promise<PackResponse[]> {
+  return request<PackResponse[]>("/api/billing/packs", { method: "GET" });
+}
+
+// Hosted Stripe Checkout URL for an allow-listed priceId (redirect mode).
+export function createCheckout(priceId: string): Promise<{ url: string }> {
+  return request<{ url: string }>("/api/billing/checkout", {
+    method: "POST",
+    body: JSON.stringify({ priceId }),
   });
 }
 

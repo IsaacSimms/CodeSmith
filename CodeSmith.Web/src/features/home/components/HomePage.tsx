@@ -1,27 +1,7 @@
 // == Home Page == //
 import { Link } from "react-router-dom";
-import { useProviders } from "../../chat/hooks/useProviders";
-import { useProviderPreference } from "../../../hooks/useProviderPreference";
-import type { AiProvider } from "../../chat/types";
-
-const providerLabels: Record<AiProvider, string> = {
-  Anthropic: "Anthropic",
-  OpenAi:    "OpenAI",
-  Xai:       "xAI",
-};
-
-// Display order is a UI concern — independent of enum / API list order.
-const providerDisplayOrder: AiProvider[] = ["Anthropic", "Xai", "OpenAi"];
 
 export function HomePage() {
-  const { data: providersData } = useProviders();
-  const { provider, setProvider } = useProviderPreference(providersData?.activeProvider);
-
-  const available = new Set(
-    (providersData?.availableProviders ?? ["Anthropic"]) as AiProvider[]
-  );
-  const availableProviders = providerDisplayOrder.filter((p) => available.has(p));
-
   return (
     <div className="flex h-full flex-col items-center p-6">
       <section className="my-auto w-full max-w-3xl text-center">
@@ -74,31 +54,6 @@ export function HomePage() {
             </Link>
           </div>
         </div>
-
-        {/* == Provider Toggle (only shown when multiple providers available) == */}
-        {availableProviders.length > 1 && (
-          <div className="mt-12 flex flex-col items-center gap-4">
-            <p className="text-sm text-gray-400">AI Provider</p>
-            <div className="flex gap-2">
-              {availableProviders.map((p) => {
-                const isSelected = provider === p;
-                return (
-                  <button
-                    key={p}
-                    onClick={() => setProvider(p)}
-                    className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${
-                      isSelected
-                        ? "border-accent bg-accent/20 text-white"
-                        : "border-gray-600 bg-gray-900 text-gray-300 hover:border-gray-500 hover:bg-gray-800"
-                    }`}
-                  >
-                    {providerLabels[p] ?? p}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </section>
 
       {/* == Solo-maintainer / scale-to-zero note == */}

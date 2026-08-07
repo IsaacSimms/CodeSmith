@@ -93,6 +93,9 @@ namespace CodeSmith.Infrastructure.Migrations
                     b.Property<string>("Feature")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int?>("FreeTokensCovered")
+                        .HasColumnType("int");
+
                     b.Property<int>("InputTokens")
                         .HasColumnType("int");
 

@@ -1,5 +1,6 @@
 // == Billing Controller == //
 using CodeSmith.Api.DTOs.Billing;
+using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -77,7 +78,12 @@ public class BillingController : ControllerBase
         var response = entries.Select(e => new LedgerEntryResponse
         {
             Type = e.Type,
-            AmountUsd = e.CostUsd,     // ProviderCostUsd (margin) is intentionally never projected
+            AmountUsd = e.CostUsd,     // ProviderCostUsd / FreeTokensCovered intentionally never projected
+            // Fully free-covered Spend only; partial and pre-fix (null FreeTokensCovered) stay false.
+            IsFreeCovered = e.Type == LedgerEntryType.Spend
+                && e.FreeTokensCovered is int free
+                && free > 0
+                && free == e.InputTokens + e.OutputTokens,
             Feature = e.Feature,
             TimestampUtc = e.TimestampUtc
         });

@@ -17,6 +17,31 @@ export function formatTokenCount(n: number): string {
   return n.toLocaleString("en-US");
 }
 
+// Account grant remaining. Reservation holds can make used temporarily overshoot max —
+// clamp at 0 so nav/page never render a negative free count (ticket 002 #8 / work 008).
+export function freeTokensRemaining(freeTokensUsed: number, freeQuotaMax: number): number {
+  return Math.max(0, freeQuotaMax - freeTokensUsed);
+}
+
+// Known ledger Feature → display label. Unmapped values fall through to the raw string
+// so a new server Feature never renders blank (ticket 005 #9).
+const FEATURE_LABELS: Record<string, string> = {
+  "Tutoring:Guidance": "Paired Programmer · Guidance",
+  "Tutoring:ProblemGeneration": "Paired Programmer · Problem",
+  "PromptLab:Chat": "Prompt Lab · Chat",
+  "PromptLab:Evaluate": "Prompt Lab · Evaluate",
+  "PromptLab:Simulate": "Prompt Lab · Simulate",
+  "PromptLab:TestInputGeneration": "Prompt Lab · Test inputs",
+  "SystemLab:Chat": "System Lab · Chat",
+  "SystemLab:Evaluate": "System Lab · Evaluate",
+  "Billing:TopUp": "Purchase",
+};
+
+export function ledgerFeatureLabel(feature: string | null | undefined): string {
+  if (!feature) return "—";
+  return FEATURE_LABELS[feature] ?? feature;
+}
+
 function formatUsd(amount: number, fractionDigits: number): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",

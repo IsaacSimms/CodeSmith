@@ -1,7 +1,7 @@
 ---
 id: 006
 title: Add the provider-preference context
-status: todo
+status: done
 implements: [004]
 depends_on: [005]
 ---

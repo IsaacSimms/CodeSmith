@@ -1,7 +1,7 @@
 ---
 id: 010
 title: Build the credits card and pack purchase
-status: todo
+status: done
 implements: [003, 005]
 depends_on: [007, 008]
 ---

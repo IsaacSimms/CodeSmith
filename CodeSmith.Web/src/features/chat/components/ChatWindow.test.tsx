@@ -10,8 +10,13 @@ import { NavigationProvider } from "../../../contexts/NavigationContext";
 import type { ChatResponse, ProblemSession } from "../types";
 
 vi.mock("../../../lib/apiClient");
-vi.mock("../../../hooks/useProviderPreference", () => ({
-  useProviderPreference: () => ({ provider: "Anthropic", setProvider: vi.fn() }),
+vi.mock("../../../contexts/ProviderPreferenceContext", () => ({
+  useProviderPreferenceContext: () => ({
+    provider: "Xai",
+    setProvider: vi.fn(),
+    availableProviders: ["Anthropic", "OpenAi", "Xai"],
+    isReady: true,
+  }),
 }));
 
 const mockSession: ProblemSession = {
@@ -97,7 +102,8 @@ describe("ChatWindow", () => {
         expect(screen.getByText("Write a function that adds two numbers.")).toBeInTheDocument();
       });
 
-      expect(vi.mocked(apiClient.streamCreateSession).mock.calls[0]?.[0]).toEqual({ difficulty: "Easy", language: "CSharp", provider: "Anthropic", focus: "Random", topic: "Random" });
+      // Selected provider from context — not the old hardcoded Anthropic default
+      expect(vi.mocked(apiClient.streamCreateSession).mock.calls[0]?.[0]).toEqual({ difficulty: "Easy", language: "CSharp", provider: "Xai", focus: "Random", topic: "Random" });
     });
 
     it("shows the description streaming while the problem is being written", async () => {
@@ -380,7 +386,7 @@ describe("ChatWindow", () => {
       expect(requestBody()).toEqual({
         difficulty: "Hard",
         language: "Python",
-        provider: "Anthropic",
+        provider: "Xai",
         focus: "Random",
         topic: "Random",
       });

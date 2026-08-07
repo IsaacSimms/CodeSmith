@@ -1,7 +1,7 @@
 ---
 id: 011
 title: Build the free-quota card and extract the UsageBar primitive
-status: todo
+status: done
 implements: [001, 005]
 depends_on: [007, 008]
 ---

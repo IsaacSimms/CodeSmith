@@ -93,7 +93,7 @@ Scenario categories: Identity & Governance, Compute, Storage, Networking & Conne
 |------|-----------|---------|
 | LLM completion (unified) | `ILlmService` (`CompleteAsync` + `StreamAsync`) | `AnthropicLlmService`, `OpenAiCompatibleLlmService` (OpenAI + xAI), each wrapped by `UsageEnforcingLlmService` |
 | Provider routing | `ILlmServiceFactory` | `LlmServiceFactory` (keyed by `AiProvider` at runtime) |
-| Usage enforcement | `IUsageEnforcer` | `UsageEnforcer` (free window + IP cap + paid credits; reserve → settle / release) |
+| Usage enforcement | `IUsageEnforcer` | `UsageEnforcer` (one-time free grant + IP cap + paid credits; reserve → settle / release; `GetQuotaAsync`) |
 | Per-user usage lock | `IUserUsageLock` | `UserUsageLock` (singleton) |
 | Tutoring logic | `ITutoringService` | `TutoringService` |
 | Session persistence | `ISessionStore<T>` | In-memory stores per surface |
@@ -155,9 +155,11 @@ Concrete model names are per-provider config (`Anthropic` / `OpenAi` / `Xai` opt
 | `POST` | `/api/billing/webhook` | Stripe webhook — anonymous, signature-verified, raw body |
 | `GET` | `/api/billing/balance` 🔐 | Paid credit balance |
 | `GET` | `/api/billing/ledger` 🔐 | Recent ledger rows |
+| `GET` | `/api/billing/packs` 🔐 | Credit pack catalog (Stripe Price allow-list) |
+| `GET` | `/api/usage/quota` 🔐 | Free-token grant + IP constraint (`None`/`Limited`/`Exhausted`) |
 
 - **🔒** = `[MeteredAi]` — auth required; failures return 401 ProblemDetails (`login_required`). Exhausted quota/credits → 402.
-- **🔐** = `[Authorize]` (billing reads/checkout) — auth required; stock 401 (not the metered login_required body).
+- **🔐** = `[Authorize]` (billing reads/checkout, usage quota) — auth required; stock 401 (not the metered login_required body).
 - SPA uses the `/stream` siblings; CLI still uses blocking JSON. Full contracts (including NDJSON chunk types) are in `context.md`.
 
 ### Middleware Pipeline
