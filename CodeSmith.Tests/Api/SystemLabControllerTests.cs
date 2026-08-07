@@ -6,7 +6,9 @@ using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models.PromptLab;
 using CodeSmith.Core.Models.SystemLab;
+using CodeSmith.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 
@@ -19,7 +21,9 @@ public class SystemLabControllerTests
 
     public SystemLabControllerTests()
     {
-        _controller = new SystemLabController(_service);
+        // Real resolver from real options — no IAiProviderResolver mock, so omission exercises the rule
+        var aiOptions = Options.Create(new AiOptions { ActiveProvider = AiProvider.Xai });
+        _controller   = new SystemLabController(_service, new AiProviderResolver(aiOptions));
     }
 
     // == GetScenarios Tests == //
@@ -76,7 +80,7 @@ public class SystemLabControllerTests
     [Fact]
     public async Task StartSession_WithValidRequest_Returns201()
     {
-        var session = new SystemLabSession { ScenarioId = "identity-rbac-easy-01" };
+        var session = new SystemLabSession { ScenarioId = "identity-rbac-easy-01", Provider = AiProvider.Xai };
         _service.StartSessionAsync("identity-rbac-easy-01", Arg.Any<AiProvider>(), Arg.Any<CancellationToken>()).Returns(session);
 
         var result = await _controller.StartSession(new StartSystemLabSessionRequest { ScenarioId = "identity-rbac-easy-01" }, CancellationToken.None);
@@ -85,6 +89,27 @@ public class SystemLabControllerTests
         Assert.Equal(201, created.StatusCode);
         var returned = Assert.IsType<SystemLabSessionResponse>(created.Value);
         Assert.Equal("identity-rbac-easy-01", returned.ScenarioId);
+        Assert.Equal(AiProvider.Xai, returned.Provider);
+    }
+
+    [Fact]
+    public async Task StartSession_WhenProviderOmitted_ForwardsActiveProvider()
+    {
+        var session = new SystemLabSession { ScenarioId = "identity-rbac-easy-01", Provider = AiProvider.Xai };
+        _service.StartSessionAsync("identity-rbac-easy-01", Arg.Any<AiProvider>(), Arg.Any<CancellationToken>()).Returns(session);
+
+        await _controller.StartSession(new StartSystemLabSessionRequest { ScenarioId = "identity-rbac-easy-01" }, CancellationToken.None);
+
+        await _service.Received(1).StartSessionAsync("identity-rbac-easy-01", AiProvider.Xai, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StartSession_WithInvalidProvider_ThrowsUnknownProviderException()
+    {
+        await Assert.ThrowsAsync<UnknownProviderException>(() =>
+            _controller.StartSession(
+                new StartSystemLabSessionRequest { ScenarioId = "identity-rbac-easy-01", Provider = (AiProvider)999 },
+                CancellationToken.None));
     }
 
     [Fact]

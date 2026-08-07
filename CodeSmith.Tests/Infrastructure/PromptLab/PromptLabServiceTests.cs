@@ -70,7 +70,7 @@ public class PromptLabServiceTests
         _generator.GenerateAsync(Arg.Any<Challenge>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
             .Returns<List<TestInput>>(x => throw new InvalidOperationException("LLM unavailable"));
 
-        var session = await _service.StartChallengeAsync(challengeId);
+        var session = await _service.StartChallengeAsync(challengeId, AiProvider.Anthropic);
 
         Assert.Equal(challengeId, session.ChallengeId);
         Assert.NotEqual(Guid.Empty, session.SessionId);
@@ -81,7 +81,7 @@ public class PromptLabServiceTests
     public async Task StartChallengeAsync_WithInvalidId_ThrowsChallengeNotFoundException()
     {
         await Assert.ThrowsAsync<ChallengeNotFoundException>(
-            () => _service.StartChallengeAsync("does-not-exist"));
+            () => _service.StartChallengeAsync("does-not-exist", AiProvider.Anthropic));
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public class PromptLabServiceTests
         _generator.GenerateAsync(Arg.Any<Challenge>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
             .Returns<List<TestInput>>(x => throw new InvalidOperationException("LLM unavailable"));
 
-        var session = await _service.StartChallengeAsync(challengeId);
+        var session = await _service.StartChallengeAsync(challengeId, AiProvider.Anthropic);
 
         Assert.Empty(session.Attempts);
     }
@@ -106,7 +106,7 @@ public class PromptLabServiceTests
         _generator.GenerateAsync(Arg.Any<Challenge>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
             .Returns<List<TestInput>>(x => throw new InvalidOperationException("LLM unavailable"));
 
-        var session = await _service.StartChallengeAsync(challengeId);
+        var session = await _service.StartChallengeAsync(challengeId, AiProvider.Anthropic);
 
         Assert.NotEmpty(session.TestInputs);
     }
@@ -120,7 +120,7 @@ public class PromptLabServiceTests
         _generator.GenerateAsync(Arg.Any<Challenge>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
             .Returns(dynamicInputs);
 
-        var session = await _service.StartChallengeAsync(challengeId);
+        var session = await _service.StartChallengeAsync(challengeId, AiProvider.Anthropic);
 
         Assert.True(session.DynamicInputsGenerated);
     }
@@ -133,7 +133,7 @@ public class PromptLabServiceTests
         _generator.GenerateAsync(Arg.Any<Challenge>(), Arg.Any<AiProvider>(), Arg.Any<CancellationToken>())
             .Returns<List<TestInput>>(x => throw new InvalidOperationException("LLM unavailable"));
 
-        var session = await _service.StartChallengeAsync(challengeId);
+        var session = await _service.StartChallengeAsync(challengeId, AiProvider.Anthropic);
 
         Assert.False(session.DynamicInputsGenerated);
     }
@@ -148,7 +148,7 @@ public class PromptLabServiceTests
             .Returns<List<TestInput>>(_ => throw original);
 
         var thrown = await Assert.ThrowsAsync<InsufficientQuotaException>(
-            () => _service.StartChallengeAsync(challengeId));
+            () => _service.StartChallengeAsync(challengeId, AiProvider.Anthropic));
 
         Assert.Same(original, thrown);
         _sessionStore.DidNotReceive().Set(Arg.Any<PromptLabSession>());

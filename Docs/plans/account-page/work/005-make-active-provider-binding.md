@@ -1,7 +1,7 @@
 ---
 id: 005
 title: Make AiOptions.ActiveProvider binding at request time
-status: todo
+status: done
 implements: [010]
 depends_on: []
 ---

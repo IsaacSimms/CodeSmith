@@ -5,7 +5,9 @@ using CodeSmith.Core.Enums;
 using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models.PromptLab;
+using CodeSmith.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 
@@ -18,7 +20,9 @@ public class PromptLabControllerTests
 
     public PromptLabControllerTests()
     {
-        _controller = new PromptLabController(_service);
+        // Real resolver from real options — no IAiProviderResolver mock, so omission exercises the rule
+        var aiOptions = Options.Create(new AiOptions { ActiveProvider = AiProvider.Xai });
+        _controller   = new PromptLabController(_service, new AiProviderResolver(aiOptions));
     }
 
     // == GetChallenges Tests == //
@@ -105,6 +109,26 @@ public class PromptLabControllerTests
         Assert.Equal(201, created.StatusCode);
         var returned = Assert.IsType<PromptLabSessionResponse>(created.Value);
         Assert.Equal("format-json-01", returned.ChallengeId);
+    }
+
+    [Fact]
+    public async Task StartChallenge_WhenProviderOmitted_ForwardsActiveProvider()
+    {
+        var session = new PromptLabSession { ChallengeId = "format-json-01", Provider = AiProvider.Xai };
+        _service.StartChallengeAsync("format-json-01", Arg.Any<AiProvider>(), Arg.Any<CancellationToken>()).Returns(session);
+
+        await _controller.StartChallenge(new StartChallengeRequest { ChallengeId = "format-json-01" }, CancellationToken.None);
+
+        await _service.Received(1).StartChallengeAsync("format-json-01", AiProvider.Xai, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StartChallenge_WithInvalidProvider_ThrowsUnknownProviderException()
+    {
+        await Assert.ThrowsAsync<UnknownProviderException>(() =>
+            _controller.StartChallenge(
+                new StartChallengeRequest { ChallengeId = "format-json-01", Provider = (AiProvider)999 },
+                CancellationToken.None));
     }
 
     [Fact]

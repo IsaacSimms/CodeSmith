@@ -2,6 +2,7 @@
 import { Link, Outlet } from "react-router-dom";
 import { useNavigationContext } from "../contexts/NavigationContext";
 import { AuthControls } from "../auth/AuthControls";
+import { isMsalConfigured } from "../auth/msalConfig";
 
 export function Layout() {
   const { resetAll } = useNavigationContext();
@@ -38,6 +39,16 @@ export function Layout() {
         >
           System Lab
         </Link>
+        {/* Dev-only: AuthControls is null without MSAL, so /account would be unreachable */}
+        {!isMsalConfigured() && (
+          <Link
+            to="/account"
+            onClick={resetAll}
+            className="ml-auto text-sm text-gray-400 transition-colors hover:text-white"
+          >
+            Account
+          </Link>
+        )}
         <AuthControls />
       </nav>
 

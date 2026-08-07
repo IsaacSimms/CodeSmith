@@ -2,9 +2,9 @@
 using CodeSmith.Api.Authorization;
 using CodeSmith.Api.DTOs.PromptLab;
 using CodeSmith.Api.Streaming;
-using CodeSmith.Core.Enums;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models.PromptLab;
+using CodeSmith.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CodeSmith.Api.Controllers;
@@ -17,10 +17,12 @@ namespace CodeSmith.Api.Controllers;
 public class PromptLabController : ControllerBase
 {
     private readonly IPromptLabService _service;
+    private readonly AiProviderResolver _providerResolver;
 
-    public PromptLabController(IPromptLabService service)
+    public PromptLabController(IPromptLabService service, AiProviderResolver providerResolver)
     {
-        _service = service;
+        _service          = service;
+        _providerResolver = providerResolver;
     }
 
     // == Get All Challenges Endpoint == //
@@ -59,8 +61,8 @@ public class PromptLabController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.ChallengeId))
             return BadRequest(new { error = "ChallengeId is required." });
 
-        var provider = request.Provider ?? AiProvider.Anthropic;
-        var session = await _service.StartChallengeAsync(request.ChallengeId, provider, ct); // Throws ChallengeNotFoundException → 404
+        var provider = _providerResolver.Resolve(request.Provider); // null → ActiveProvider; undefined → UnknownProviderException → 400
+        var session  = await _service.StartChallengeAsync(request.ChallengeId, provider, ct); // Throws ChallengeNotFoundException → 404
         return CreatedAtAction(nameof(StartChallenge), new { sessionId = session.SessionId }, PromptLabSessionResponse.FromSession(session));
     }
 

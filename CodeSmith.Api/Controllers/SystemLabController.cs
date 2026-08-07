@@ -3,6 +3,7 @@ using CodeSmith.Api.Authorization;
 using CodeSmith.Api.DTOs.SystemLab;
 using CodeSmith.Api.Streaming;
 using CodeSmith.Core.Interfaces;
+using CodeSmith.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CodeSmith.Api.Controllers;
@@ -15,10 +16,12 @@ namespace CodeSmith.Api.Controllers;
 public class SystemLabController : ControllerBase
 {
     private readonly ISystemLabService _service;
+    private readonly AiProviderResolver _providerResolver;
 
-    public SystemLabController(ISystemLabService service)
+    public SystemLabController(ISystemLabService service, AiProviderResolver providerResolver)
     {
-        _service = service;
+        _service          = service;
+        _providerResolver = providerResolver;
     }
 
     // == Get All Scenarios Endpoint == //
@@ -57,7 +60,8 @@ public class SystemLabController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.ScenarioId))
             return BadRequest(new { error = "ScenarioId is required." });
 
-        var session = await _service.StartSessionAsync(request.ScenarioId, request.Provider, ct); // Throws ScenarioNotFoundException → 404
+        var provider = _providerResolver.Resolve(request.Provider); // null → ActiveProvider; undefined → UnknownProviderException → 400
+        var session  = await _service.StartSessionAsync(request.ScenarioId, provider, ct); // Throws ScenarioNotFoundException → 404
         return CreatedAtAction(nameof(StartSession), new { sessionId = session.SessionId }, SystemLabSessionResponse.FromSession(session));
     }
 

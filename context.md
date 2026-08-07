@@ -164,7 +164,7 @@ Docs/                      — Recaps/, Handoffs.*, general/ (Entra + Dynamic Se
 - `appsettings.json` (defaults) + `appsettings.Development.json` (dev overrides).
 - Sections: `Ai`, `Anthropic`, `OpenAi`, `Xai`, `CodeExecution`, `Usage`, `Stripe`, `AzureAd` (Entra), plus `ConnectionStrings:CodeSmithDb` and `AllowedCorsOrigins`.
 - Each options class exposes a `SectionName` constant; bound via `services.Configure<T>(config.GetSection(T.SectionName))` and injected as `IOptions<T>`.
-- `Ai:ActiveProvider` selects the default provider name (**default `Xai` / Grok**); `CodeExecution:Backend` selects `Piston` (local default), `LocalProcess` (dev host), `Executor` (Azure), or `DynamicSessions` (retained) at startup. `CodeExecution:Executor` carries `BaseUrl` (the executor's internal ingress FQDN), `ExecutePath` (default `/execute`), and timeouts (HTTP client default 120s to cover scale-from-zero cold start). `CodeExecution:DynamicSessions` carries `PoolManagementEndpoint` plus the same path/timeout keys.
+- `Ai:ActiveProvider` is an `AiProvider` enum (**default `Xai` / Grok**), validated at startup (`ValidateOnStart`) so a typo fails boot rather than request time. It is **binding**: when a client omits `provider` on any of the four LLM-creating endpoints (`POST /api/session`, `/session/stream`, `/prompt-lab/sessions`, `/system-lab/sessions`), sealed `AiProviderResolver` applies this value. `GET /api/providers` echoes it as `activeProvider`. An undefined request value throws `UnknownProviderException` → 400. `CodeExecution:Backend` selects `Piston` (local default), `LocalProcess` (dev host), `Executor` (Azure), or `DynamicSessions` (retained) at startup. `CodeExecution:Executor` carries `BaseUrl` (the executor's internal ingress FQDN), `ExecutePath` (default `/execute`), and timeouts (HTTP client default 120s to cover scale-from-zero cold start). `CodeExecution:DynamicSessions` carries `PoolManagementEndpoint` plus the same path/timeout keys.
 - Each provider's `AccurateModel`/`FastModel` is **validated against the pricing catalog at startup** (`ValidateOnStart`); a model with no rate entry fails the boot rather than mis-charging silently. `ProviderOptionsValidationTests.ShippedAppSettings_ConfiguredModels_ArePricedInCatalog` runs that same validation over the real `appsettings.json` in CI, so bumping a model without adding its rate fails a test instead of a production container boot. `appsettings.Development.json` is not layered into that test — it is gitignored and absent on CI.
 - `Usage` carries `FreeTokenQuota` (the size of the one-time per-objectId free grant, default 20,000; seeds `CreditBalance.FreeQuotaMax` on row creation), `PaidMarkupMultiplier` (raw-cost → charge multiplier, default `2.0`), and `AllowedDebugObjectIds` (objectIds permitted to use the dev `X-Debug-User-Id` bypass; empty in production).
 - `Stripe` (`StripeOptions`) carries `SecretKey` + `WebhookSecret` (secrets — Key Vault / user-secrets), `PriceIds` (allow-list of purchasable packs), and `SuccessUrl`/`CancelUrl`. Not validated at startup (unlike provider options).
@@ -187,8 +187,8 @@ All routes are under `/api`. Enums serialize as strings (`JsonStringEnumConverte
 
 | Method | Route | Request | Response | Notes |
 |--------|-------|---------|----------|-------|
-| GET | `/api/providers` | — | `{ activeProvider, availableProviders[] }` | 200 |
-| POST | `/api/session` 🔒 | `CreateSessionRequest { difficulty, language, provider, focus?, topic? }` | `ProblemSession` | 201 / 400 |
+| GET | `/api/providers` | — | `{ activeProvider, availableProviders[] }` | 200; `activeProvider` is the omit→default for create endpoints |
+| POST | `/api/session` 🔒 | `CreateSessionRequest { difficulty, language, provider?, focus?, topic? }` | `ProblemSession` | 201 / 400; omit `provider` → `Ai:ActiveProvider` |
 | POST | `/api/session/{sessionId}/chat` 🔒 | `ChatRequest { message, editorContent?, guidanceMode? }` | `ChatResponse` | 200 / 400 / 404 |
 | POST | `/api/session/{sessionId}/run` | `RunCodeRequest { language, code }` | `RunCodeResponse { stdout, stderr, exitCode, timedOut }` | 200 / 400 / 404 |
 | POST | `/api/session/stream` 🔒 | `CreateSessionRequest` | **NDJSON stream** → final `data: ProblemSession` | streaming sibling of `POST /api/session`; description deltas + retry resets |
@@ -197,12 +197,12 @@ All routes are under `/api`. Enums serialize as strings (`JsonStringEnumConverte
 | POST | `/api/system-lab/sessions/{sessionId}/chat/stream` 🔒 | `SystemLabChatRequest` | **NDJSON stream** → final `data: SystemLabChatResponse` | streaming sibling of chat |
 | GET | `/api/prompt-lab/challenges` | — | `ChallengeResponse[]` | hidden fields stripped |
 | GET | `/api/prompt-lab/challenges/{id}` | — | `ChallengeResponse` | 200 / 404 |
-| POST | `/api/prompt-lab/sessions` 🔒 | `StartChallengeRequest { challengeId, provider? }` | `PromptLabSessionResponse` | 201 / 400 / 404; generates dynamic test inputs |
+| POST | `/api/prompt-lab/sessions` 🔒 | `StartChallengeRequest { challengeId, provider? }` | `PromptLabSessionResponse` | 201 / 400 / 404; omit `provider` → `Ai:ActiveProvider`; generates dynamic test inputs |
 | POST | `/api/prompt-lab/sessions/{sessionId}/submit` 🔒 | `SubmitAttemptRequest { systemPromptContent, userMessageContent }` | `AttemptResultResponse` | 200 / 404; simulate + evaluate |
 | POST | `/api/prompt-lab/sessions/{sessionId}/chat` 🔒 | `PromptLabChatRequest { message, editorContent? }` | `PromptLabChatResponse` | 200 / 400 / 404 |
 | GET | `/api/system-lab/scenarios` | — | `ScenarioResponse[]` | SecurityPitfalls stripped |
 | GET | `/api/system-lab/scenarios/{id}` | — | `ScenarioResponse` | 200 / 404 |
-| POST | `/api/system-lab/sessions` 🔒 | `StartSystemLabSessionRequest { scenarioId, provider }` | `SystemLabSessionResponse` | 201 / 400 / 404 |
+| POST | `/api/system-lab/sessions` 🔒 | `StartSystemLabSessionRequest { scenarioId, provider? }` | `SystemLabSessionResponse { sessionId, scenarioId, provider, attempts, createdAt }` | 201 / 400 / 404; omit `provider` → `Ai:ActiveProvider` |
 | POST | `/api/system-lab/sessions/{sessionId}/submit` 🔒 | `SubmitJustificationRequest { justificationContent }` | `SystemLabAttemptResultResponse` | 200 / 400 / 404 |
 | POST | `/api/system-lab/sessions/{sessionId}/chat` 🔒 | `SystemLabChatRequest { message, currentJustification? }` | `SystemLabChatResponse` | 200 / 400 / 404 |
 | POST | `/api/billing/checkout` 🔐 | `CheckoutRequest { priceId }` | `CheckoutResponse { url }` | 200 / 400 (unknown priceId); priceId must be allow-listed |

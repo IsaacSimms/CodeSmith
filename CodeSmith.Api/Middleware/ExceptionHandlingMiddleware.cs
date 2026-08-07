@@ -30,6 +30,7 @@ public class AppExceptionHandler(
         (typeof(OperationCanceledException), StatusCodes.Status499ClientClosedRequest, "Request cancelled",             "Request was cancelled."),
         (typeof(InsufficientQuotaException), StatusCodes.Status402PaymentRequired,     "Insufficient quota or credits", null),
         (typeof(InvalidPriceException),      StatusCodes.Status400BadRequest,          "Invalid price",                 null),
+        (typeof(UnknownProviderException),   StatusCodes.Status400BadRequest,          "Unknown provider",              null),
         (typeof(WebhookSignatureException),  StatusCodes.Status400BadRequest,          "Invalid webhook signature",     null),
     ];
 

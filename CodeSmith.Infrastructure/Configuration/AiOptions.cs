@@ -1,4 +1,6 @@
 // == AI Provider Configuration Options == //
+using CodeSmith.Core.Enums;
+
 namespace CodeSmith.Infrastructure.Configuration;
 
 /// <summary>
@@ -8,5 +10,7 @@ namespace CodeSmith.Infrastructure.Configuration;
 public class AiOptions
 {
     public const string SectionName = "Ai";                          // Configuration section name
-    public string ActiveProvider { get; set; } = "Xai";              // The default provider. Must match an AiProvider enum value name.
+    // Applied when a client omits provider on any of the four LLM-creating endpoints.
+    // Bound as AiProvider and validated at host start (ValidateOnStart) — a typo fails boot.
+    public AiProvider ActiveProvider { get; set; } = AiProvider.Xai;
 }

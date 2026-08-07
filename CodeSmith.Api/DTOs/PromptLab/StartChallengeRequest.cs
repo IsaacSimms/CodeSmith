@@ -10,5 +10,5 @@ namespace CodeSmith.Api.DTOs.PromptLab;
 public class StartChallengeRequest
 {
     [Required] public string ChallengeId { get; set; } = string.Empty;  // The challenge to start
-    public AiProvider? Provider { get; set; }  // AI provider for this session (defaults to Anthropic if omitted)
+    public AiProvider? Provider { get; set; }  // Omitted → AiOptions.ActiveProvider; explicit value is honored
 }

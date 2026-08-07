@@ -35,7 +35,16 @@ public static class ServiceCollectionExtensions
         services.AddValidatedProviderOptions<AnthropicOptions>(configuration, AnthropicOptions.SectionName, AiProvider.Anthropic, o => o.AccurateModel, o => o.FastModel);
         services.AddValidatedProviderOptions<OpenAiOptions>(configuration, OpenAiOptions.SectionName, AiProvider.OpenAi, o => o.AccurateModel, o => o.FastModel);
         services.AddValidatedProviderOptions<XaiOptions>(configuration, XaiOptions.SectionName, AiProvider.Xai, o => o.AccurateModel, o => o.FastModel);
-        services.Configure<AiOptions>(configuration.GetSection(AiOptions.SectionName));
+        // ActiveProvider is AiProvider (not string): binder converts names case-insensitively and throws
+        // on a typo; ValidateOnStart also rejects undefined numeric values so garbage never reaches
+        // GetProviders() or request resolution.
+        services.AddOptions<AiOptions>()
+            .Bind(configuration.GetSection(AiOptions.SectionName))
+            .Validate(
+                o => Enum.IsDefined(o.ActiveProvider),
+                "Ai:ActiveProvider must be a defined AiProvider value (Anthropic, OpenAi, or Xai).")
+            .ValidateOnStart();
+        services.AddSingleton<AiProviderResolver>();
         services.Configure<CodeExecutionOptions>(configuration.GetSection(CodeExecutionOptions.SectionName));
 
         // == Usage / Data Layer (SaaS cost protection) ==

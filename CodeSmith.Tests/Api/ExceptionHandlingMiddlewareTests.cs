@@ -42,6 +42,7 @@ public class AppExceptionHandlerTests
         { new TaskCanceledException(),                           499 },   // subtype must match the OCE row (HttpClient cancellations)
         { new InsufficientQuotaException("user-1", "no quota"),  402 },   // the paywall signal
         { new InvalidPriceException("price_bad"),                400 },
+        { new UnknownProviderException(999),                     400 },
         { new WebhookSignatureException("bad signature"),        400 },
         { new InvalidOperationException("unexpected"),           500 },   // unmapped → fallback
     };

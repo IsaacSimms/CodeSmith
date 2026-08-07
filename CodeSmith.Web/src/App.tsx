@@ -8,6 +8,7 @@ import { ChatWindow } from "./features/chat/components/ChatWindow";
 import { PromptLabWindow } from "./features/prompt-lab/components/PromptLabWindow";
 import { SystemLabWindow } from "./features/system-lab/components/SystemLabWindow";
 import { BillingResultPage } from "./features/billing/components/BillingResultPage";
+import { AccountPage } from "./features/account/components/AccountPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,6 +28,7 @@ export default function App() {
               <Route path="/pairedprogrammer" element={<ChatWindow />} />
               <Route path="/prompt-lab" element={<PromptLabWindow />} />
               <Route path="/system-lab" element={<SystemLabWindow />} />
+              <Route path="/account" element={<AccountPage />} />
               <Route path="/billing/success" element={<BillingResultPage kind="success" />} />
               <Route path="/billing/cancel" element={<BillingResultPage kind="cancel" />} />
             </Route>

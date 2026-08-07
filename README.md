@@ -224,6 +224,8 @@ Create `CodeSmith.Api/appsettings.Development.json` (gitignored). Minimal exampl
 }
 ```
 
+`Ai:ActiveProvider` is **binding** (not advisory): omit `provider` on any LLM-creating endpoint and the server applies this value (`Anthropic` | `OpenAi` | `Xai`). A typo fails host start.
+
 For quota, credits, and usage enforcement, also add:
 
 ```json

@@ -51,7 +51,7 @@ public class PromptLabService : IPromptLabService
         return challenge ?? throw new ChallengeNotFoundException(challengeId);
     }
 
-    public async Task<PromptLabSession> StartChallengeAsync(string challengeId, AiProvider provider = AiProvider.Anthropic, CancellationToken ct = default)
+    public async Task<PromptLabSession> StartChallengeAsync(string challengeId, AiProvider provider, CancellationToken ct = default)
     {
         var challenge = GetChallenge(challengeId); // Validates the ID — throws ChallengeNotFoundException if invalid
 

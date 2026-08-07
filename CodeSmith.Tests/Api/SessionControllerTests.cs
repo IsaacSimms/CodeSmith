@@ -19,8 +19,9 @@ public class SessionControllerTests
 
     public SessionControllerTests()
     {
-        var aiOptions = Options.Create(new AiOptions { ActiveProvider = "Xai" });
-        _controller = new SessionController(_tutoringService, aiOptions);
+        var aiOptions = Options.Create(new AiOptions { ActiveProvider = AiProvider.Xai });
+        var resolver  = new AiProviderResolver(aiOptions);
+        _controller   = new SessionController(_tutoringService, aiOptions, resolver);
     }
 
     // == Providers Endpoint == //
@@ -30,9 +31,9 @@ public class SessionControllerTests
     {
         var result = Assert.IsType<OkObjectResult>(_controller.GetProviders());
 
-        // activeProvider comes from AiOptions (now "Xai" by default)
+        // activeProvider comes from AiOptions (default Xai); JsonStringEnumConverter serializes it as "Xai" on the wire
         var activeProvider = result.Value!.GetType().GetProperty("activeProvider")!.GetValue(result.Value);
-        Assert.Equal("Xai", activeProvider);
+        Assert.Equal(AiProvider.Xai, activeProvider);
     }
 
     // == CreateSession Tests == //
@@ -87,14 +88,47 @@ public class SessionControllerTests
     }
 
     [Fact]
-    public async Task CreateSession_WithInvalidProvider_Returns400()
+    public async Task CreateSession_WithInvalidProvider_ThrowsUnknownProviderException()
     {
-        var result = await _controller.CreateSession(
-            new CreateSessionRequest { Difficulty = Difficulty.Easy, Language = Language.CSharp, Provider = (AiProvider)999 },
+        await Assert.ThrowsAsync<UnknownProviderException>(() =>
+            _controller.CreateSession(
+                new CreateSessionRequest { Difficulty = Difficulty.Easy, Language = Language.CSharp, Provider = (AiProvider)999 },
+                CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CreateSession_WhenProviderOmitted_ForwardsActiveProvider()
+    {
+        // ActiveProvider is Xai in the fixture; omitting provider must not silently land on Anthropic
+        _tutoringService
+            .GenerateProblemAsync(Arg.Any<ProblemSpec>(), Arg.Any<CancellationToken>())
+            .Returns(new ProblemSession { Provider = AiProvider.Xai });
+
+        await _controller.CreateSession(
+            new CreateSessionRequest { Difficulty = Difficulty.Easy, Language = Language.CSharp },
             CancellationToken.None);
 
-        var badRequest = Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Equal(400, badRequest.StatusCode);
+        await _tutoringService.Received(1).GenerateProblemAsync(
+            Arg.Is<ProblemSpec>(s => s.Provider == AiProvider.Xai),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateSessionStream_WhenProviderOmitted_ForwardsActiveProvider()
+    {
+        _tutoringService
+            .StreamGenerateProblemAsync(Arg.Any<ProblemSpec>(),
+                Arg.Any<Func<string, CancellationToken, Task>>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(new ProblemSession { Provider = AiProvider.Xai });
+        var (controller, _) = StreamingController();
+
+        await controller.CreateSessionStream(
+            new CreateSessionRequest { Difficulty = Difficulty.Easy, Language = Language.Python },
+            CancellationToken.None);
+
+        await _tutoringService.Received(1).StreamGenerateProblemAsync(
+            Arg.Is<ProblemSpec>(s => s.Provider == AiProvider.Xai),
+            Arg.Any<Func<string, CancellationToken, Task>>(), Arg.Any<Func<CancellationToken, Task>>(), Arg.Any<CancellationToken>());
     }
 
     [Theory]
@@ -288,7 +322,8 @@ public class SessionControllerTests
     private (SessionController Controller, MemoryStream Body) StreamingController()
     {
         var (context, body) = NdjsonEndpointHarness.CreateStreamingContext();
-        var controller = new SessionController(_tutoringService, Options.Create(new AiOptions { ActiveProvider = "Xai" }))
+        var aiOptions  = Options.Create(new AiOptions { ActiveProvider = AiProvider.Xai });
+        var controller = new SessionController(_tutoringService, aiOptions, new AiProviderResolver(aiOptions))
         {
             ControllerContext = new ControllerContext { HttpContext = context }
         };

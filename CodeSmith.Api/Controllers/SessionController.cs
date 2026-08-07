@@ -21,13 +21,16 @@ public class SessionController : ControllerBase
 {
     private readonly ITutoringService _tutoringService;
     private readonly AiOptions _aiOptions;
+    private readonly AiProviderResolver _providerResolver;
 
     public SessionController(
         ITutoringService tutoringService,
-        IOptions<AiOptions> aiOptions)
+        IOptions<AiOptions> aiOptions,
+        AiProviderResolver providerResolver)
     {
-        _tutoringService = tutoringService;
-        _aiOptions       = aiOptions.Value;
+        _tutoringService  = tutoringService;
+        _aiOptions        = aiOptions.Value;
+        _providerResolver = providerResolver;
     }
 
     // == Providers Endpoint == //
@@ -39,14 +42,16 @@ public class SessionController : ControllerBase
         var allProviders = Enum.GetNames<AiProvider>();
         return Ok(new
         {
+            // omit provider on create → this value (ActiveProvider is binding, not advisory)
             activeProvider     = _aiOptions.ActiveProvider,
             availableProviders = allProviders
         });
     }
 
-    // Focus and Topic ride through as-is; Random is a real value the templates resolve, not a null case
-    private static ProblemSpec ToSpec(CreateSessionRequest request)
-        => new(request.Difficulty, request.Language, request.Provider, request.Focus, request.Topic);
+    // Focus and Topic ride through as-is; Random is a real value the templates resolve, not a null case.
+    // Provider is resolved before call so omission maps to ActiveProvider rather than the zero enum.
+    private static ProblemSpec ToSpec(CreateSessionRequest request, AiProvider provider)
+        => new(request.Difficulty, request.Language, provider, request.Focus, request.Topic);
 
     // == Create Session Endpoint == //
 
@@ -68,11 +73,6 @@ public class SessionController : ControllerBase
             return BadRequest(new { error = "Invalid language value. Use CSharp, Cpp, Go, Rust, Python, Java, or TypeScript." });
         }
 
-        if (!Enum.IsDefined(typeof(AiProvider), request.Provider))
-        {
-            return BadRequest(new { error = "Invalid provider value. Use Anthropic, OpenAi, or Xai." });
-        }
-
         if (!Enum.IsDefined(typeof(ProblemFocus), request.Focus))
         {
             return BadRequest(new { error = "Invalid focus value. Use Random, Standard, BugFix, PerformanceOptimization, FeatureExtension, UnusualConstraints, EdgeCaseGauntlet, RealWorldScenario, or Refactoring." });
@@ -83,7 +83,9 @@ public class SessionController : ControllerBase
             return BadRequest(new { error = "Invalid topic value." });
         }
 
-        var session = await _tutoringService.GenerateProblemAsync(ToSpec(request), ct);
+        // Provider resolved before service call; undefined values throw UnknownProviderException → 400
+        var provider = _providerResolver.Resolve(request.Provider);
+        var session  = await _tutoringService.GenerateProblemAsync(ToSpec(request, provider), ct);
 
         return CreatedAtAction(nameof(CreateSession), new { sessionId = session.SessionId }, session);
     }
@@ -103,18 +105,19 @@ public class SessionController : ControllerBase
             return BadRequest(new { error = "Invalid difficulty value. Use Easy, Medium, or Hard." });
         if (!Enum.IsDefined(typeof(Language), request.Language))
             return BadRequest(new { error = "Invalid language value. Use CSharp, Cpp, Go, Rust, Python, Java, or TypeScript." });
-        if (!Enum.IsDefined(typeof(AiProvider), request.Provider))
-            return BadRequest(new { error = "Invalid provider value. Use Anthropic, OpenAi, or Xai." });
         if (!Enum.IsDefined(typeof(ProblemFocus), request.Focus))
             return BadRequest(new { error = "Invalid focus value." });
         if (!Enum.IsDefined(typeof(ProblemTopic), request.Topic))
             return BadRequest(new { error = "Invalid topic value." });
 
+        // Resolve before NdjsonStreamWriter so a bad provider is still a real 400, not a frozen stream
+        var provider = _providerResolver.Resolve(request.Provider);
+
         var writer = new NdjsonStreamWriter(Response);
         try
         {
             var session = await _tutoringService.StreamGenerateProblemAsync(
-                ToSpec(request),
+                ToSpec(request, provider),
                 writer.WriteDeltaAsync,
                 writer.WriteResetAsync,
                 ct);

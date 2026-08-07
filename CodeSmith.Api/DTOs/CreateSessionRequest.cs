@@ -16,7 +16,7 @@ public class CreateSessionRequest
     public Language Language { get; set; }      // The desired programming language for the coding problem
 
     [JsonConverter(typeof(JsonStringEnumConverter))]
-    public AiProvider Provider { get; set; }    // The AI provider to use for this session
+    public AiProvider? Provider { get; set; }   // Omitted → AiOptions.ActiveProvider; explicit value is honored
 
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public ProblemFocus Focus { get; set; }     // Approach style; omitted or Random rolls one server-side

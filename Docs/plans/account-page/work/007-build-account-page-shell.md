@@ -1,7 +1,7 @@
 ---
 id: 007
 title: Build the account page shell and AccountSection wrapper
-status: todo
+status: done
 implements: [005]
 depends_on: []
 ---
