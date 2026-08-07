@@ -1,7 +1,7 @@
 ---
 id: 004
 title: Add the pack-catalog endpoint
-status: todo
+status: done
 implements: [003]
 depends_on: []
 ---

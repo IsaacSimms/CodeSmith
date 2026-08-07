@@ -25,6 +25,7 @@ public class AppExceptionHandler(
         (typeof(ChallengeNotFoundException), StatusCodes.Status404NotFound,            "Challenge not found",           null),
         (typeof(ScenarioNotFoundException),  StatusCodes.Status404NotFound,            "Scenario not found",            null),
         (typeof(AiServiceException),         StatusCodes.Status502BadGateway,          "AI service error",              null),
+        (typeof(BillingServiceException),    StatusCodes.Status502BadGateway,          "Billing service error",         null),
         (typeof(CodeExecutionException),     StatusCodes.Status500InternalServerError, "Code execution error",          null),
         (typeof(OperationCanceledException), StatusCodes.Status499ClientClosedRequest, "Request cancelled",             "Request was cancelled."),
         (typeof(InsufficientQuotaException), StatusCodes.Status402PaymentRequired,     "Insufficient quota or credits", null),

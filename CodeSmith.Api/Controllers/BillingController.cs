@@ -8,8 +8,8 @@ namespace CodeSmith.Api.Controllers;
 
 /// <summary>
 /// Prepaid-credits billing endpoints: create a Stripe checkout, receive completion webhooks, and read the
-/// caller's balance and ledger. The webhook is the only anonymous endpoint and is signature-verified; all
-/// others require authentication. This controller writes credits only — it never debits.
+/// caller's balance, ledger, and pack catalog. The webhook is the only anonymous endpoint and is
+/// signature-verified; all others require authentication. This controller writes credits only — it never debits.
 /// </summary>
 [ApiController]
 [Route("api/billing")]
@@ -80,6 +80,28 @@ public class BillingController : ControllerBase
             AmountUsd = e.CostUsd,     // ProviderCostUsd (margin) is intentionally never projected
             Feature = e.Feature,
             TimestampUtc = e.TimestampUtc
+        });
+
+        return Ok(response);
+    }
+
+    // == Read: Pack catalog == //
+
+    [HttpGet("packs")]
+    [Authorize]
+    [ProducesResponseType(typeof(IEnumerable<PackResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    public async Task<IActionResult> GetPacks(CancellationToken ct)
+    {
+        var packs = await _billing.GetPacksAsync(ct);
+
+        // Bare JSON array — no wrapper object (pack-catalog contract).
+        var response = packs.Select(p => new PackResponse
+        {
+            PriceId = p.PriceId,
+            Name = p.Name,
+            Amount = p.Amount,
+            Currency = p.Currency
         });
 
         return Ok(response);

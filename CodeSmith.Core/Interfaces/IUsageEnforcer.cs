@@ -16,7 +16,7 @@ namespace CodeSmith.Core.Interfaces;
 /// </summary>
 public interface IUsageEnforcer
 {
-    // Holds an upper-bound estimate against the user's free window quota / per-IP aggregate / paid
+    // Holds an upper-bound estimate against the user's remaining free grant / per-IP aggregate / paid
     // credits. Throws InsufficientQuotaException if none of those can cover the call.
     Task<UsageReservation> ReserveAsync(
         string objectId,

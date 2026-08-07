@@ -24,6 +24,11 @@ public interface IBillingService
 
     // Most-recent ledger rows (top-ups and spends) for the authenticated caller.
     Task<IReadOnlyList<UsageLedgerEntry>> GetRecentLedgerAsync(int take, CancellationToken ct = default);
+
+    // Allow-listed credit packs from the payment provider, in StripeOptions.PriceIds order. Unusable
+    // entries (missing, inactive, non-USD, blank Product name) are skipped. Throws BillingServiceException
+    // when the provider is unreachable so the purchase section can 502 independently.
+    Task<IReadOnlyList<CreditPack>> GetPacksAsync(CancellationToken ct = default);
 }
 
 public enum WebhookResult

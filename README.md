@@ -2,7 +2,7 @@
 
 An AI-powered learning platform for technologists. Three distinct practice modes let you sharpen coding skills, prompt engineering fundamentals, and infrastructure architecture reasoning — all guided by an AI pair programmer powered by your choice of **xAI (default)**, Anthropic, or OpenAI models.
 
-**SaaS cost controls:** Every LLM call is metered against a per-`objectId` free quota (20k tokens, 48h window) + per-IP caps + prepaid Stripe credits. Free-window evaluations are automatically downgraded to the Fast model tier.
+**SaaS cost controls:** Every LLM call is metered against a one-time per-`objectId` free grant (20k tokens) + per-IP caps + prepaid Stripe credits. Evaluations covered by the free grant are automatically downgraded to the Fast model tier.
 
 ---
 
@@ -106,7 +106,7 @@ Code execution backend is config-driven — set `CodeExecution:Backend` in `apps
 
 Every LLM call is metered and protected before execution:
 
-- **Free quota**: 20,000 tokens per `objectId`, available only for the first 48 hours after first sighting. Free quota is lost after the window or after exhaustion (no monthly reset).
+- **Free grant**: 20,000 tokens per `objectId`, granted once. It never expires and never resets — once exhausted, the account is on paid credits.
 - **IP caps**: 60,000-token aggregate free-token limit per client IP (across all objectIds).
 - **Paid credits**: After free coverage is exhausted, `PaidCreditsBalance` is debited (USD-equivalent charge = provider cost × markup).
 - Free-first deduction. Upper-bound **reserve** (persisted hold) before the call; **settle** to actuals on success; **release** on failure. Insufficient budget → hard fail (402) — there is no “lenient last free call.”

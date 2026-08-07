@@ -13,7 +13,7 @@ namespace CodeSmith.Core.Interfaces;
 public interface IStripeCreditStore
 {
     // Credits amountUsd to the payer's balance exactly once for the given Stripe event id.
-    // freeQuotaMax seeds the free-window cap if the payer has no balance row yet (paid before first LLM call).
+    // freeQuotaMax seeds the one-time free grant if the payer has no balance row yet (paid before first LLM call).
     Task<TopUpOutcome> ApplyTopUpAsync(
         string eventId,
         string objectId,

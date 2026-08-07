@@ -26,7 +26,7 @@ public class UsageEnforcerTests
             store,
             pricing ?? Substitute.For<ILlmPricing>(),
             new UserUsageLock(),
-            Options.Create(new UsageOptions { FreeMonthlyTokenQuota = freeQuota }),
+            Options.Create(new UsageOptions { FreeTokenQuota = freeQuota }),
             Substitute.For<ILogger<UsageEnforcer>>());
 
     // == Headline: the reservation actually holds, so a fan-out can't all pass one gate == //
@@ -41,8 +41,7 @@ public class UsageEnforcerTests
         {
             ObjectId           = ObjectId,
             FreeQuotaMax       = 0,
-            PaidCreditsBalance = 1m,
-            FirstSeenUtc       = DateTime.UtcNow
+            PaidCreditsBalance = 1m
         });
 
         var pricing = Substitute.For<ILlmPricing>();
@@ -79,13 +78,13 @@ public class UsageEnforcerTests
     [Fact]
     public async Task ReserveAsync_AfterPriorReserveConsumesFreeQuota_ThrowsInsufficientQuota()
     {
-        var store = new FakeUsageStore(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 19_900));
+        var store = new FakeUsageStore(Balance(freeQuotaMax: 20_000, freeTokensUsed: 19_900));
 
         var enforcer = BuildEnforcer(store, CreatePerTokenPricing());
 
         // First reserve holds the last 100 free tokens (50 + 50).
         await enforcer.ReserveAsync(ObjectId, ClientIp, AiProvider.Anthropic, 50, 50);
-        Assert.Equal(20_000, store.Current.FreeTokensUsedInWindow);
+        Assert.Equal(20_000, store.Current.FreeTokensUsed);
 
         // Nothing left and no paid credits — the next reserve is rejected.
         await Assert.ThrowsAsync<InsufficientQuotaException>(
@@ -101,8 +100,7 @@ public class UsageEnforcerTests
         {
             ObjectId           = ObjectId,
             FreeQuotaMax       = 0,            // force onto paid credits
-            PaidCreditsBalance = 100m,
-            FirstSeenUtc       = DateTime.UtcNow
+            PaidCreditsBalance = 100m
         });
 
         var pricing = Substitute.For<ILlmPricing>();
@@ -126,19 +124,19 @@ public class UsageEnforcerTests
     [Fact]
     public async Task ReleaseAsync_AfterFreeReserve_RestoresBalanceAndWritesNoLedger()
     {
-        var store = new FakeUsageStore(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 0, paid: 50m));
+        var store = new FakeUsageStore(Balance(freeQuotaMax: 20_000, freeTokensUsed: 0, paid: 50m));
 
         var enforcer = BuildEnforcer(store, CreatePerTokenPricing());
 
         var reservation = await enforcer.ReserveAsync(ObjectId, ClientIp, AiProvider.Anthropic, 100, 100);
-        Assert.Equal(200, store.Current.FreeTokensUsedInWindow); // 200 free tokens held
-        Assert.Equal(200, store.IpIssued);                       // reserve grant reached the IP aggregate
+        Assert.Equal(200, store.Current.FreeTokensUsed); // 200 free tokens held
+        Assert.Equal(200, store.IpIssued);               // reserve grant reached the IP aggregate
 
         await enforcer.ReleaseAsync(reservation);
 
-        Assert.Equal(0, store.Current.FreeTokensUsedInWindow);   // hold fully restored
+        Assert.Equal(0, store.Current.FreeTokensUsed);   // hold fully restored
         Assert.Equal(50m, store.Current.PaidCreditsBalance);
-        Assert.Equal(0, store.IpIssued);                         // release refunded the IP grant
+        Assert.Equal(0, store.IpIssued);                 // release refunded the IP grant
         Assert.Empty(store.Ledger);
     }
 
@@ -151,8 +149,7 @@ public class UsageEnforcerTests
         {
             ObjectId           = ObjectId,
             FreeQuotaMax       = 0,            // everything on paid credits
-            PaidCreditsBalance = 100m,
-            FirstSeenUtc       = DateTime.UtcNow
+            PaidCreditsBalance = 100m
         });
 
         var enforcer = BuildEnforcer(store);
@@ -169,13 +166,13 @@ public class UsageEnforcerTests
     [Fact]
     public async Task SettleAsync_PartialFree_SplitsFreeAndPaidDeduction()
     {
-        var store = new FakeUsageStore(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 19_500, paid: 15m));
+        var store = new FakeUsageStore(Balance(freeQuotaMax: 20_000, freeTokensUsed: 19_500, paid: 15m));
 
         var enforcer = BuildEnforcer(store, CreatePerTokenPricing());
 
         await enforcer.SettleAsync(EmptyReservation(), "model", actualInput: 100, actualOutput: 1700, chargeUsd: 18m, providerCostUsd: 9m);
 
-        Assert.Equal(20_000, store.Current.FreeTokensUsedInWindow);
+        Assert.Equal(20_000, store.Current.FreeTokensUsed);
         Assert.Equal(2m, store.Current.PaidCreditsBalance); // 1300/1800 of $18 charge = $13; 15 - 13 = 2
         Assert.Equal(500, store.IpIssued);                  // the free portion reached the IP aggregate
     }
@@ -214,7 +211,7 @@ public class UsageEnforcerTests
     [Fact]
     public async Task ReserveAsync_ExhaustedObjectQuota_ThrowsInsufficientQuota()
     {
-        var store = new FakeUsageStore(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 20_000));
+        var store = new FakeUsageStore(Balance(freeQuotaMax: 20_000, freeTokensUsed: 20_000));
 
         var pricing = Substitute.For<ILlmPricing>();
         pricing.EstimateUpperBoundCost(Arg.Any<AiProvider>(), Arg.Any<int>(), Arg.Any<int>()).Returns(1m);
@@ -228,7 +225,7 @@ public class UsageEnforcerTests
     [Fact]
     public async Task ReserveAsync_ExhaustedIpQuota_ThrowsInsufficientQuota()
     {
-        var store = new FakeUsageStore(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 0), ipIssued: 60_000);
+        var store = new FakeUsageStore(Balance(freeQuotaMax: 20_000, freeTokensUsed: 0), ipIssued: 60_000);
 
         var pricing = Substitute.For<ILlmPricing>();
         pricing.EstimateUpperBoundCost(Arg.Any<AiProvider>(), Arg.Any<int>(), Arg.Any<int>()).Returns(1m);
@@ -242,7 +239,7 @@ public class UsageEnforcerTests
     [Fact]
     public async Task ReserveAsync_ObjectExhaustedButIpHasRoom_ThrowsInsufficientQuota()
     {
-        var store = new FakeUsageStore(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 20_000));
+        var store = new FakeUsageStore(Balance(freeQuotaMax: 20_000, freeTokensUsed: 20_000));
 
         var pricing = Substitute.For<ILlmPricing>();
         pricing.EstimateUpperBoundCost(Arg.Any<AiProvider>(), Arg.Any<int>(), Arg.Any<int>()).Returns(1m);
@@ -256,7 +253,7 @@ public class UsageEnforcerTests
     [Fact]
     public async Task ReserveAsync_PartialFreeHeadroomWithPaidOverflow_DoesNotThrow()
     {
-        var store = new FakeUsageStore(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 19_500, paid: 25m));
+        var store = new FakeUsageStore(Balance(freeQuotaMax: 20_000, freeTokensUsed: 19_500, paid: 25m));
 
         var enforcer = BuildEnforcer(store, CreatePerTokenPricing());
 
@@ -269,7 +266,7 @@ public class UsageEnforcerTests
     [Fact]
     public async Task ReserveAsync_PartialFreeNoPaidForOverflow_ThrowsInsufficientQuota()
     {
-        var store = new FakeUsageStore(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 19_500));
+        var store = new FakeUsageStore(Balance(freeQuotaMax: 20_000, freeTokensUsed: 19_500));
 
         var enforcer = BuildEnforcer(store, CreatePerTokenPricing());
 
@@ -277,18 +274,27 @@ public class UsageEnforcerTests
             () => enforcer.ReserveAsync(ObjectId, ClientIp, AiProvider.Anthropic, 100, 2500));
     }
 
+    // == The free grant is one-time and never expires == //
+
     [Fact]
-    public async Task ReserveAsync_WindowExpired_ThrowsInsufficientQuota()
+    public async Task ReserveAsync_BalanceWithUnspentFreeTokens_GrantsThemRegardlessOfAge()
     {
-        var store = new FakeUsageStore(ActiveBalance(freeQuotaMax: 20_000, freeTokensUsed: 0, firstSeen: DateTime.UtcNow.AddHours(-49)));
+        var store = new FakeUsageStore(Balance(freeQuotaMax: 20_000, freeTokensUsed: 0));
 
         var pricing = Substitute.For<ILlmPricing>();
         pricing.EstimateUpperBoundCost(Arg.Any<AiProvider>(), Arg.Any<int>(), Arg.Any<int>()).Returns(1m);
 
         var enforcer = BuildEnforcer(store, pricing);
 
-        await Assert.ThrowsAsync<InsufficientQuotaException>(
-            () => enforcer.ReserveAsync(ObjectId, ClientIp, AiProvider.Anthropic, 10, 10));
+        var reservation = await enforcer.ReserveAsync(ObjectId, ClientIp, AiProvider.Anthropic, 10, 10);
+
+        Assert.True(reservation.UsedFree);
+
+        // The grant cannot be age-gated because the balance carries no wall-clock value at all.
+        // Reintroducing one (a window start, an expiry) fails here before it can gate headroom.
+        Assert.DoesNotContain(
+            typeof(CreditBalance).GetProperties(),
+            p => p.PropertyType == typeof(DateTime) || p.PropertyType == typeof(DateTime?));
     }
 
     // == Release must not mint a balance row for an unseen user == //
@@ -315,18 +321,13 @@ public class UsageEnforcerTests
 
     // == Fixtures == //
 
-    private static CreditBalance ActiveBalance(
-        long freeQuotaMax,
-        long freeTokensUsed,
-        decimal paid = 0m,
-        DateTime? firstSeen = null)
+    private static CreditBalance Balance(long freeQuotaMax, long freeTokensUsed, decimal paid = 0m)
         => new()
         {
-            ObjectId               = ObjectId,
-            FreeQuotaMax           = freeQuotaMax,
-            FreeTokensUsedInWindow = freeTokensUsed,
-            PaidCreditsBalance     = paid,
-            FirstSeenUtc           = firstSeen ?? DateTime.UtcNow
+            ObjectId           = ObjectId,
+            FreeQuotaMax       = freeQuotaMax,
+            FreeTokensUsed     = freeTokensUsed,
+            PaidCreditsBalance = paid
         };
 
     // A settled call that was never reserved (zero hold) — Settle then behaves like a pure record.
@@ -389,11 +390,10 @@ public class UsageEnforcerTests
 
         private static CreditBalance Clone(CreditBalance b) => new()
         {
-            ObjectId                = b.ObjectId,
-            PaidCreditsBalance      = b.PaidCreditsBalance,
-            FreeTokensUsedInWindow  = b.FreeTokensUsedInWindow,
-            FreeQuotaMax            = b.FreeQuotaMax,
-            FirstSeenUtc            = b.FirstSeenUtc
+            ObjectId           = b.ObjectId,
+            PaidCreditsBalance = b.PaidCreditsBalance,
+            FreeTokensUsed     = b.FreeTokensUsed,
+            FreeQuotaMax       = b.FreeQuotaMax
         };
     }
 }

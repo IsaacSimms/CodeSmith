@@ -58,7 +58,10 @@ public static class ServiceCollectionExtensions
         services.AddScoped<CodeSmith.Core.Interfaces.IStripeCreditStore, CodeSmith.Infrastructure.Persistence.Repositories.EfStripeCreditStore>();
 
         // == Billing (Stripe prepaid credits) — writes credits only; never debits ==
+        // Pack catalog uses a short in-process success cache (load reduction only; not a resilience layer).
+        services.AddMemoryCache();
         services.AddSingleton<CodeSmith.Infrastructure.Billing.IStripeEventReader, CodeSmith.Infrastructure.Billing.StripeEventReader>();
+        services.AddSingleton<CodeSmith.Infrastructure.Billing.IStripePriceReader, CodeSmith.Infrastructure.Billing.StripePriceReader>();
         services.AddScoped<CodeSmith.Core.Interfaces.IBillingService, CodeSmith.Infrastructure.Billing.StripeBillingService>();
         services.AddSingleton<CodeSmith.Core.Interfaces.ILlmPricing, CodeSmith.Infrastructure.Services.Usage.LlmPricing>();
         services.AddScoped<CodeSmith.Core.Interfaces.IUsageEnforcer, CodeSmith.Infrastructure.Services.Usage.UsageEnforcer>();

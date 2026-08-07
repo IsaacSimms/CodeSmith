@@ -98,4 +98,35 @@ public class BillingControllerTests
 
         await _billing.Received(1).GetRecentLedgerAsync(100, Arg.Any<CancellationToken>());
     }
+
+    // == Pack catalog == //
+
+    [Fact]
+    public async Task GetPacks_ReturnsOkBareArrayOfPacks()
+    {
+        _billing.GetPacksAsync(Arg.Any<CancellationToken>()).Returns(new List<CreditPack>
+        {
+            new() { PriceId = "price_1", Name = "Mini", Amount = 10m, Currency = "usd" }
+        });
+
+        var result = Assert.IsType<OkObjectResult>(await _controller.GetPacks(CancellationToken.None));
+        var response = Assert.IsAssignableFrom<IEnumerable<PackResponse>>(result.Value).ToList();
+
+        Assert.Single(response);
+        Assert.Equal("price_1", response[0].PriceId);
+        Assert.Equal("Mini", response[0].Name);
+        Assert.Equal(10m, response[0].Amount);
+        Assert.Equal("usd", response[0].Currency);
+    }
+
+    [Fact]
+    public async Task GetPacks_EmptyCatalog_ReturnsOkEmptyArray()
+    {
+        _billing.GetPacksAsync(Arg.Any<CancellationToken>()).Returns(new List<CreditPack>());
+
+        var result = Assert.IsType<OkObjectResult>(await _controller.GetPacks(CancellationToken.None));
+        var response = Assert.IsAssignableFrom<IEnumerable<PackResponse>>(result.Value);
+
+        Assert.Empty(response);
+    }
 }

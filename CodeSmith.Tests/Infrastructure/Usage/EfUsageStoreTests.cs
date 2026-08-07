@@ -44,11 +44,10 @@ public class EfUsageStoreTests
 
     private static CreditBalance Balance(long freeUsed = 0, decimal paid = 0m) => new()
     {
-        ObjectId               = ObjectId,
-        FreeQuotaMax           = 20_000,
-        FreeTokensUsedInWindow = freeUsed,
-        PaidCreditsBalance     = paid,
-        FirstSeenUtc           = DateTime.UtcNow
+        ObjectId           = ObjectId,
+        FreeQuotaMax       = 20_000,
+        FreeTokensUsed     = freeUsed,
+        PaidCreditsBalance = paid
     };
 
     // == GetSnapshotAsync == //
@@ -79,7 +78,7 @@ public class EfUsageStoreTests
             var snapshot = await new EfUsageStore(db).GetSnapshotAsync(ObjectId, ClientIp);
 
             Assert.NotNull(snapshot.Balance);
-            Assert.Equal(500,  snapshot.Balance!.FreeTokensUsedInWindow);
+            Assert.Equal(500,  snapshot.Balance!.FreeTokensUsed);
             Assert.Equal(3m,   snapshot.Balance.PaidCreditsBalance);
             Assert.Equal(1234, snapshot.IpFreeTokensIssued);
         }
@@ -96,7 +95,7 @@ public class EfUsageStoreTests
             await new EfUsageStore(db).PersistAsync(Balance(freeUsed: 100), ClientIp, ipIssuedDelta: 0);
 
             var stored = await db.CreditBalances.SingleAsync();
-            Assert.Equal(100, stored.FreeTokensUsedInWindow);
+            Assert.Equal(100, stored.FreeTokensUsed);
         }
     }
 

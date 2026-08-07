@@ -36,6 +36,7 @@ public class AppExceptionHandlerTests
         { new ChallengeNotFoundException("ch-1"),                404 },
         { new ScenarioNotFoundException("sc-1"),                 404 },
         { new AiServiceException("upstream error"),              502 },
+        { new BillingServiceException("stripe down"),            502 },
         { new CodeExecutionException("exec error"),              500 },
         { new OperationCanceledException(),                      499 },
         { new TaskCanceledException(),                           499 },   // subtype must match the OCE row (HttpClient cancellations)

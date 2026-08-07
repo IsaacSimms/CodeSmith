@@ -135,8 +135,8 @@ internal sealed class UsageEnforcingLlmService : ILlmService
         return id;
     }
 
-    // Downgrades evaluations to the Fast tier only while consuming free quota (inside the 48h window).
-    // Paid / post-window usage keeps Accurate for quality.
+    // Downgrades evaluations to the Fast tier only while the call is covered by the free grant.
+    // Once the grant is spent and the user is on paid credits, Accurate is kept for quality.
     private static CompletionRequest EffectiveRequest(CompletionRequest request, bool usedFree)
     {
         if (!usedFree || !IsEvaluationFeature(request.Feature))

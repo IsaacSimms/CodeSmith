@@ -142,11 +142,11 @@ With the recent changes, quota is enforced before every LLM call that costs mone
 
 - Start with a fresh `X-Debug-User-Id`.
 - Perform a full flow and track approximate token usage.
-- Exhaust the free 20k (or configured amount) within the 48h window.
+- Exhaust the free 20k (or configured amount) — the grant is one-time, with no expiry and no reset.
 - Verify that further expensive actions are blocked (402 response / UI message).
 - Test the "lenient last action" behavior: when you are very close to the limit, the system should still let you complete the current action.
 - Test IP caps: from the same machine/IP, create multiple different debug users — they should share the per-IP pool.
-- After the 48h window (or by editing `FirstSeenUtc` in the DB for testing), free quota should no longer be available for that `objectId`.
+- Verify the grant does not age out: an old `CreditBalances` row with `FreeTokensUsed` below `FreeQuotaMax` still gets free coverage. To re-test a spent grant, reset `FreeTokensUsed` to 0 in the DB.
 - Paid credits path: if you manually set `PaidCreditsBalance` in the DB, verify it is used after free is exhausted.
 - Switch between free and paid behavior.
 

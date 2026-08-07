@@ -10,8 +10,10 @@ using Microsoft.Extensions.Options;
 namespace CodeSmith.Infrastructure.Services.Usage;
 
 /// <summary>
-/// Enforces free quota and paid credit limits as a reserve → settle / release lifecycle.
-/// <see cref="ReserveAsync"/> holds an upper-bound estimate against the user's free window quota, the
+/// Enforces the one-time free token grant and paid credit limits as a reserve → settle / release
+/// lifecycle. The grant never expires, so no wall-clock value gates it: free headroom is always
+/// <c>FreeQuotaMax − FreeTokensUsed</c>, min'd with the per-IP cap.
+/// <see cref="ReserveAsync"/> holds an upper-bound estimate against that free headroom, the
 /// per-IP aggregate, and paid credits — and *persists* that hold before releasing the lock. Because the
 /// hold is written, concurrent completions for the same user (the Prompt Lab parallel simulate/evaluate
 /// fan-out) can no longer all pass the same gate: each reservation sees the prior holds. Per-user
@@ -67,14 +69,13 @@ public class UsageEnforcer : IUsageEnforcer
             await ipGate.WaitAsync(ct);
 
             var snapshot = await _store.GetSnapshotAsync(objectId, normalizedIp, ct);
-            var balance  = snapshot.Balance ?? CreditBalance.CreateNew(objectId, _options.FreeMonthlyTokenQuota);
+            var balance  = snapshot.Balance ?? CreditBalance.CreateNew(objectId, _options.FreeTokenQuota);
 
-            var windowActive = WindowActive(balance);
-            var objectFreeRem = windowActive ? (balance.FreeQuotaMax - balance.FreeTokensUsedInWindow) : 0L;
+            var objectFreeRem = balance.FreeQuotaMax - balance.FreeTokensUsed;
 
             var ipRem = IpFreeTokenCap - snapshot.IpFreeTokensIssued;
 
-            var hasFreeStrict = windowActive && objectFreeRem >= estTotalTokens && ipRem >= estTotalTokens;
+            var hasFreeStrict = objectFreeRem >= estTotalTokens && ipRem >= estTotalTokens;
             var hasPaid = balance.PaidCreditsBalance >= estCost;
 
             // Decide what to hold: full-free, else full-paid, else partial free + paid overflow.
@@ -93,7 +94,7 @@ public class UsageEnforcer : IUsageEnforcer
             }
             else
             {
-                var freeCover = ComputeFreeCover(windowActive, objectFreeRem, ipRem, estTotalTokens);
+                var freeCover = ComputeFreeCover(objectFreeRem, ipRem, estTotalTokens);
                 var overflowCost = 0m;
                 var permitted = false;
 
@@ -108,8 +109,8 @@ public class UsageEnforcer : IUsageEnforcer
                 if (!permitted)
                 {
                     _logger.LogWarning(
-                        "Quota/credit reservation failed for {ObjectId}. WindowActive: {Window}, Free remaining: {Free}, IP rem: {IpRem}, Paid: {Paid}, estCost: {Cost}",
-                        objectId, windowActive, objectFreeRem, ipRem, balance.PaidCreditsBalance, estCost);
+                        "Quota/credit reservation failed for {ObjectId}. Free remaining: {Free}, IP rem: {IpRem}, Paid: {Paid}, estCost: {Cost}",
+                        objectId, objectFreeRem, ipRem, balance.PaidCreditsBalance, estCost);
                     throw new InsufficientQuotaException(objectId, "Insufficient quota or credits for this request.");
                 }
 
@@ -120,7 +121,7 @@ public class UsageEnforcer : IUsageEnforcer
             // Persist the hold so concurrent reservations for this user see the reduced balance —
             // balance mutation and IP grant land together as ONE unit of work.
             if (reservedFree > 0)
-                balance.FreeTokensUsedInWindow += reservedFree;
+                balance.FreeTokensUsed += reservedFree;
             if (reservedPaid > 0)
                 balance.PaidCreditsBalance -= reservedPaid;
 
@@ -166,22 +167,21 @@ public class UsageEnforcer : IUsageEnforcer
             await ipGate.WaitAsync(ct);
 
             var snapshot = await _store.GetSnapshotAsync(objectId, normalizedIp, ct);
-            var balance  = snapshot.Balance ?? CreditBalance.CreateNew(objectId, _options.FreeMonthlyTokenQuota);
+            var balance  = snapshot.Balance ?? CreditBalance.CreateNew(objectId, _options.FreeTokenQuota);
 
             // 1) Reverse the hold taken at reserve time.
             ReverseHold(balance, reservation);
 
-            // 2) Apply the actual deduction: free first (within the active window, bounded by both the
-            //    objectId and IP remainders), then paid credits for the remainder.
-            var windowActive = WindowActive(balance);
-            var freeRem = windowActive ? (balance.FreeQuotaMax - balance.FreeTokensUsedInWindow) : 0L;
+            // 2) Apply the actual deduction: free first (bounded by both the objectId and IP
+            //    remainders), then paid credits for the remainder.
+            var freeRem = balance.FreeQuotaMax - balance.FreeTokensUsed;
 
             var ipIssuedAfterReverse = Math.Max(0, snapshot.IpFreeTokensIssued - reservation.ReservedFreeTokens); // the hold is being reconciled
             var ipRem = IpFreeTokenCap - ipIssuedAfterReverse;
 
-            var freeUsedThisCall = ComputeFreeCover(windowActive, freeRem, ipRem, actualTokens);
+            var freeUsedThisCall = ComputeFreeCover(freeRem, ipRem, actualTokens);
             if (freeUsedThisCall > 0)
-                balance.FreeTokensUsedInWindow += freeUsedThisCall;
+                balance.FreeTokensUsed += freeUsedThisCall;
 
             var paidTokens = actualTokens - freeUsedThisCall;
             if (paidTokens > 0 && actualTokens > 0)
@@ -258,15 +258,11 @@ public class UsageEnforcer : IUsageEnforcer
 
     // == Balance helpers == //
 
-    // 48h window per objectId (global first sighting). No monthly reset.
-    private static bool WindowActive(CreditBalance balance)
-        => (DateTime.UtcNow - balance.FirstSeenUtc).TotalHours < 48;
-
     // Undoes a reservation's hold on the balance (free tokens floored at zero; paid credits refunded).
     private static void ReverseHold(CreditBalance balance, UsageReservation reservation)
     {
         if (reservation.ReservedFreeTokens > 0)
-            balance.FreeTokensUsedInWindow = Math.Max(0, balance.FreeTokensUsedInWindow - reservation.ReservedFreeTokens);
+            balance.FreeTokensUsed = Math.Max(0, balance.FreeTokensUsed - reservation.ReservedFreeTokens);
         if (reservation.ReservedPaidUsd > 0)
             balance.PaidCreditsBalance += reservation.ReservedPaidUsd;
     }
@@ -276,9 +272,9 @@ public class UsageEnforcer : IUsageEnforcer
 
     // == Quota helpers == //
 
-    private static long ComputeFreeCover(bool windowActive, long objectFreeRem, long ipRem, long totalTokens)
+    private static long ComputeFreeCover(long objectFreeRem, long ipRem, long totalTokens)
     {
-        if (!windowActive || objectFreeRem <= 0 || ipRem <= 0 || totalTokens <= 0)
+        if (objectFreeRem <= 0 || ipRem <= 0 || totalTokens <= 0)
             return 0;
         return Math.Min(objectFreeRem, Math.Min(ipRem, totalTokens));
     }

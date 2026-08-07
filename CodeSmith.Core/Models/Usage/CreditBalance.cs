@@ -4,9 +4,10 @@ using System.ComponentModel.DataAnnotations;
 namespace CodeSmith.Core.Models.Usage;
 
 /// <summary>
-/// Per-user balance for free quota (time-boxed window) + prepaid credits.
+/// Per-user balance for the free token grant + prepaid credits.
 /// Strong consistency enforced at the database/row level for checks.
-/// Free quota is available only for the first 48 hours after first sighting of the objectId.
+/// The free grant is one-time per objectId: it never expires and never resets, so the row carries
+/// no wall-clock field — headroom is always <c>FreeQuotaMax − FreeTokensUsed</c>.
 /// </summary>
 public class CreditBalance
 {
@@ -15,11 +16,9 @@ public class CreditBalance
 
     public decimal PaidCreditsBalance { get; set; }                 // Purchased credits (treated in USD-equivalent for pass-through + markup)
 
-    public long FreeTokensUsedInWindow { get; set; }                // Tokens consumed against the free window quota
+    public long FreeTokensUsed { get; set; }                        // Tokens consumed against this account's free grant
 
-    public long FreeQuotaMax { get; set; } = 20_000;                // Configurable hard cap for free tier (default; overridable via UsageOptions)
-
-    public DateTime FirstSeenUtc { get; set; } = DateTime.UtcNow;   // Start of the 48h free window for this objectId (global)
+    public long FreeQuotaMax { get; set; } = 20_000;                // Size of the one-time free grant, snapshotted per row (default; seeded from UsageOptions)
 
     [Timestamp]
     public byte[]? RowVersion { get; set; }                         // Optimistic concurrency token for safe concurrent deducts
@@ -27,5 +26,5 @@ public class CreditBalance
     // Canonical seed for a brand-new balance. Single source of the creation defaults shared by usage
     // enforcement and billing top-ups so the two paths cannot drift.
     public static CreditBalance CreateNew(string objectId, long freeQuotaMax)
-        => new() { ObjectId = objectId, FreeQuotaMax = freeQuotaMax, FirstSeenUtc = DateTime.UtcNow };
+        => new() { ObjectId = objectId, FreeQuotaMax = freeQuotaMax };
 }
