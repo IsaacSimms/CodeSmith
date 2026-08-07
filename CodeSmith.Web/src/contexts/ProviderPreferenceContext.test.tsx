@@ -40,7 +40,7 @@ function Probe() {
 
 function renderWithProviders(
   ui: React.ReactElement,
-  queryOptions?: { retry?: number }
+  queryOptions?: { retry?: boolean | number }   // mirrors TanStack Query's retry option
 ) {
   const queryClient = new QueryClient({
     defaultOptions: {

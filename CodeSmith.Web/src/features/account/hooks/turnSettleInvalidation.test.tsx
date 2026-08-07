@@ -74,8 +74,6 @@ describe("metered turn-settle invalidation", () => {
   it("Prompt Lab chat settle invalidates quota, balance, and ledger", async () => {
     vi.mocked(apiClient.streamPromptLabChat).mockResolvedValue({
       response: "Refine the system prompt",
-      contextTokensUsed: 10,
-      contextWindowSize: 200_000,
     });
     const { wrapper, queryClient } = createWrapper();
     const { result } = renderHook(() => usePromptLabChat(), { wrapper });
@@ -93,8 +91,6 @@ describe("metered turn-settle invalidation", () => {
   it("System Lab chat settle invalidates quota, balance, and ledger", async () => {
     vi.mocked(apiClient.streamSystemLabChat).mockResolvedValue({
       response: "Consider consistency",
-      contextTokensUsed: 10,
-      contextWindowSize: 200_000,
     });
     const { wrapper, queryClient } = createWrapper();
     const { result } = renderHook(() => useSystemLabChat(), { wrapper });

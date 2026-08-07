@@ -158,9 +158,11 @@ describe("CreditsCard", () => {
       pending: true,
     });
     // createCheckout after ledger snapshot (ordering: baseline before redirect URL)
-    const ledgerOrder = vi.mocked(apiClient.getLedger).mock.invocationCallOrder[0];
-    const checkoutOrder = vi.mocked(apiClient.createCheckout).mock.invocationCallOrder[0];
-    expect(ledgerOrder).toBeLessThan(checkoutOrder);
+    const [ledgerOrder] = vi.mocked(apiClient.getLedger).mock.invocationCallOrder;
+    const [checkoutOrder] = vi.mocked(apiClient.createCheckout).mock.invocationCallOrder;
+    expect(ledgerOrder).toBeDefined();
+    expect(checkoutOrder).toBeDefined();
+    expect(ledgerOrder!).toBeLessThan(checkoutOrder!);
   });
 
   it("re-buy while a purchase is still applying prompts and overwrites baseline on confirm", async () => {
