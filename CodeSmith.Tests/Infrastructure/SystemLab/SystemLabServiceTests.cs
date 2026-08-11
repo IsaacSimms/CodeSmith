@@ -5,6 +5,7 @@ using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
 using CodeSmith.Core.Models.PromptLab;
 using CodeSmith.Core.Models.SystemLab;
+using CodeSmith.Infrastructure.Services;
 using CodeSmith.Infrastructure.Services.SystemLab;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
@@ -15,20 +16,26 @@ public class SystemLabServiceTests
 {
     private readonly ISystemLabSessionStore        _sessionStore = Substitute.For<ISystemLabSessionStore>();
     private readonly ISystemLabEvaluator           _evaluator    = Substitute.For<ISystemLabEvaluator>();
-    private readonly IGuidanceConversation         _guidance     = Substitute.For<IGuidanceConversation>();
+    private readonly ILlmService                   _llm          = Substitute.For<ILlmService>();
     private readonly ILogger<SystemLabService>     _logger       = Substitute.For<ILogger<SystemLabService>>();
     private readonly SystemLabService              _service;
 
     public SystemLabServiceTests()
     {
         // Pass-through the per-session lock so submit/chat bodies run inline (the lock itself is covered
-        // by InMemorySessionStoreTests).
+        // by InMemorySessionStoreTests). Chat turns lock at the LlmResponse level inside GuidanceConversation.
         _sessionStore.WithSessionLockAsync(Arg.Any<string>(), Arg.Any<Func<Task<ScenarioAttempt>>>(), Arg.Any<CancellationToken>())
             .Returns(ci => ci.Arg<Func<Task<ScenarioAttempt>>>()());
-        _sessionStore.WithSessionLockAsync(Arg.Any<string>(), Arg.Any<Func<Task<string>>>(), Arg.Any<CancellationToken>())
-            .Returns(ci => ci.Arg<Func<Task<string>>>()());
+        _sessionStore.WithSessionLockAsync(Arg.Any<string>(), Arg.Any<Func<Task<LlmResponse>>>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Func<Task<LlmResponse>>>()());
 
-        _service = new SystemLabService(_evaluator, _guidance, _sessionStore, _logger);
+        // Chat runs through the real GuidanceConversation over the substituted ILlmService, so chat tests
+        // observe orchestrator behavior through the surface's own Interface.
+        var factory = Substitute.For<ILlmServiceFactory>();
+        factory.Get(Arg.Any<AiProvider>()).Returns(_llm);
+        var guidance = new GuidanceConversation(factory, Substitute.For<ILogger<GuidanceConversation>>());
+
+        _service = new SystemLabService(_evaluator, guidance, _sessionStore, _logger);
     }
 
     // == Catalog Tests == //
@@ -187,52 +194,53 @@ public class SystemLabServiceTests
             () => _service.ChatAsync(Guid.NewGuid(), "help me", null));
     }
 
-    // The append/persist/rollback turn mechanics now live in GuidanceConversation (see
-    // GuidanceConversationTests); the orchestrator's job is only to route the right history, provider,
-    // and SystemLab:Chat feature and return the reply.
+    // The turn mechanics live in GuidanceConversation (see GuidanceConversationTests); these cover the
+    // orchestrator's own job: building the scenario-aware prompt data with the SystemLab:Chat feature
+    // and returning the reply content, with the turn landing on the session's chat history.
     [Fact]
-    public async Task ChatAsync_DelegatesToGuidanceWithSessionHistoryAndReturnsContent()
+    public async Task ChatAsync_RunsTurnOnSessionHistoryAndReturnsContent()
     {
         var scenarioId = _service.GetScenarios()[0].ScenarioId;
         var session    = new SystemLabSession { ScenarioId = scenarioId, Provider = AiProvider.Anthropic };
 
         _sessionStore.Get(session.SessionId.ToString()).Returns(session);
 
-        _guidance.RunTurnAsync(Arg.Any<AiProvider>(), Arg.Any<List<ChatMessage>>(), Arg.Any<GuidanceTurnRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>())
+        string? feature = null;
+        _llm.CompleteAsync(Arg.Do<CompletionRequest>(r => feature = r.Feature), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "Consider the RTO implications." });
 
         var response = await _service.ChatAsync(session.SessionId, "what about failover?", "my draft justification");
 
         Assert.Equal("Consider the RTO implications.", response);
-        await _guidance.Received(1).RunTurnAsync(
-            session.Provider,
-            session.ChatHistory,
-            Arg.Is<GuidanceTurnRequest>(r => r.Feature == "SystemLab:Chat" && r.UserMessage == "what about failover?"),
-            Arg.Any<Action>(),
-            Arg.Any<CancellationToken>());
+        Assert.Equal("SystemLab:Chat", feature);
+        Assert.Equal(2, session.ChatHistory.Count);           // whole turn landed on the session's chat history
+        Assert.Equal("what about failover?",            session.ChatHistory[0].Content);
+        Assert.Equal("Consider the RTO implications.",  session.ChatHistory[1].Content);
+        _sessionStore.Received(1).Set(session);
     }
 
     [Fact]
-    public async Task StreamChatAsync_DelegatesToStreamingTurnWithCallerOnDelta()
+    public async Task StreamChatAsync_StreamsTheReplyThroughCallerOnDelta()
     {
         var scenarioId = _service.GetScenarios()[0].ScenarioId;
         var session    = new SystemLabSession { ScenarioId = scenarioId, Provider = AiProvider.Anthropic };
         _sessionStore.Get(session.SessionId.ToString()).Returns(session);
 
-        Func<string, CancellationToken, Task> onDelta = (_, _) => Task.CompletedTask;
-        _guidance.StreamTurnAsync(Arg.Any<AiProvider>(), Arg.Any<List<ChatMessage>>(), Arg.Any<GuidanceTurnRequest>(),
-                Arg.Any<Func<string, CancellationToken, Task>>(), Arg.Any<Action>(), Arg.Any<CancellationToken>())
-            .Returns(new LlmResponse { Content = "Streamed reply" });
+        _llm.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<Func<string, CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(async callInfo =>
+            {
+                var push = callInfo.Arg<Func<string, CancellationToken, Task>>();
+                await push("Streamed ", CancellationToken.None);
+                await push("reply",     CancellationToken.None);
+                return new LlmResponse { Content = "Streamed reply" };
+            });
 
-        var response = await _service.StreamChatAsync(session.SessionId, "what about failover?", null, onDelta);
+        var deltas = new List<string>();
+        var response = await _service.StreamChatAsync(session.SessionId, "what about failover?", null,
+            (text, _) => { deltas.Add(text); return Task.CompletedTask; });
 
         Assert.Equal("Streamed reply", response);
-        await _guidance.Received(1).StreamTurnAsync(
-            session.Provider,
-            session.ChatHistory,
-            Arg.Is<GuidanceTurnRequest>(r => r.Feature == "SystemLab:Chat"),
-            onDelta,   // the caller's callback reaches the turn unwrapped
-            Arg.Any<Action>(),
-            Arg.Any<CancellationToken>());
+        Assert.Equal(["Streamed ", "reply"], deltas);         // the caller's callback received the deltas unwrapped
+        Assert.Equal(2, session.ChatHistory.Count);
     }
 }

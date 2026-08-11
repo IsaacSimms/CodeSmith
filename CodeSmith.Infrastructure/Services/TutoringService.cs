@@ -20,8 +20,7 @@ public class TutoringService : ITutoringService
     private readonly ITutoringPromptTemplates _templates;
     private readonly ILogger<TutoringService> _logger;
 
-    private const int GuidanceMaxTokens    = 1024; // Per-message guidance response budget
-    private const int GuidanceHistoryWindow = 20;  // Max messages retained before older turns are trimmed
+    private const int GuidanceMaxTokens = 1024; // Per-message guidance response budget
 
     public TutoringService(
         IProblemGenerator problemGenerator,
@@ -104,41 +103,25 @@ public class TutoringService : ITutoringService
         CancellationToken ct = default)
         => ExecuteGuidanceAsync(sessionId, userMessage, editorContent, guidanceMode, onDelta, ct);
 
-    // A streaming turn holds the same per-session lock for its whole duration as a blocking one —
-    // partial turns are never persisted, so nothing else may interleave while the stream is open.
+    // The turn mechanics (per-session lock, load-or-throw, streaming dispatch, persist, rollback) live
+    // behind IGuidanceConversation — this surface supplies only its prompt data and projects the result.
     private async Task<ChatResponse> ExecuteGuidanceAsync(
         Guid sessionId, string userMessage, string? editorContent, GuidanceMode guidanceMode,
         Func<string, CancellationToken, Task>? onDelta, CancellationToken ct)
     {
-        // Serialize per session: a Guidance Turn mutates the shared Messages list, so concurrent turns
-        // on the same session must not interleave (which would corrupt the user/assistant alternation).
-        return await _sessionStore.WithSessionLockAsync(sessionId.ToString(), async () =>
+        var llmResponse = await _guidance.RunTurnAsync(_sessionStore, sessionId, session => new GuidanceTurnRequest
         {
-            var session = _sessionStore.Get(sessionId.ToString())
-                ?? throw new SessionNotFoundException(sessionId);
+            SystemPrompt = _templates.GuidanceSystemPrompt(session.Language, session.ProblemDescription, session.StarterCode, editorContent, guidanceMode, session.Focus),
+            UserMessage  = userMessage,
+            MaxTokens    = GuidanceMaxTokens,
+            Feature      = "Tutoring:Guidance"
+        }, onDelta, ct);
 
-            _logger.LogInformation("Processing guidance request for session {SessionId}", sessionId);
-
-            var systemPrompt = _templates.GuidanceSystemPrompt(session.Language, session.ProblemDescription, session.StarterCode, editorContent, guidanceMode, session.Focus);
-            var turnRequest  = new GuidanceTurnRequest
-            {
-                SystemPrompt = systemPrompt,
-                UserMessage  = userMessage,
-                MaxTokens    = GuidanceMaxTokens,
-                MaxTurns     = GuidanceHistoryWindow,
-                Feature      = "Tutoring:Guidance"
-            };
-
-            var llmResponse = onDelta is null
-                ? await _guidance.RunTurnAsync(session.Provider, session.Messages, turnRequest, () => _sessionStore.Set(session), ct)
-                : await _guidance.StreamTurnAsync(session.Provider, session.Messages, turnRequest, onDelta, () => _sessionStore.Set(session), ct);
-
-            return new ChatResponse
-            {
-                Response          = llmResponse.Content,
-                ContextTokensUsed = llmResponse.InputTokensUsed,
-                ContextWindowSize = llmResponse.ContextWindowSize
-            };
-        }, ct);
+        return new ChatResponse
+        {
+            Response          = llmResponse.Content,
+            ContextTokensUsed = llmResponse.InputTokensUsed,
+            ContextWindowSize = llmResponse.ContextWindowSize
+        };
     }
 }

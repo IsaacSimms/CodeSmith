@@ -13,37 +13,42 @@ public class TutoringServiceTests
 {
     // == Helpers == //
 
+    // Guidance runs through the real GuidanceConversation over a substituted ILlmService, so these
+    // tests observe orchestrator behavior (prompt building, projection) through the surface's own
+    // Interface rather than pinning the guidance seam's call shape.
     private static TutoringService BuildService(
         IProblemGenerator?             problemGenerator = null,
-        IGuidanceConversation?         guidance         = null,
         ISessionStore<ProblemSession>? store            = null,
         ICodeExecutionService?         codeExec         = null,
         ITutoringPromptTemplates?      templates        = null,
+        ILlmService?                   llm              = null,
         ILogger<TutoringService>?      logger           = null)
     {
         store ??= Substitute.For<ISessionStore<ProblemSession>>();
 
-        // Pass-through the per-session lock so GetGuidanceAsync bodies run inline (the lock itself is
+        // Pass-through the per-session lock so guidance turns run inline (the lock itself is
         // covered by InMemorySessionStoreTests + the concurrency test below).
-        store.WithSessionLockAsync(Arg.Any<string>(), Arg.Any<Func<Task<ChatResponse>>>(), Arg.Any<CancellationToken>())
-            .Returns(ci => ci.Arg<Func<Task<ChatResponse>>>()());
+        store.WithSessionLockAsync(Arg.Any<string>(), Arg.Any<Func<Task<LlmResponse>>>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Func<Task<LlmResponse>>>()());
+
+        var factory = Substitute.For<ILlmServiceFactory>();
+        factory.Get(Arg.Any<AiProvider>()).Returns(llm ?? Substitute.For<ILlmService>());
 
         return new(
             problemGenerator ?? Substitute.For<IProblemGenerator>(),
-            guidance         ?? Substitute.For<IGuidanceConversation>(),
+            new GuidanceConversation(factory, Substitute.For<ILogger<GuidanceConversation>>()),
             store,
             codeExec         ?? Substitute.For<ICodeExecutionService>(),
             templates        ?? Substitute.For<ITutoringPromptTemplates>(),
             logger           ?? Substitute.For<ILogger<TutoringService>>());
     }
 
-    // Builds a guidance substitute that returns the given reply, so the orchestrator can project it.
-    private static IGuidanceConversation GuidanceReturning(LlmResponse response)
+    // Builds an ILlmService substitute that returns the given reply, so the orchestrator can project it.
+    private static ILlmService LlmReturning(LlmResponse response)
     {
-        var guidance = Substitute.For<IGuidanceConversation>();
-        guidance.RunTurnAsync(Arg.Any<AiProvider>(), Arg.Any<List<ChatMessage>>(), Arg.Any<GuidanceTurnRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>())
-            .Returns(response);
-        return guidance;
+        var llm = Substitute.For<ILlmService>();
+        llm.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>()).Returns(response);
+        return llm;
     }
 
     private static ITutoringPromptTemplates TemplatesReturning(string systemPrompt)
@@ -142,9 +147,13 @@ public class TutoringServiceTests
         var store = Substitute.For<ISessionStore<ProblemSession>>();
         store.Get(Arg.Any<string>()).Returns(session);
 
-        var guidance = GuidanceReturning(new LlmResponse { Content = "Think about goroutines.", InputTokensUsed = 75, ContextWindowSize = 200_000 });
+        // Capture the completion so the turn's feature label is observable at the LLM seam
+        var llm = Substitute.For<ILlmService>();
+        string? feature = null;
+        llm.CompleteAsync(Arg.Do<CompletionRequest>(r => feature = r.Feature), Arg.Any<CancellationToken>())
+            .Returns(new LlmResponse { Content = "Think about goroutines.", InputTokensUsed = 75, ContextWindowSize = 200_000 });
 
-        var service = BuildService(guidance: guidance, store: store, templates: TemplatesReturning("system prompt"));
+        var service = BuildService(store: store, templates: TemplatesReturning("system prompt"), llm: llm);
 
         var response = await service.GetGuidanceAsync(session.SessionId, "I'm stuck", null, GuidanceMode.Guidance, CancellationToken.None);
 
@@ -153,13 +162,12 @@ public class TutoringServiceTests
         Assert.Equal(75,      response.ContextTokensUsed);
         Assert.Equal(200_000, response.ContextWindowSize);
 
-        // Delegates the turn against the session's own history, provider, and the Tutoring:Guidance feature
-        await guidance.Received(1).RunTurnAsync(
-            session.Provider,
-            session.Messages,
-            Arg.Is<GuidanceTurnRequest>(r => r.Feature == "Tutoring:Guidance" && r.UserMessage == "I'm stuck"),
-            Arg.Any<Action>(),
-            Arg.Any<CancellationToken>());
+        // The turn ran against the session's own history under the Tutoring:Guidance feature
+        Assert.Equal("Tutoring:Guidance", feature);
+        Assert.Equal(2, session.Messages.Count);
+        Assert.Equal("I'm stuck",                session.Messages[0].Content);
+        Assert.Equal("Think about goroutines.",  session.Messages[1].Content);
+        store.Received(1).Set(session);
     }
 
     [Fact]
@@ -177,7 +185,7 @@ public class TutoringServiceTests
         store.Get(Arg.Any<string>()).Returns(session);
 
         var templates = TemplatesReturning("system prompt");
-        var service   = BuildService(guidance: GuidanceReturning(new LlmResponse { Content = "Good start." }), store: store, templates: templates);
+        var service   = BuildService(store: store, templates: templates, llm: LlmReturning(new LlmResponse { Content = "Good start." }));
 
         await service.GetGuidanceAsync(session.SessionId, "review my code", "const solve = () => 42;", GuidanceMode.Guidance, CancellationToken.None);
 
@@ -204,7 +212,7 @@ public class TutoringServiceTests
         store.Get(Arg.Any<string>()).Returns(session);
 
         var templates = TemplatesReturning("code analysis system prompt");
-        var service   = BuildService(guidance: GuidanceReturning(new LlmResponse { Content = "Your output looks correct." }), store: store, templates: templates);
+        var service   = BuildService(store: store, templates: templates, llm: LlmReturning(new LlmResponse { Content = "Your output looks correct." }));
 
         await service.GetGuidanceAsync(session.SessionId, "I ran my code", null, guidanceMode: GuidanceMode.CodeAnalysis, CancellationToken.None);
 

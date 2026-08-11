@@ -22,8 +22,7 @@ public class PromptLabService : IPromptLabService
     private readonly IGuidanceConversation _guidance;
     private readonly ILogger<PromptLabService> _logger;
 
-    private const int ChatHistoryWindow = 20;   // Max messages retained before older turns are trimmed
-    private const int ChatMaxTokens     = 1024; // Response token budget for guidance replies
+    private const int ChatMaxTokens = 1024; // Response token budget for guidance replies
 
     public PromptLabService(
         IPromptSimulator simulator,
@@ -185,32 +184,21 @@ public class PromptLabService : IPromptLabService
         Func<string, CancellationToken, Task> onDelta, CancellationToken ct = default)
         => ExecuteChatAsync(sessionId, message, editorContent, onDelta, ct);
 
+    // The turn mechanics (per-session lock, load-or-throw, streaming dispatch, persist, rollback) live
+    // behind IGuidanceConversation — this surface supplies only its prompt data. The catalog lookup runs
+    // inside buildTurn, so ChallengeNotFoundException still propagates with its own HTTP mapping.
     private async Task<string> ExecuteChatAsync(Guid sessionId, string message, string? editorContent,
         Func<string, CancellationToken, Task>? onDelta, CancellationToken ct)
     {
-        // Serialize per session: a Guidance Turn mutates the shared ChatHistory list. A streaming
-        // turn holds the lock for its whole duration — partial turns are never persisted.
-        return await _sessionStore.WithSessionLockAsync(sessionId.ToString(), async () =>
+        var response = await _guidance.RunTurnAsync(_sessionStore, sessionId, session => new GuidanceTurnRequest
         {
-            var session   = _sessionStore.Get(sessionId.ToString()) ?? throw new SessionNotFoundException(sessionId);
-            var challenge = GetChallenge(session.ChallengeId);
+            SystemPrompt = BuildChatSystemPrompt(GetChallenge(session.ChallengeId), session, editorContent),
+            UserMessage  = message,
+            MaxTokens    = ChatMaxTokens,
+            Feature      = "PromptLab:Chat"
+        }, onDelta, ct);
 
-            var systemPrompt = BuildChatSystemPrompt(challenge, session, editorContent);
-            var turnRequest  = new GuidanceTurnRequest
-            {
-                SystemPrompt = systemPrompt,
-                UserMessage  = message,
-                MaxTokens    = ChatMaxTokens,
-                MaxTurns     = ChatHistoryWindow,
-                Feature      = "PromptLab:Chat"
-            };
-
-            var response = onDelta is null
-                ? await _guidance.RunTurnAsync(session.Provider, session.ChatHistory, turnRequest, () => _sessionStore.Set(session), ct)
-                : await _guidance.StreamTurnAsync(session.Provider, session.ChatHistory, turnRequest, onDelta, () => _sessionStore.Set(session), ct);
-
-            return response.Content;
-        }, ct);
+        return response.Content;
     }
 
     // == Chat Prompt Builder == //

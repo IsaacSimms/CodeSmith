@@ -8,12 +8,14 @@ using Microsoft.Extensions.Logging;
 namespace CodeSmith.Infrastructure.Services;
 
 /// <summary>
-/// The one Module that owns a Guidance Turn for every surface. It concentrates the history-mutation
-/// and error invariant the three orchestrators used to hand-copy: append the user message, trim to a
-/// whole-turn window anchored on a User message, run one Fast-tier Completion via the provider's
-/// usage-enforced ILlmService, append the assistant reply, and persist. Any non-domain failure rolls
-/// the optimistic user turn back and is surfaced as AiServiceException; AiServiceException and
-/// cancellation pass through untouched (the latter so it still maps to 499, not 502).
+/// The one Module that owns a Guidance Turn for every surface. It concentrates the whole turn frame
+/// the three orchestrators used to hand-copy: take the store's per-session lock, load the session or
+/// throw SessionNotFoundException, append the user message, trim to a whole-turn window anchored on a
+/// User message, run one Fast-tier Completion via the provider's usage-enforced ILlmService (blocking,
+/// or streaming when onDelta is supplied), append the assistant reply, and persist via store.Set. Any
+/// non-domain failure rolls the optimistic user turn back and is surfaced as AiServiceException;
+/// AiServiceException, InsufficientQuotaException, and cancellation pass through untouched (the latter
+/// so it still maps to 499, not 502). buildTurn failures propagate unwrapped and mutate nothing.
 /// </summary>
 public sealed class GuidanceConversation : IGuidanceConversation
 {
@@ -26,26 +28,34 @@ public sealed class GuidanceConversation : IGuidanceConversation
         _logger  = logger;
     }
 
-    // == RunTurnAsync / StreamTurnAsync == //
+    // == Session-Level Turn == //
 
-    public Task<LlmResponse> RunTurnAsync(
-        AiProvider provider,
-        List<ChatMessage> history,
-        GuidanceTurnRequest request,
-        Action persist,
+    // The whole turn — load, build, complete, persist — runs under the store's per-session lock: a
+    // Guidance Turn mutates the session's shared history list, so concurrent turns on one session must
+    // not interleave. A streaming turn holds the lock for its whole duration; partial turns are never
+    // persisted. buildTurn runs before the optimistic append, so its failures propagate untouched.
+    public Task<LlmResponse> RunTurnAsync<TSession>(
+        ISessionStore<TSession> store,
+        Guid sessionId,
+        Func<TSession, GuidanceTurnRequest> buildTurn,
+        Func<string, CancellationToken, Task>? onDelta = null,
         CancellationToken ct = default)
-        => ExecuteTurnAsync(provider, history, request, persist,
-            (llm, completion, token) => llm.CompleteAsync(completion, token), ct);
+        where TSession : class, IGuidanceSession
+        => store.WithSessionLockAsync(sessionId.ToString(), async () =>
+        {
+            var session = store.Get(sessionId.ToString())
+                ?? throw new SessionNotFoundException(sessionId);
 
-    public Task<LlmResponse> StreamTurnAsync(
-        AiProvider provider,
-        List<ChatMessage> history,
-        GuidanceTurnRequest request,
-        Func<string, CancellationToken, Task> onDelta,
-        Action persist,
-        CancellationToken ct = default)
-        => ExecuteTurnAsync(provider, history, request, persist,
-            (llm, completion, token) => llm.StreamAsync(completion, onDelta, token), ct);
+            _logger.LogInformation("Processing guidance turn for session {SessionId}", sessionId);
+            var request = buildTurn(session);
+
+            return await ExecuteTurnAsync(session.Provider, session.GuidanceHistory, request,
+                persist: () => store.Set(session),
+                invoke: onDelta is null
+                    ? (llm, completion, token) => llm.CompleteAsync(completion, token)
+                    : (llm, completion, token) => llm.StreamAsync(completion, onDelta, token),
+                ct);
+        }, ct);
 
     // == Turn Invariant Core == //
 

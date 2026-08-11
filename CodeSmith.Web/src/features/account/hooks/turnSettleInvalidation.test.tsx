@@ -62,10 +62,7 @@ describe("metered turn-settle invalidation", () => {
     const { result } = renderHook(() => useSendMessage(), { wrapper });
 
     await act(async () => {
-      await result.current.mutateAsync({
-        sessionId: "s1",
-        message: "help",
-      });
+      await result.current.sendTurn("s1", "help");
     });
 
     await waitFor(() => expectUsageInvalidated(queryClient));
@@ -79,10 +76,7 @@ describe("metered turn-settle invalidation", () => {
     const { result } = renderHook(() => usePromptLabChat(), { wrapper });
 
     await act(async () => {
-      await result.current.mutateAsync({
-        sessionId: "pl1",
-        message: "help",
-      });
+      await result.current.sendTurn("pl1", "help");
     });
 
     await waitFor(() => expectUsageInvalidated(queryClient));
@@ -96,10 +90,7 @@ describe("metered turn-settle invalidation", () => {
     const { result } = renderHook(() => useSystemLabChat(), { wrapper });
 
     await act(async () => {
-      await result.current.mutateAsync({
-        sessionId: "sl1",
-        message: "help",
-      });
+      await result.current.sendTurn("sl1", "help");
     });
 
     await waitFor(() => expectUsageInvalidated(queryClient));

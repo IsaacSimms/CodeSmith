@@ -10,9 +10,11 @@ namespace CodeSmith.Core.Models;
 /// </summary>
 public sealed record GuidanceTurnRequest
 {
+    public const int DefaultHistoryWindow = 20;           // Shared history window — every surface trims at 20 messages
+
     public required string SystemPrompt { get; init; }   // Surface-built Socratic system prompt for this turn
     public required string UserMessage { get; init; }    // The student's new message, appended to history before the call
     public required int MaxTokens { get; init; }          // Output token budget for the guidance reply
-    public required int MaxTurns { get; init; }           // Max messages retained; older turns are trimmed before the call
+    public int MaxTurns { get; init; } = DefaultHistoryWindow; // Max messages retained; older turns are trimmed before the call
     public required string Feature { get; init; }         // Usage/ledger label (e.g. "Tutoring:Guidance")
 }

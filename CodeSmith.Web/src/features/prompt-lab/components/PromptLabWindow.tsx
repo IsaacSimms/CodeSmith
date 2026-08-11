@@ -4,7 +4,7 @@ import { useNavigationContext } from "../../../contexts/NavigationContext";
 import { useProviderPreferenceContext } from "../../../contexts/ProviderPreferenceContext";
 import { interpretError } from "../../../lib/clientError";
 import { FailureNotice } from "../../shared/FailureNotice";
-import type { ChallengeResponse, AttemptResult, PromptLabSession, PromptLabChatMessage } from "../types";
+import type { ChallengeResponse, AttemptResult, PromptLabSession } from "../types";
 import { useGetChallenges } from "../hooks/useGetChallenges";
 import { useStartChallenge } from "../hooks/useStartChallenge";
 import { useSubmitAttempt } from "../hooks/useSubmitAttempt";
@@ -13,7 +13,6 @@ import { useResizableSplit } from "../../chat/hooks/useResizableSplit";
 import { useResizableVerticalSplit } from "../../chat/hooks/useResizableVerticalSplit";
 import { ChallengeSelector } from "./ChallengeSelector";
 import { PromptLabRightPanel } from "./PromptLabRightPanel";
-import type { FailedTurn } from "../../chat/components/StreamingChatTail";
 import { PromptEditors } from "./PromptEditors";
 import { ResultsPanel } from "./ResultsPanel";
 import { TokenUsageBar } from "../../../components/TokenUsageBar";
@@ -24,14 +23,13 @@ export function PromptLabWindow() {
   const [systemPromptContent, setSystemContent] = useState("");
   const [userMessageContent, setUserContent]    = useState("");
   const [lastResult, setLastResult]             = useState<AttemptResult | null>(null);
-  const [chatMessages, setChatMessages]         = useState<PromptLabChatMessage[]>([]);
-  const [failedChatTurn, setFailedChatTurn]     = useState<FailedTurn | null>(null);
-  const [chatDraft, setChatDraft]               = useState<{ text: string } | null>(null);
 
   const getChallenges  = useGetChallenges();
   const startChallenge = useStartChallenge();
   const submitAttempt  = useSubmitAttempt();
+  // Chat turn state machine (messages, rollback, failed turn, draft) lives in the hook.
   const sendChat       = usePromptLabChat();
+  const { messages: chatMessages, setMessages: setChatMessages, failedTurn: failedChatTurn, draft: chatDraft } = sendChat;
   const { provider, isReady } = useProviderPreferenceContext();
   const { registerReset, unregisterReset } = useNavigationContext();
 
@@ -138,28 +136,7 @@ export function PromptLabWindow() {
       .filter(Boolean)
       .join("\n\n") || undefined;
 
-    // Optimistically append user message
-    setFailedChatTurn(null);
-    setChatDraft(null);
-    setChatMessages((prev) => [...prev, { role: "user", content: message }]);
-
-    sendChat.mutate(
-      { sessionId: session.sessionId, message, editorContent },
-      {
-        onSuccess: (data) => {
-          setChatMessages((prev) => [...prev, { role: "assistant", content: data.response }]);
-        },
-        onError: (error) => {
-          setChatMessages((prev) => prev.slice(0, -1));
-          const partial = sendChat.getStreamedText();
-          setFailedChatTurn({
-            failure: interpretError(error),
-            partial: partial.trim() ? partial : undefined,
-          });
-          setChatDraft({ text: message });
-        },
-      }
-    );
+    sendChat.sendTurn(session.sessionId, message, editorContent);
   }
 
   const submitError =

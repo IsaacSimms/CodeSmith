@@ -1,29 +1,21 @@
 // == Prompt Lab Guidance Chat Hook == //
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { streamPromptLabChat } from "../../../lib/apiClient";
-import { useStreamingText } from "../../../hooks/useStreamingText";
-import { invalidateAccountUsageQueries } from "../../account/hooks/invalidateAccountUsageQueries";
-import type { PromptLabChatResponse } from "../types";
+import { useGuidanceChat } from "../../../hooks/useGuidanceChat";
+import type { PromptLabChatMessage, PromptLabChatResponse } from "../types";
 
-interface ChatVariables {
-  sessionId: string;
-  message: string;
-  editorContent?: string;
-}
-
-/// Streaming chat mutation — same shape as the tutoring surface's useSendMessage: deltas
-/// accumulate in streamingText, the final reply resolves the mutation as before.
+/// Prompt Lab adapter over the shared guidance chat state machine — supplies the surface's message
+/// shape and streaming call; turn mechanics live in useGuidanceChat.
 export function usePromptLabChat() {
-  const queryClient = useQueryClient();
-  const { text: streamingText, append, reset, getText } = useStreamingText();
-
-  const mutation = useMutation<PromptLabChatResponse, Error, ChatVariables>({
-    mutationFn: ({ sessionId, message, editorContent }) => {
-      reset();
-      return streamPromptLabChat(sessionId, { message, editorContent }, { onDelta: append });
-    },
-    onSuccess: () => invalidateAccountUsageQueries(queryClient),
+  const chat = useGuidanceChat<PromptLabChatMessage, PromptLabChatResponse>({
+    toUserMessage: (message) => ({ role: "user", content: message }),
+    toAssistantMessage: (data) => ({ role: "assistant", content: data.response }),
   });
 
-  return { ...mutation, streamingText, getStreamedText: getText };
+  function sendTurn(sessionId: string, message: string, editorContent?: string) {
+    return chat
+      .send(message, (onDelta) => streamPromptLabChat(sessionId, { message, editorContent }, { onDelta }))
+      .catch(() => {}); // failure is surfaced via failedTurn state, not an unhandled rejection
+  }
+
+  return { ...chat, sendTurn };
 }

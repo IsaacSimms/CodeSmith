@@ -22,6 +22,8 @@ public class GuidanceConversationTests
         _conversation = new GuidanceConversation(_factory, _logger);
     }
 
+    // == Helpers == //
+
     private static GuidanceTurnRequest Request(string user = "help me", int maxTokens = 1024, int maxTurns = 20, string feature = "Tutoring:Guidance")
         => new()
         {
@@ -32,42 +34,82 @@ public class GuidanceConversationTests
             Feature      = feature
         };
 
-    // == Success Path == //
+    // Store substitute at the ISessionStore seam: lock passes through inline (the real lock is covered
+    // by InMemorySessionStoreTests), Get serves the given session, Set/lock calls are countable.
+    private static ISessionStore<ProblemSession> StoreWith(ProblemSession? session, Guid sessionId)
+    {
+        var store = Substitute.For<ISessionStore<ProblemSession>>();
+        store.Get(sessionId.ToString()).Returns(session);
+        store.WithSessionLockAsync(Arg.Any<string>(), Arg.Any<Func<Task<LlmResponse>>>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Func<Task<LlmResponse>>>()());
+        return store;
+    }
+
+    // == Lock, Load, Build, Persist == //
 
     [Fact]
-    public async Task RunTurnAsync_OnSuccess_AppendsUserThenAssistantToHistory()
+    public async Task RunTurnAsync_Session_LoadsBuildsAppendsAndPersistsUnderTheSessionLock()
     {
-        var history = new List<ChatMessage>();
+        var session = new ProblemSession { Provider = AiProvider.Anthropic };
+        var store   = StoreWith(session, session.SessionId);
         _llm.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "What have you tried?" });
 
-        await _conversation.RunTurnAsync(AiProvider.Anthropic, history, Request(user: "I'm stuck"), () => { });
+        ProblemSession? builtFrom = null;
+        var response = await _conversation.RunTurnAsync(store, session.SessionId, s =>
+        {
+            builtFrom = s;
+            return Request(user: "I'm stuck");
+        });
 
-        Assert.Equal(2, history.Count);
-        Assert.Equal(MessageRole.User, history[0].Role);
-        Assert.Equal("I'm stuck", history[0].Content);
-        Assert.Equal(MessageRole.Assistant, history[1].Role);
-        Assert.Equal("What have you tried?", history[1].Content);
+        Assert.Equal("What have you tried?", response.Content);
+        Assert.Same(session, builtFrom);                       // turn data is built from the loaded session
+        Assert.Equal(2, session.Messages.Count);               // whole turn landed on the session's history
+        Assert.Equal(MessageRole.User,      session.Messages[0].Role);
+        Assert.Equal(MessageRole.Assistant, session.Messages[1].Role);
+        store.Received(1).Set(session);                        // persisted once, after the turn completed
+        await store.Received(1).WithSessionLockAsync(          // the whole turn ran under the per-session lock
+            session.SessionId.ToString(), Arg.Any<Func<Task<LlmResponse>>>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task RunTurnAsync_OnSuccess_ReturnsCompletionAndPersistsOnce()
+    public async Task RunTurnAsync_Session_WithUnknownSession_ThrowsSessionNotFoundWithoutCallingLlm()
     {
-        var history    = new List<ChatMessage>();
-        var persistHits = 0;
-        var expected   = new LlmResponse { Content = "Consider the edge case.", InputTokensUsed = 42, ContextWindowSize = 200_000 };
-        _llm.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>()).Returns(expected);
+        var sessionId = Guid.NewGuid();
+        var store     = StoreWith(session: null, sessionId);
 
-        var response = await _conversation.RunTurnAsync(AiProvider.Anthropic, history, Request(), () => persistHits++);
+        await Assert.ThrowsAsync<SessionNotFoundException>(
+            () => _conversation.RunTurnAsync(store, sessionId, _ => Request()));
 
-        Assert.Same(expected, response);
-        Assert.Equal(1, persistHits);
+        await _llm.DidNotReceiveWithAnyArgs().CompleteAsync(default!, default);
+        store.DidNotReceive().Set(Arg.Any<ProblemSession>());
     }
 
     [Fact]
-    public async Task RunTurnAsync_SendsFastTierWithRequestFeatureMaxTokensAndCurrentHistory()
+    public async Task RunTurnAsync_Session_WhenBuildTurnThrows_PropagatesUnwrappedAndMutatesNothing()
     {
-        var history = new List<ChatMessage>();
+        // A surface's buildTurn may do catalog lookups (e.g. ChallengeNotFoundException) — those domain
+        // signals must keep their own HTTP mapping and must not touch history or persistence.
+        var session = new ProblemSession { Provider = AiProvider.Anthropic };
+        var store   = StoreWith(session, session.SessionId);
+        var domain  = new ChallengeNotFoundException("missing-challenge");
+
+        var thrown = await Assert.ThrowsAsync<ChallengeNotFoundException>(
+            () => _conversation.RunTurnAsync<ProblemSession>(store, session.SessionId, _ => throw domain));
+
+        Assert.Same(domain, thrown);
+        Assert.Empty(session.Messages);
+        store.DidNotReceive().Set(Arg.Any<ProblemSession>());
+        await _llm.DidNotReceiveWithAnyArgs().CompleteAsync(default!, default);
+    }
+
+    // == Completion Shape == //
+
+    [Fact]
+    public async Task RunTurnAsync_Session_SendsFastTierWithRequestFeatureMaxTokensAndCurrentHistory()
+    {
+        var session = new ProblemSession { Provider = AiProvider.Anthropic };
+        var store   = StoreWith(session, session.SessionId);
         // Snapshot at call time: Messages aliases the live history list, which is mutated (assistant
         // appended) the instant the call returns. Capturing the reference would assert the post-call state.
         ModelTier? tier = null; string? feature = null; int maxTokens = 0; string? systemPrompt = null;
@@ -82,8 +124,8 @@ public class GuidanceConversationTests
         }), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "ok" });
 
-        await _conversation.RunTurnAsync(
-            AiProvider.Anthropic, history, Request(user: "why?", maxTokens: 800, feature: "SystemLab:Chat"), () => { });
+        await _conversation.RunTurnAsync(store, session.SessionId,
+            _ => Request(user: "why?", maxTokens: 800, feature: "SystemLab:Chat"));
 
         Assert.Equal(ModelTier.Fast, tier);
         Assert.Equal("SystemLab:Chat", feature);
@@ -97,16 +139,18 @@ public class GuidanceConversationTests
     // == Trimming == //
 
     [Fact]
-    public async Task RunTurnAsync_WhenHistoryExceedsWindow_TrimsToWholeTurnsAnchoredOnUser()
+    public async Task RunTurnAsync_Session_WhenHistoryExceedsWindow_TrimsToWholeTurnsAnchoredOnUser()
     {
         // Pre-seed two complete exchanges; window of 4 forces a trim once the new user turn lands.
-        var history = new List<ChatMessage>
-        {
-            new() { Role = MessageRole.User,      Content = "U1" },
-            new() { Role = MessageRole.Assistant, Content = "A1" },
-            new() { Role = MessageRole.User,      Content = "U2" },
-            new() { Role = MessageRole.Assistant, Content = "A2" },
-        };
+        var session = new ProblemSession { Provider = AiProvider.Anthropic };
+        session.Messages.AddRange(
+        [
+            new ChatMessage { Role = MessageRole.User,      Content = "U1" },
+            new ChatMessage { Role = MessageRole.Assistant, Content = "A1" },
+            new ChatMessage { Role = MessageRole.User,      Content = "U2" },
+            new ChatMessage { Role = MessageRole.Assistant, Content = "A2" },
+        ]);
+        var store = StoreWith(session, session.SessionId);
         // Snapshot the window the model actually saw, before the assistant reply is appended back.
         List<string>? sentContents = null;
         MessageRole? firstRole = null;
@@ -117,7 +161,7 @@ public class GuidanceConversationTests
         }), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "A3" });
 
-        await _conversation.RunTurnAsync(AiProvider.Anthropic, history, Request(user: "U3", maxTurns: 4), () => { });
+        await _conversation.RunTurnAsync(store, session.SessionId, _ => Request(user: "U3", maxTurns: 4));
 
         // After appending U3 (count 5 > 4) the oldest message is dropped, leaving a leading Assistant (A1)
         // which is also dropped so the window stays anchored on a User message: [U2, A2, U3].
@@ -128,81 +172,79 @@ public class GuidanceConversationTests
     // == Failure Path == //
 
     [Fact]
-    public async Task RunTurnAsync_WhenLlmFails_RollsBackUserTurnAndDoesNotPersist()
+    public async Task RunTurnAsync_Session_WhenLlmFails_RollsBackUserTurnAndDoesNotPersist()
     {
-        var history = new List<ChatMessage>
-        {
-            new() { Role = MessageRole.User,      Content = "earlier" },
-            new() { Role = MessageRole.Assistant, Content = "reply" },
-        };
-        var persistHits = 0;
+        var session = new ProblemSession { Provider = AiProvider.Anthropic };
+        session.Messages.Add(new ChatMessage { Role = MessageRole.User,      Content = "earlier" });
+        session.Messages.Add(new ChatMessage { Role = MessageRole.Assistant, Content = "reply" });
+        var store = StoreWith(session, session.SessionId);
         _llm.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns<LlmResponse>(_ => throw new InvalidOperationException("provider down"));
 
         await Assert.ThrowsAsync<AiServiceException>(
-            () => _conversation.RunTurnAsync(AiProvider.Anthropic, history, Request(user: "new"), () => persistHits++));
+            () => _conversation.RunTurnAsync(store, session.SessionId, _ => Request(user: "new")));
 
-        Assert.Equal(2, history.Count);                       // optimistic user turn removed
-        Assert.Equal("reply", history[^1].Content);
-        Assert.Equal(0, persistHits);                         // nothing persisted on failure
+        Assert.Equal(2, session.Messages.Count);              // optimistic user turn rolled back
+        Assert.Equal("reply", session.Messages[^1].Content);
+        store.DidNotReceive().Set(Arg.Any<ProblemSession>()); // nothing persisted on failure
     }
 
     [Fact]
-    public async Task RunTurnAsync_WhenLlmThrowsAiServiceException_RethrowsWithoutDoubleWrapping()
+    public async Task RunTurnAsync_Session_WhenLlmThrowsAiServiceException_RethrowsWithoutDoubleWrapping()
     {
-        var history = new List<ChatMessage>();
+        var session  = new ProblemSession { Provider = AiProvider.Anthropic };
+        var store    = StoreWith(session, session.SessionId);
         var original = new AiServiceException("upstream rate limited");
         _llm.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns<LlmResponse>(_ => throw original);
 
         var thrown = await Assert.ThrowsAsync<AiServiceException>(
-            () => _conversation.RunTurnAsync(AiProvider.Anthropic, history, Request(), () => { }));
+            () => _conversation.RunTurnAsync(store, session.SessionId, _ => Request()));
 
         Assert.Same(original, thrown);
-        Assert.Empty(history); // user turn still rolled back
+        Assert.Empty(session.Messages); // user turn still rolled back
     }
 
     [Fact]
-    public async Task RunTurnAsync_WhenCancelled_PropagatesCancellationAndRollsBack()
+    public async Task RunTurnAsync_Session_WhenCancelled_PropagatesCancellationAndRollsBack()
     {
-        var history = new List<ChatMessage>();
+        var session = new ProblemSession { Provider = AiProvider.Anthropic };
+        var store   = StoreWith(session, session.SessionId);
         _llm.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns<LlmResponse>(_ => throw new OperationCanceledException());
 
         await Assert.ThrowsAsync<OperationCanceledException>(
-            () => _conversation.RunTurnAsync(AiProvider.Anthropic, history, Request(), () => { }));
+            () => _conversation.RunTurnAsync(store, session.SessionId, _ => Request()));
 
-        Assert.Empty(history); // cancellation must not leave a dangling user turn, and must not become a 502
+        Assert.Empty(session.Messages); // cancellation must not leave a dangling user turn, and must not become a 502
     }
 
     [Fact]
-    public async Task RunTurnAsync_WhenLlmThrowsInsufficientQuota_RethrowsWithoutWrapping()
+    public async Task RunTurnAsync_Session_WhenLlmThrowsInsufficientQuota_RethrowsWithoutWrapping()
     {
-        var history = new List<ChatMessage>
-        {
-            new() { Role = MessageRole.User,      Content = "earlier" },
-            new() { Role = MessageRole.Assistant, Content = "reply" },
-        };
-        var persistHits = 0;
+        var session = new ProblemSession { Provider = AiProvider.Anthropic };
+        session.Messages.Add(new ChatMessage { Role = MessageRole.User,      Content = "earlier" });
+        session.Messages.Add(new ChatMessage { Role = MessageRole.Assistant, Content = "reply" });
+        var store    = StoreWith(session, session.SessionId);
         var original = new InsufficientQuotaException("user-1", "Insufficient quota or credits for this request.");
         _llm.CompleteAsync(Arg.Any<CompletionRequest>(), Arg.Any<CancellationToken>())
             .Returns<LlmResponse>(_ => throw original);
 
         var thrown = await Assert.ThrowsAsync<InsufficientQuotaException>(
-            () => _conversation.RunTurnAsync(AiProvider.Anthropic, history, Request(user: "new"), () => persistHits++));
+            () => _conversation.RunTurnAsync(store, session.SessionId, _ => Request(user: "new")));
 
         Assert.Same(original, thrown);
-        Assert.Equal(2, history.Count); // optimistic user turn rolled back
-        Assert.Equal(0, persistHits);
+        Assert.Equal(2, session.Messages.Count); // optimistic user turn rolled back
+        store.DidNotReceive().Set(Arg.Any<ProblemSession>());
     }
 
     // == Streaming Turn: same invariant, deltas pass through == //
 
     [Fact]
-    public async Task StreamTurnAsync_OnSuccess_DeliversDeltasAppendsBothTurnsAndPersistsOnce()
+    public async Task RunTurnAsync_Session_WithOnDelta_StreamsTheReplyUnderTheSameInvariant()
     {
-        var history     = new List<ChatMessage>();
-        var persistHits = 0;
+        var session = new ProblemSession { Provider = AiProvider.Anthropic };
+        var store   = StoreWith(session, session.SessionId);
         _llm.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<Func<string, CancellationToken, Task>>(), Arg.Any<CancellationToken>())
             .Returns(async callInfo =>
             {
@@ -213,32 +255,26 @@ public class GuidanceConversationTests
             });
 
         var deltas = new List<string>();
-        var response = await _conversation.StreamTurnAsync(
-            AiProvider.Anthropic, history, Request(user: "I'm stuck"),
-            (text, _) => { deltas.Add(text); return Task.CompletedTask; },
-            () => persistHits++);
+        var response = await _conversation.RunTurnAsync(store, session.SessionId, _ => Request(user: "I'm stuck"),
+            (text, _) => { deltas.Add(text); return Task.CompletedTask; });
 
         Assert.Equal(["What have ", "you tried?"], deltas);
         Assert.Equal("What have you tried?", response.Content);
-        Assert.Equal(1, persistHits);
-        Assert.Equal(2, history.Count);
-        Assert.Equal(MessageRole.User, history[0].Role);
-        Assert.Equal("I'm stuck", history[0].Content);
-        Assert.Equal(MessageRole.Assistant, history[1].Role);
-        Assert.Equal("What have you tried?", history[1].Content);
+        Assert.Equal(2, session.Messages.Count);
+        Assert.Equal(MessageRole.User,      session.Messages[0].Role);
+        Assert.Equal(MessageRole.Assistant, session.Messages[1].Role);
+        store.Received(1).Set(session);
     }
 
     [Fact]
-    public async Task StreamTurnAsync_WhenStreamDiesMidReply_RollsBackUserTurnAndPersistsNothing()
+    public async Task RunTurnAsync_Session_WhenStreamDiesMidReply_RollsBackUserTurnAndPersistsNothing()
     {
         // Deltas already reached the client, but history must never contain a partial assistant
         // message (providers reject malformed alternation) — the turn rolls back whole.
-        var history = new List<ChatMessage>
-        {
-            new() { Role = MessageRole.User,      Content = "earlier" },
-            new() { Role = MessageRole.Assistant, Content = "reply" },
-        };
-        var persistHits = 0;
+        var session = new ProblemSession { Provider = AiProvider.Anthropic };
+        session.Messages.Add(new ChatMessage { Role = MessageRole.User,      Content = "earlier" });
+        session.Messages.Add(new ChatMessage { Role = MessageRole.Assistant, Content = "reply" });
+        var store = StoreWith(session, session.SessionId);
 
         async Task<LlmResponse> DieAfterOneDelta(NSubstitute.Core.CallInfo callInfo)
         {
@@ -251,25 +287,11 @@ public class GuidanceConversationTests
             .Returns(DieAfterOneDelta);
 
         await Assert.ThrowsAsync<AiServiceException>(
-            () => _conversation.StreamTurnAsync(AiProvider.Anthropic, history, Request(user: "new"),
-                (_, _) => Task.CompletedTask, () => persistHits++));
+            () => _conversation.RunTurnAsync(store, session.SessionId, _ => Request(user: "new"),
+                (_, _) => Task.CompletedTask));
 
-        Assert.Equal(2, history.Count);       // optimistic user turn removed, no partial assistant turn
-        Assert.Equal("reply", history[^1].Content);
-        Assert.Equal(0, persistHits);
-    }
-
-    [Fact]
-    public async Task StreamTurnAsync_WhenCancelled_PropagatesCancellationAndRollsBack()
-    {
-        var history = new List<ChatMessage>();
-        _llm.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<Func<string, CancellationToken, Task>>(), Arg.Any<CancellationToken>())
-            .Returns<LlmResponse>(_ => throw new OperationCanceledException());
-
-        await Assert.ThrowsAsync<OperationCanceledException>(
-            () => _conversation.StreamTurnAsync(AiProvider.Anthropic, history, Request(),
-                (_, _) => Task.CompletedTask, () => { }));
-
-        Assert.Empty(history); // cancellation must not leave a dangling user turn, and must not become a 502
+        Assert.Equal(2, session.Messages.Count);              // optimistic user turn removed, no partial assistant turn
+        Assert.Equal("reply", session.Messages[^1].Content);
+        store.DidNotReceive().Set(Arg.Any<ProblemSession>());
     }
 }

@@ -1,31 +1,37 @@
 // == Send Message Hook == //
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { streamChat } from "../../../lib/apiClient";
-import { useStreamingText } from "../../../hooks/useStreamingText";
-import { invalidateAccountUsageQueries } from "../../account/hooks/invalidateAccountUsageQueries";
-import type { ChatResponse, GuidanceMode } from "../types";
+import { useGuidanceChat } from "../../../hooks/useGuidanceChat";
+import type { ChatMessage, ChatResponse, GuidanceMode } from "../types";
 
-interface SendMessageVariables {
-  sessionId: string;
-  message: string;
-  editorContent?: string;
-  guidanceMode?: GuidanceMode;
-}
-
-/// Streaming chat mutation: the reply accumulates in streamingText while isPending, and the
-/// mutation still resolves with the final ChatResponse — isPending / data / error semantics are
-/// unchanged from the blocking version. getStreamedText() snapshots the partial for failure UI.
+/// Tutoring adapter over the shared guidance chat state machine: supplies the surface's message
+/// shape and streaming call, and tracks the context-token telemetry the tutoring UI displays.
+/// Turn mechanics (optimistic append, rollback, partial snapshot, draft, settle invalidation)
+/// live in useGuidanceChat.
 export function useSendMessage() {
-  const queryClient = useQueryClient();
-  const { text: streamingText, append, reset, getText } = useStreamingText();
+  const [contextTokensUsed, setContextTokensUsed] = useState<number | null>(null);
+  const [contextWindowSize, setContextWindowSize] = useState(200_000);
 
-  const mutation = useMutation<ChatResponse, Error, SendMessageVariables>({
-    mutationFn: ({ sessionId, message, editorContent, guidanceMode }) => {
-      reset();
-      return streamChat(sessionId, { message, editorContent, guidanceMode }, { onDelta: append });
+  const chat = useGuidanceChat<ChatMessage, ChatResponse>({
+    toUserMessage: (message) => ({ role: "User", content: message, timestamp: new Date().toISOString() }),
+    toAssistantMessage: (data) => ({ role: "Assistant", content: data.response, timestamp: new Date().toISOString() }),
+    onTurnSuccess: (data) => {
+      setContextTokensUsed(data.contextTokensUsed);
+      setContextWindowSize(data.contextWindowSize);
     },
-    onSuccess: () => invalidateAccountUsageQueries(queryClient),
   });
 
-  return { ...mutation, streamingText, getStreamedText: getText };
+  function sendTurn(sessionId: string, message: string, editorContent?: string, guidanceMode?: GuidanceMode) {
+    return chat
+      .send(message, (onDelta) => streamChat(sessionId, { message, editorContent, guidanceMode }, { onDelta }))
+      .catch(() => {}); // failure is surfaced via failedTurn state, not an unhandled rejection
+  }
+
+  // Clears the token telemetry when the session goes away (nav reset / new problem).
+  function resetContextUsage() {
+    setContextTokensUsed(null);
+    setContextWindowSize(200_000);
+  }
+
+  return { ...chat, sendTurn, contextTokensUsed, contextWindowSize, resetContextUsage };
 }

@@ -6,35 +6,28 @@ namespace CodeSmith.Core.Interfaces;
 
 /// <summary>
 /// Owns one round of a multi-turn Socratic Guidance Conversation, shared by every surface (Tutoring,
-/// Prompt Lab, System Lab). A single deep Module concentrates the history-mutation and error invariant
-/// that the three orchestrators used to hand-copy (and diverge on): append the user message, trim the
-/// history to a whole-turn window anchored on a User message, run one Fast-tier Completion, append the
-/// assistant reply, and persist. On non-domain failure it rolls the optimistically-added user turn back
-/// and surfaces <see cref="Exceptions.AiServiceException"/>. Each surface supplies only its system prompt
-/// (as data) and the session wiring; the turn mechanics live here.
+/// Prompt Lab, System Lab). A single deep Module concentrates the whole turn frame the three
+/// orchestrators used to hand-copy (and diverge on): take the store's per-session lock, load the
+/// session or throw, append the user message, trim the history to a whole-turn window anchored on a
+/// User message, run one Fast-tier Completion (blocking or streaming), append the assistant reply, and
+/// persist. On non-domain failure it rolls the optimistically-added user turn back and surfaces
+/// <see cref="Exceptions.AiServiceException"/>. Each surface supplies only a buildTurn callback that
+/// turns its loaded session into <see cref="GuidanceTurnRequest"/> data; the turn mechanics live here.
 /// </summary>
 public interface IGuidanceConversation
 {
-    /// <summary>
-    /// Runs one Guidance Turn against <paramref name="history"/> (mutated in place), routing the
-    /// Completion to <paramref name="provider"/> and invoking <paramref name="persist"/> after the
-    /// history is updated. Returns the raw completion so callers can project token usage as needed.
-    /// </summary>
-    Task<LlmResponse> RunTurnAsync(
-        AiProvider provider,
-        List<ChatMessage> history,
-        GuidanceTurnRequest request,
-        Action persist,
-        CancellationToken ct = default);
-
-    // Streaming sibling of RunTurnAsync: the assistant reply is pushed through onDelta as it is
-    // generated, under the same invariant — history gains the whole turn on success, or neither
-    // message on failure (never a partial assistant message), regardless of deltas already delivered.
-    Task<LlmResponse> StreamTurnAsync(
-        AiProvider provider,
-        List<ChatMessage> history,
-        GuidanceTurnRequest request,
-        Func<string, CancellationToken, Task> onDelta,
-        Action persist,
-        CancellationToken ct = default);
+    // Runs one Guidance Turn against the session identified by sessionId: takes the store's
+    // per-session lock, loads the session (or throws SessionNotFoundException), invokes buildTurn
+    // with the loaded session to obtain the turn data, runs the turn against the session's
+    // GuidanceHistory, and persists via store.Set on success. Passing onDelta selects the streaming
+    // shape — the assistant reply is pushed through it as it is generated, under the same invariant
+    // (history gains the whole turn or neither message, never a partial assistant message).
+    // buildTurn failures (e.g. a catalog lookup throwing) propagate unwrapped and mutate nothing.
+    Task<LlmResponse> RunTurnAsync<TSession>(
+        ISessionStore<TSession> store,
+        Guid sessionId,
+        Func<TSession, GuidanceTurnRequest> buildTurn,
+        Func<string, CancellationToken, Task>? onDelta = null,
+        CancellationToken ct = default)
+        where TSession : class, IGuidanceSession;
 }

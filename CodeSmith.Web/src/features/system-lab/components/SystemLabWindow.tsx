@@ -4,7 +4,7 @@ import { useNavigationContext } from "../../../contexts/NavigationContext";
 import { useProviderPreferenceContext } from "../../../contexts/ProviderPreferenceContext";
 import { interpretError } from "../../../lib/clientError";
 import { FailureNotice } from "../../shared/FailureNotice";
-import type { ScenarioResponse, AttemptResult, SystemLabSession, SystemLabChatMessage } from "../types";
+import type { ScenarioResponse, AttemptResult, SystemLabSession } from "../types";
 import { useGetScenarios } from "../hooks/useGetScenarios";
 import { useStartSession } from "../hooks/useStartSession";
 import { useSubmitAttempt } from "../hooks/useSubmitAttempt";
@@ -15,22 +15,20 @@ import { ScenarioSelector } from "./ScenarioSelector";
 import { JustificationEditor } from "./JustificationEditor";
 import { AttemptResultsPanel } from "./AttemptResultsPanel";
 import { SystemLabRightPanel } from "./SystemLabRightPanel";
-import type { FailedTurn } from "../../chat/components/StreamingChatTail";
 
 export function SystemLabWindow() {
   const [session, setSession]                   = useState<SystemLabSession | null>(null);
   const [scenario, setScenario]                 = useState<ScenarioResponse | null>(null);
   const [justification, setJustification]       = useState("");
   const [lastResult, setLastResult]             = useState<AttemptResult | null>(null);
-  const [chatMessages, setChatMessages]         = useState<SystemLabChatMessage[]>([]);
-  const [failedChatTurn, setFailedChatTurn]     = useState<FailedTurn | null>(null);
-  const [chatDraft, setChatDraft]               = useState<{ text: string } | null>(null);
 
   const { provider, isReady } = useProviderPreferenceContext();
   const getScenarios  = useGetScenarios();
   const startSession  = useStartSession();
   const submitAttempt = useSubmitAttempt();
+  // Chat turn state machine (messages, rollback, failed turn, draft) lives in the hook.
   const sendChat      = useSystemLabChat();
+  const { messages: chatMessages, setMessages: setChatMessages, failedTurn: failedChatTurn, draft: chatDraft } = sendChat;
 
   const { registerReset, unregisterReset } = useNavigationContext();
 
@@ -102,28 +100,7 @@ export function SystemLabWindow() {
   function handleSendChat(message: string) {
     if (!session) return;
 
-    // Optimistically append user message
-    setFailedChatTurn(null);
-    setChatDraft(null);
-    setChatMessages((prev) => [...prev, { role: "user", content: message }]);
-
-    sendChat.mutate(
-      { sessionId: session.sessionId, message, currentJustification: justification || undefined },
-      {
-        onSuccess: (data) => {
-          setChatMessages((prev) => [...prev, { role: "assistant", content: data.response }]);
-        },
-        onError: (error) => {
-          setChatMessages((prev) => prev.slice(0, -1));
-          const partial = sendChat.getStreamedText();
-          setFailedChatTurn({
-            failure: interpretError(error),
-            partial: partial.trim() ? partial : undefined,
-          });
-          setChatDraft({ text: message });
-        },
-      }
-    );
+    sendChat.sendTurn(session.sessionId, message, justification || undefined);
   }
 
   const submitError =

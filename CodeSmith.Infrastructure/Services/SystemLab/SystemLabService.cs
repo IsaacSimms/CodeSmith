@@ -21,8 +21,7 @@ public class SystemLabService : ISystemLabService
     private readonly ISystemLabSessionStore  _sessionStore;
     private readonly ILogger<SystemLabService> _logger;
 
-    private const int ChatMaxTokens     = 800;
-    private const int ChatHistoryWindow = 20;  // Max messages retained before older turns are trimmed
+    private const int ChatMaxTokens = 800;
 
     public SystemLabService(
         ISystemLabEvaluator evaluator,
@@ -105,33 +104,22 @@ public class SystemLabService : ISystemLabService
         Func<string, CancellationToken, Task> onDelta, CancellationToken ct = default)
         => ExecuteChatAsync(sessionId, message, currentJustification, onDelta, ct);
 
+    // The turn mechanics (per-session lock, load-or-throw, streaming dispatch, persist, rollback) live
+    // behind IGuidanceConversation. The store's per-session lock is shared with SubmitAttemptAsync, so a
+    // submit and a chat turn on one session still serialize against each other. The catalog lookup runs
+    // inside buildTurn, so ScenarioNotFoundException still propagates with its own HTTP mapping.
     private async Task<string> ExecuteChatAsync(Guid sessionId, string message, string? currentJustification,
         Func<string, CancellationToken, Task>? onDelta, CancellationToken ct)
     {
-        // The per-session lock stays with the orchestrator: it also guards SubmitAttemptAsync, so it is
-        // broader than a single guidance turn and cannot live inside the Guidance Conversation Module.
-        // A streaming turn holds it for its whole duration — partial turns are never persisted.
-        return await _sessionStore.WithSessionLockAsync(sessionId.ToString(), async () =>
+        var response = await _guidance.RunTurnAsync(_sessionStore, sessionId, session => new GuidanceTurnRequest
         {
-            var session  = _sessionStore.Get(sessionId.ToString()) ?? throw new SessionNotFoundException(sessionId);
-            var scenario = GetScenario(session.ScenarioId);
+            SystemPrompt = BuildChatSystemPrompt(GetScenario(session.ScenarioId), currentJustification),
+            UserMessage  = message,
+            MaxTokens    = ChatMaxTokens,
+            Feature      = "SystemLab:Chat"
+        }, onDelta, ct);
 
-            var systemPrompt = BuildChatSystemPrompt(scenario, currentJustification);
-            var turnRequest  = new GuidanceTurnRequest
-            {
-                SystemPrompt = systemPrompt,
-                UserMessage  = message,
-                MaxTokens    = ChatMaxTokens,
-                MaxTurns     = ChatHistoryWindow,
-                Feature      = "SystemLab:Chat"
-            };
-
-            var response = onDelta is null
-                ? await _guidance.RunTurnAsync(session.Provider, session.ChatHistory, turnRequest, () => _sessionStore.Set(session), ct)
-                : await _guidance.StreamTurnAsync(session.Provider, session.ChatHistory, turnRequest, onDelta, () => _sessionStore.Set(session), ct);
-
-            return response.Content;
-        }, ct);
+        return response.Content;
     }
 
     // == Chat Prompt Builder == //

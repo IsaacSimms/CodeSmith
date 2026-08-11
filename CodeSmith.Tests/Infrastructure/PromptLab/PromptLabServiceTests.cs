@@ -4,6 +4,7 @@ using CodeSmith.Core.Exceptions;
 using CodeSmith.Core.Interfaces;
 using CodeSmith.Core.Models;
 using CodeSmith.Core.Models.PromptLab;
+using CodeSmith.Infrastructure.Services;
 using CodeSmith.Infrastructure.Services.PromptLab;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
@@ -16,20 +17,26 @@ public class PromptLabServiceTests
     private readonly IPromptSimulator           _simulator    = Substitute.For<IPromptSimulator>();
     private readonly IPromptEvaluator           _evaluator    = Substitute.For<IPromptEvaluator>();
     private readonly ITestInputGenerator        _generator    = Substitute.For<ITestInputGenerator>();
-    private readonly IGuidanceConversation      _guidance     = Substitute.For<IGuidanceConversation>();
+    private readonly ILlmService                _llm          = Substitute.For<ILlmService>();
     private readonly ILogger<PromptLabService>  _logger       = Substitute.For<ILogger<PromptLabService>>();
     private readonly PromptLabService           _service;
 
     public PromptLabServiceTests()
     {
         // Pass-through the per-session lock so submit/chat bodies run inline (the lock itself is covered
-        // by InMemorySessionStoreTests).
+        // by InMemorySessionStoreTests). Chat turns lock at the LlmResponse level inside GuidanceConversation.
         _sessionStore.WithSessionLockAsync(Arg.Any<string>(), Arg.Any<Func<Task<ChallengeAttempt>>>(), Arg.Any<CancellationToken>())
             .Returns(ci => ci.Arg<Func<Task<ChallengeAttempt>>>()());
-        _sessionStore.WithSessionLockAsync(Arg.Any<string>(), Arg.Any<Func<Task<string>>>(), Arg.Any<CancellationToken>())
-            .Returns(ci => ci.Arg<Func<Task<string>>>()());
+        _sessionStore.WithSessionLockAsync(Arg.Any<string>(), Arg.Any<Func<Task<LlmResponse>>>(), Arg.Any<CancellationToken>())
+            .Returns(ci => ci.Arg<Func<Task<LlmResponse>>>()());
 
-        _service = new PromptLabService(_simulator, _evaluator, _generator, _sessionStore, _guidance, _logger);
+        // Chat runs through the real GuidanceConversation over the substituted ILlmService, so chat tests
+        // observe orchestrator behavior through the surface's own Interface.
+        var factory = Substitute.For<ILlmServiceFactory>();
+        factory.Get(Arg.Any<AiProvider>()).Returns(_llm);
+        var guidance = new GuidanceConversation(factory, Substitute.For<ILogger<GuidanceConversation>>());
+
+        _service = new PromptLabService(_simulator, _evaluator, _generator, _sessionStore, guidance, _logger);
     }
 
     // == Catalog Tests == //
@@ -332,51 +339,53 @@ public class PromptLabServiceTests
             () => _service.ChatAsync(Guid.NewGuid(), "help me", null, CancellationToken.None));
     }
 
-    // Turn mechanics live in GuidanceConversation (see GuidanceConversationTests); the orchestrator only
-    // routes the session history, provider, and PromptLab:Chat feature and returns the reply.
+    // Turn mechanics live in GuidanceConversation (see GuidanceConversationTests); these cover the
+    // orchestrator's own job: building the challenge-aware prompt data with the PromptLab:Chat feature
+    // and returning the reply content, with the turn landing on the session's chat history.
     [Fact]
-    public async Task ChatAsync_DelegatesToGuidanceWithSessionHistoryAndReturnsContent()
+    public async Task ChatAsync_RunsTurnOnSessionHistoryAndReturnsContent()
     {
         var challengeId = _service.GetChallenges()[0].ChallengeId;
         var session     = new PromptLabSession { ChallengeId = challengeId, Provider = AiProvider.Anthropic };
 
         _sessionStore.Get(session.SessionId.ToString()).Returns(session);
 
-        _guidance.RunTurnAsync(Arg.Any<AiProvider>(), Arg.Any<List<ChatMessage>>(), Arg.Any<GuidanceTurnRequest>(), Arg.Any<Action>(), Arg.Any<CancellationToken>())
+        string? feature = null;
+        _llm.CompleteAsync(Arg.Do<CompletionRequest>(r => feature = r.Feature), Arg.Any<CancellationToken>())
             .Returns(new LlmResponse { Content = "What does the rubric reward?" });
 
         var response = await _service.ChatAsync(session.SessionId, "how do I improve?", "my draft prompt", CancellationToken.None);
 
         Assert.Equal("What does the rubric reward?", response);
-        await _guidance.Received(1).RunTurnAsync(
-            session.Provider,
-            session.ChatHistory,
-            Arg.Is<GuidanceTurnRequest>(r => r.Feature == "PromptLab:Chat" && r.UserMessage == "how do I improve?"),
-            Arg.Any<Action>(),
-            Arg.Any<CancellationToken>());
+        Assert.Equal("PromptLab:Chat", feature);
+        Assert.Equal(2, session.ChatHistory.Count);           // whole turn landed on the session's chat history
+        Assert.Equal("how do I improve?",             session.ChatHistory[0].Content);
+        Assert.Equal("What does the rubric reward?",  session.ChatHistory[1].Content);
+        _sessionStore.Received(1).Set(session);
     }
 
     [Fact]
-    public async Task StreamChatAsync_DelegatesToStreamingTurnWithCallerOnDelta()
+    public async Task StreamChatAsync_StreamsTheReplyThroughCallerOnDelta()
     {
         var challengeId = _service.GetChallenges()[0].ChallengeId;
         var session     = new PromptLabSession { ChallengeId = challengeId, Provider = AiProvider.Anthropic };
         _sessionStore.Get(session.SessionId.ToString()).Returns(session);
 
-        Func<string, CancellationToken, Task> onDelta = (_, _) => Task.CompletedTask;
-        _guidance.StreamTurnAsync(Arg.Any<AiProvider>(), Arg.Any<List<ChatMessage>>(), Arg.Any<GuidanceTurnRequest>(),
-                Arg.Any<Func<string, CancellationToken, Task>>(), Arg.Any<Action>(), Arg.Any<CancellationToken>())
-            .Returns(new LlmResponse { Content = "Streamed reply" });
+        _llm.StreamAsync(Arg.Any<CompletionRequest>(), Arg.Any<Func<string, CancellationToken, Task>>(), Arg.Any<CancellationToken>())
+            .Returns(async callInfo =>
+            {
+                var push = callInfo.Arg<Func<string, CancellationToken, Task>>();
+                await push("Streamed ", CancellationToken.None);
+                await push("reply",     CancellationToken.None);
+                return new LlmResponse { Content = "Streamed reply" };
+            });
 
-        var response = await _service.StreamChatAsync(session.SessionId, "how do I improve?", null, onDelta, CancellationToken.None);
+        var deltas = new List<string>();
+        var response = await _service.StreamChatAsync(session.SessionId, "how do I improve?", null,
+            (text, _) => { deltas.Add(text); return Task.CompletedTask; }, CancellationToken.None);
 
         Assert.Equal("Streamed reply", response);
-        await _guidance.Received(1).StreamTurnAsync(
-            session.Provider,
-            session.ChatHistory,
-            Arg.Is<GuidanceTurnRequest>(r => r.Feature == "PromptLab:Chat"),
-            onDelta,   // the caller's callback reaches the turn unwrapped
-            Arg.Any<Action>(),
-            Arg.Any<CancellationToken>());
+        Assert.Equal(["Streamed ", "reply"], deltas);         // the caller's callback received the deltas unwrapped
+        Assert.Equal(2, session.ChatHistory.Count);
     }
 }

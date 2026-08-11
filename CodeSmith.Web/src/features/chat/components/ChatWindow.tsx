@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { useNavigationContext } from "../../../contexts/NavigationContext";
 import { useProviderPreferenceContext } from "../../../contexts/ProviderPreferenceContext";
 import type {
-  ProblemSession, Difficulty, Language, ChatMessage, RunCodeResponse, GuidanceMode,
+  ProblemSession, Difficulty, Language, RunCodeResponse, GuidanceMode,
   ProblemFocus, ProblemTopic,
 } from "../types";
 import {
@@ -20,21 +20,18 @@ import { useResizableSplit } from "../hooks/useResizableSplit";
 import { DifficultySelector } from "./DifficultySelector";
 import { CodePanel } from "./CodePanel";
 import { ChatPanel } from "./ChatPanel";
-import type { FailedTurn } from "./StreamingChatTail";
 
 export function ChatWindow() {
   const [searchParams] = useSearchParams();
   const [session, setSession] = useState<ProblemSession | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [code, setCode] = useState("");
   const [executionResult, setExecutionResult] = useState<RunCodeResponse | null>(null);
-  const [contextTokensUsed, setContextTokensUsed] = useState<number | null>(null);
-  const [contextWindowSize, setContextWindowSize] = useState(200_000);
-  const [failedTurn, setFailedTurn] = useState<FailedTurn | null>(null);
-  const [draft, setDraft] = useState<{ text: string } | null>(null);
 
   const createSession = useCreateSession();
+  // The guidance turn state machine (messages, optimistic append/rollback, failed turn, draft,
+  // context tokens) lives in the hook — this window only renders it and wires the session.
   const sendMessage = useSendMessage();
+  const { messages, setMessages, failedTurn, draft, contextTokensUsed, contextWindowSize } = sendMessage;
   const runCode = useRunCode();
   const { provider, isReady } = useProviderPreferenceContext();
   const { leftPercent, dividerProps, containerRef } = useResizableSplit(75);
@@ -47,10 +44,11 @@ export function ChatWindow() {
       setMessages([]);
       setCode("");
       setExecutionResult(null);
-      setContextTokensUsed(null);
+      sendMessage.resetContextUsage();
       // focus/topic deliberately survive the reset so a drill session costs one selection, not one per problem
     });
     return () => unregisterReset("pairedprogrammer");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registerReset, unregisterReset]);
 
   // == URL Param Seeding (Option A) == //
@@ -106,42 +104,7 @@ export function ChatWindow() {
   // == Send Chat Message == //
   function handleSendMessage(message: string, guidanceMode: GuidanceMode = "Guidance") {
     if (!session) return;
-
-    const userMessage: ChatMessage = {
-      role: "User",
-      content: message,
-      timestamp: new Date().toISOString(),
-    };
-    setFailedTurn(null);
-    setDraft(null);
-    setMessages((prev) => [...prev, userMessage]);
-
-    sendMessage.mutate(
-      { sessionId: session.sessionId, message, editorContent: code, guidanceMode },
-      {
-        onSuccess: (data) => {
-          const assistantMessage: ChatMessage = {
-            role: "Assistant",
-            content: data.response,
-            timestamp: new Date().toISOString(),
-          };
-          setMessages((prev) => [...prev, assistantMessage]);
-          setContextTokensUsed(data.contextTokensUsed);
-          setContextWindowSize(data.contextWindowSize);
-        },
-        onError: (error) => {
-          // The server rolled the turn back — mirror it: drop the optimistic user bubble, keep
-          // any partial reply, and put the message back in the input.
-          setMessages((prev) => prev.slice(0, -1));
-          const partial = sendMessage.getStreamedText();
-          setFailedTurn({
-            failure: interpretError(error),
-            partial: partial.trim() ? partial : undefined,
-          });
-          setDraft({ text: message });
-        },
-      }
-    );
+    sendMessage.sendTurn(session.sessionId, message, code, guidanceMode);
   }
 
   // == Run Code and Auto-Analyze == //

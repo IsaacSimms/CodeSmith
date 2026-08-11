@@ -1,14 +1,11 @@
 // == Streaming Chat Tail Component == //
 import { FailureNotice } from "../../shared/FailureNotice";
-import type { ClientFailure } from "../../../lib/clientError";
+import type { FailedTurn } from "../../../hooks/useGuidanceChat";
 import { MessageBubble } from "./MessageBubble";
 
-// A turn that died: optional partial reply stays visible (dimmed); ClientFailure drives FailureNotice.
-// Incomplete-reply framing is only shown when partial text is non-empty (mid-stream death).
-export interface FailedTurn {
-  failure: ClientFailure;
-  partial?: string;
-}
+// The FailedTurn shape is owned by the guidance chat state machine; re-exported here so
+// existing component-level imports keep working.
+export type { FailedTurn };
 
 interface StreamingChatTailProps {
   isStreaming: boolean;   // a turn is in flight
