@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE)
 [![Live](https://img.shields.io/badge/live-code--smith.cc-brightgreen)](https://www.code-smith.cc)
 
-**An AI practice platform for technologists — and a working answer to the question every AI SaaS has to solve: how do you let strangers spend your inference budget without going broke?**
+## A practice platform for technologists — artisanal programming with guidance and infrastructure problems
 
 Three practice surfaces (coding interviews, prompt engineering, infrastructure architecture) run over one provider-agnostic LLM layer. Every single token is reserved before the call, settled against actuals after it, and debited free-grant-first — so the service cannot run at a loss, even under abuse.
 
