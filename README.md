@@ -9,7 +9,7 @@
 
 Three practice surfaces (coding interviews, prompt engineering, infrastructure architecture) run over one provider-agnostic LLM layer. Every single token is reserved before the call, settled against actuals after it, and debited free-grant-first — so the service cannot run at a loss, even under abuse.
 
-**Live at [code-smith.cc](https://www.code-smith.cc)** · Sign in with email or Google.
+### zzsLive at [code-smith.cc](https://www.code-smith.cc)** · Sign in with email or Google.
 
 ![CodeSmith tutoring — split-screen editor with a streaming AI pair programmer](Docs/images/tutoring.png)
 
