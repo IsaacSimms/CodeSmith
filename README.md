@@ -1,375 +1,208 @@
 # CodeSmith
 
-An AI-powered learning platform for technologists. Three distinct practice modes let you sharpen coding skills, prompt engineering fundamentals, and infrastructure architecture reasoning — all guided by an AI pair programmer powered by your choice of **xAI (default)**, Anthropic, or OpenAI models.
+[![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4)](https://dotnet.microsoft.com/)
+[![React 19](https://img.shields.io/badge/React-19-61DAFB)](https://react.dev/)
+[![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](LICENSE)
+[![Live](https://img.shields.io/badge/live-code--smith.cc-brightgreen)](https://www.code-smith.cc)
 
-**SaaS cost controls:** Every LLM call is metered against a one-time per-`objectId` free grant (20k tokens) + per-IP caps + prepaid Stripe credits. Evaluations covered by the free grant are automatically downgraded to the Fast model tier.
+**An AI practice platform for technologists — and a working answer to the question every AI SaaS has to solve: how do you let strangers spend your inference budget without going broke?**
 
----
+Three practice surfaces (coding interviews, prompt engineering, infrastructure architecture) run over one provider-agnostic LLM layer. Every single token is reserved before the call, settled against actuals after it, and debited free-grant-first — so the service cannot run at a loss, even under abuse.
 
-## Why It Exists
+**Live at [code-smith.cc](https://www.code-smith.cc)** · Sign in with email or Google.
 
-Practicing for technical interviews and building deeper software intuition requires realistic feedback loops — not multiple-choice quizzes or static tutorials. CodeSmith creates a closed feedback loop for three skill domains:
-
-- **Coding** — Work a real problem in a real editor; the AI sees your code and guides you without giving away the answer.
-- **Prompt Engineering** — Write system prompt additions to defeat a hidden adversarial instruction; get scored on rubric criteria.
-- **Infrastructure Architecture** — Read a cloud scenario, write a justified design recommendation; get evaluated on architectural tradeoffs and rubric dimensions.
-
----
-
-## Features
-
-### Coding Interview Practice
-
-Pick a language and difficulty, receive a generated coding problem with starter code in a split-screen Monaco editor, and chat with an AI pair programmer. Problem description and chat stream token-by-token (NDJSON). The AI always has the current editor contents in context. A **Test Code** button runs code in a sandboxed executor; the terminal can show a “Starting sandbox…” hint on cold start (Azure Dynamic Sessions).
-
-Supported languages: `CSharp`, `Cpp`, `Go`, `Rust`, `Python`, `Java`, `TypeScript`  
-Difficulty levels: `Easy`, `Medium`, `Hard`
-
-**Local vs Azure code execution:** Local dev defaults to **Piston** (Docker). Azure production uses **custom Dynamic Sessions** (Hyper-V sandboxes + multi-language `CodeSmith.Executor` image). Config: `CodeExecution:Backend` = `Piston` | `LocalProcess` | `DynamicSessions`.
-
-### Prompt Lab
-
-A prompt engineering practice mode. Each challenge presents a locked base system prompt and a hidden adversarial instruction that biases the model toward bad outputs. The goal is to write prompt additions robust enough to override the bias across a battery of test inputs.
-
-Workflow: browse challenges by category → write additions in the Monaco prompt editors → submit → review per-test pass/fail results with per-criterion rubric scores and AI evaluator feedback → iterate.
-
-Challenge categories: Output Format Control, Specificity of Scope, Negative Instructions, Conditional Behavior, Quantity/Enumeration, Tone & Register.
-
-**Scoring:** Each submission triggers two parallel AI phases. Phase 1 runs the assembled prompt (`locked base + hidden adversarial suffix + user additions`) against every test input on the **Fast** model tier. Phase 2 scores each output against the rubric on the **Accurate** tier (downgraded to Fast while the call is covered by free quota). Provider defaults: Anthropic Haiku/Sonnet; OpenAI mini/full; xAI maps both tiers to its configured Grok models.
-
-### System Lab
-
-An infrastructure architecture practice mode. Each scenario describes a real-world cloud problem — constraints, requirements, and a set of required tradeoffs to reason through. The user writes a free-prose justification defending their design choices, then submits for AI evaluation.
-
-Workflow: browse scenarios by category → start a session → write a justification document → submit → receive a rubric score, per-criterion breakdown, cross-cutting dimension deductions, and tradeoff analysis → iterate with guidance chat.
-
-Scenario categories: Identity & Governance, Compute, Storage, Networking & Connectivity, Resilience & Continuity, Monitoring & Observability, Automation & IaC.
-
-**Scoring:** The Accurate model tier evaluates the justification against the rubric criteria and a set of cross-cutting architectural dimensions (never exposed to the user). The total score is `rubric score − dimension deductions`. Free-window evaluations are tier-downgraded like Prompt Lab. A guidance chat endpoint lets the user ask questions without getting the answer handed to them.
-
-### Auth & billing (SPA)
-
-- **Sign in:** Entra External ID (CIAM) via MSAL — **email** or **Google** federation. API uses Entra-issued bearer tokens; there is no separate Google JWT stack on the API.
-- **Credits:** Stripe Checkout prepaid packs; balance and ledger in the SPA after sign-in.
+![CodeSmith tutoring — split-screen editor with a streaming AI pair programmer](Docs/images/tutoring.png)
 
 ---
 
-## Architecture
+## Three practice surfaces
+
+Static tutorials and multiple-choice quizzes don't build intuition — closed feedback loops do. Each surface is a loop: do the work, get evaluated on it, iterate.
+
+### Tutoring — coding interview practice
+
+Pick a language and difficulty; the AI generates a problem with starter code in a split-screen Monaco editor, then acts as a Socratic pair programmer that **always has your current editor contents in context**. The problem description and every chat reply stream token-by-token over NDJSON. A **Test Code** button executes your code in a sandbox and pipes stdout/stderr back to an in-page terminal.
+
+Problems vary along two independent axes so you don't get the same exercise twice:
+
+| Axis | Values |
+|---|---|
+| **Focus** — what kind of work | Standard · BugFix · PerformanceOptimization · FeatureExtension · UnusualConstraints · EdgeCaseGauntlet · RealWorldScenario · Refactoring |
+| **Topic** — what it's about | ArraysAndStrings · HashMapsAndSets · TreesAndGraphs · DynamicProgramming · ObjectOrientedDesign · FunctionalPatternsAndRecursion · SimulationAndModeling · MathAndNumberTheory · StateMachines · ParsingAndStringProcessing · BitManipulation · SortingAndSearching |
+
+That's 96 focus/topic pairings across 7 languages (`CSharp`, `Cpp`, `Go`, `Rust`, `Python`, `Java`, `TypeScript`) and 3 difficulties. Omit either axis and the server rolls one for you.
+
+### Prompt Lab — prompt engineering under adversarial pressure
+
+![Prompt Lab — per-test pass/fail results with per-criterion rubric scores](Docs/images/prompt-lab.png)
+
+Each challenge hands you a locked base system prompt plus a **hidden adversarial instruction** that deliberately biases the model toward bad output. Your job: write prompt additions strong enough to override that bias across a whole battery of test inputs — not just one lucky sample.
+
+Submitting runs two AI phases. Phase 1 executes `locked base + hidden adversarial suffix + your additions` against every test input. Phase 2 scores each output against a rubric and returns per-criterion feedback.
+
+Categories: Output Format Control · Specificity of Scope · Negative Instructions · Conditional Behavior · Quantity/Enumeration · Tone & Register.
+
+### System Lab — architecture reasoning, defended in prose
+
+![System Lab — rubric score with per-criterion breakdown and dimension deductions](Docs/images/system-lab.png)
+
+A real-world cloud scenario with constraints, requirements, and a set of tradeoffs you have to reason through. You write a free-prose justification defending your design; the AI evaluates it against rubric criteria **and** a set of cross-cutting architectural dimensions that are never shown to you. Final score is `rubric score − dimension deductions`. A guidance chat lets you ask questions without being handed the answer.
+
+Categories: Identity & Governance · Compute · Storage · Networking & Connectivity · Resilience & Continuity · Monitoring & Observability · Automation & IaC.
+
+### Accounts, credits, and provider choice
+
+Sign-in is Entra External ID (CIAM) via MSAL — email or Google federation, with the API accepting Entra-issued bearer tokens only (no second JWT stack). The account page shows your free-grant usage, paid credit balance, and full ledger, and sells prepaid credit packs through Stripe Checkout. You can also pick which model provider — **xAI (default)**, Anthropic, or OpenAI — backs your sessions.
+
+---
+
+## How it's built
 
 ### Stack
 
 | Layer | Technology |
 |-------|-----------|
 | Backend | .NET 8, ASP.NET Core Web API |
-| AI | Anthropic SDK; OpenAI SDK (also drives xAI/Grok via OpenAI-compatible endpoint); xAI default |
+| AI | Anthropic SDK; OpenAI SDK (also drives xAI/Grok via its OpenAI-compatible endpoint) |
 | Payments | Stripe.net (prepaid credit top-ups) |
-| Auth | Entra External ID (CIAM) + MSAL on the SPA; Development debug header allow-list |
-| Persistence | EF Core + SQL Server (usage/credits); in-memory session stores |
-| Code sandbox | Piston (Docker, local default), LocalProcess (dev host), DynamicSessions (Azure) |
-| Telemetry | OpenTelemetry → Azure Monitor / Application Insights (when connection string is set) |
-| Frontend | React 19, TypeScript, Vite 6 |
-| Styling | Tailwind CSS v4 |
-| Data Fetching | TanStack Query v5 |
-| Routing | React Router v6 |
-| E2E Tests | Playwright |
-| Backend Tests | xUnit, NSubstitute |
-| Frontend Tests | Vitest, React Testing Library |
+| Auth | Entra External ID (CIAM) + MSAL on the SPA; Development debug-header allow-list |
+| Persistence | EF Core + SQL Server (usage, credits, ledger); in-memory session stores |
+| Code sandbox | Piston (Docker, local) · Executor Container App (Azure) · LocalProcess (dev-only) · DynamicSessions (retained) |
+| Telemetry | OpenTelemetry → Azure Monitor / Application Insights |
+| Frontend | React 19, TypeScript, Vite 6, Tailwind v4, TanStack Query v5, React Router v6, Monaco |
+| Tests | xUnit + NSubstitute (backend) · Vitest + React Testing Library (frontend) · Playwright (E2E) |
 
-### Solution Structure
+### Projects
 
 | Project | Role |
 |---------|------|
 | `CodeSmith.Core` | Domain models, enums, interfaces, exceptions — zero external dependencies |
-| `CodeSmith.Infrastructure` | LLM adapters, usage/credits, Stripe billing, code execution (Piston / LocalProcess / Dynamic Sessions), EF, DI |
-| `CodeSmith.Api` | ASP.NET Core Web API — controllers, DTOs, middleware, rate limiting, CORS, MeteredAi auth, NDJSON streaming |
-| `CodeSmith.Executor` | Multi-language Minimal API image for Azure custom Dynamic Sessions (not used for local Piston) |
-| `CodeSmith.CLI` | Interactive console client for local testing (blocking JSON endpoints) |
-| `CodeSmith.Web` | React 19 SPA — feature folders, Monaco, TanStack Query, MSAL, streaming chat |
-| `CodeSmith.Tests` | xUnit + NSubstitute suite mirroring source layout |
+| `CodeSmith.Infrastructure` | LLM adapters, usage/credits, Stripe billing, code execution, EF, DI |
+| `CodeSmith.Api` | Web API — controllers, DTOs, middleware, rate limiting, CORS, `[MeteredAi]` auth, NDJSON streaming |
+| `CodeSmith.Executor` | Multi-language Minimal API sandbox image, deployed as a scale-to-zero Container App |
+| `CodeSmith.CLI` | Console client against the blocking JSON endpoints |
+| `CodeSmith.Web` | React 19 SPA — feature folders, Monaco, TanStack Query, MSAL, streaming |
+| `CodeSmith.Tests` | xUnit suite mirroring the source layout |
 
-### Key Seams
+### Seams
+
+The design bet: put one interface in front of each thing that varies, and let adapters differ behind it.
 
 | Seam | Interface | Adapters |
-|------|-----------|---------|
-| LLM completion (unified) | `ILlmService` (`CompleteAsync` + `StreamAsync`) | `AnthropicLlmService`, `OpenAiCompatibleLlmService` (OpenAI + xAI), each wrapped by `UsageEnforcingLlmService` |
-| Provider routing | `ILlmServiceFactory` | `LlmServiceFactory` (keyed by `AiProvider` at runtime) |
-| Usage enforcement | `IUsageEnforcer` | `UsageEnforcer` (one-time free grant + IP cap + paid credits; reserve → settle / release; `GetQuotaAsync`) |
+|------|-----------|----------|
+| LLM completion | `ILlmService` (`CompleteAsync` + `StreamAsync`) | `AnthropicLlmService`, `OpenAiCompatibleLlmService` (OpenAI + xAI) — each wrapped by `UsageEnforcingLlmService` |
+| Provider routing | `ILlmServiceFactory` | `LlmServiceFactory`, keyed by `AiProvider` at runtime |
+| Usage enforcement | `IUsageEnforcer` | `UsageEnforcer` — free grant + IP cap + paid credits; reserve → settle / release |
 | Per-user usage lock | `IUserUsageLock` | `UserUsageLock` (singleton) |
+| Code execution | `ICodeExecutionService` | `PistonCodeExecutionService`, `ExecutorCodeExecutionService`, `LocalProcessCodeExecutionService`, `DynamicSessionsCodeExecutionService` |
 | Tutoring logic | `ITutoringService` | `TutoringService` |
 | Session persistence | `ISessionStore<T>` | In-memory stores per surface |
-| Code execution | `ICodeExecutionService` | `PistonCodeExecutionService`, `LocalProcessCodeExecutionService`, `DynamicSessionsCodeExecutionService` |
 | Billing | `IBillingService` | `StripeBillingService` |
 
-Code execution backend is config-driven — set `CodeExecution:Backend` in `appsettings.json` to `Piston`, `LocalProcess`, or `DynamicSessions`. Full seam detail lives in `context.md`.
+The code-execution seam is the one that earned its keep. Production originally ran **Azure Dynamic Sessions** (Hyper-V microVMs), but Azure rejects `--ready-sessions 0` on custom pools — the cheapest possible pool still bills one always-warm session, around the clock, for a feature used in bursts. Swapping to a **scale-to-zero Container App** (`CodeSmith.Executor`) was a config change plus one new adapter; `DynamicSessionsCodeExecutionService` stays in the tree as the upgrade path if true microVM isolation is ever required. Backend is chosen by `CodeExecution:Backend`.
 
-### Usage Enforcement & Cost Protection
-
-Every LLM call is metered and protected before execution:
-
-- **Free grant**: 20,000 tokens per `objectId`, granted once. It never expires and never resets — once exhausted, the account is on paid credits.
-- **IP caps**: 60,000-token aggregate free-token limit per client IP (across all objectIds).
-- **Paid credits**: After free coverage is exhausted, `PaidCreditsBalance` is debited (USD-equivalent charge = provider cost × markup).
-- Free-first deduction. Upper-bound **reserve** (persisted hold) before the call; **settle** to actuals on success; **release** on failure. Insufficient budget → hard fail (402) — there is no “lenient last free call.”
-- During the free window, expensive evaluation features are automatically downgraded to the Fast model. Problem generation stays on Accurate.
-
-Enforcement lives in `UsageEnforcingLlmService` (decorator) + `UsageEnforcer`. See `context.md` and `Docs/Recaps/` for full details.
-
-**HTTP results on metered AI routes:** **401** login required (`[MeteredAi]`); **402** insufficient free window + paid credits; **429** IP rate limit (60 req/min).
-
-### LLM Model Selection
-
-| Operation | Tier (Free Window) | Tier (Paid / Window Expired) | Notes |
-|-----------|--------------------|------------------------------|-------|
-| Problem generation | Accurate | Accurate | Quality always matters |
-| Chat / guidance | Fast | Fast | Latency |
-| Prompt Lab simulation | Fast | Fast | Parallel, speed |
-| Prompt Lab evaluation | Fast | Accurate | Downgraded while free quota covers the call |
-| System Lab evaluation | Fast | Accurate | Same free-window downgrade |
-| System Lab guidance chat | Fast | Fast | Latency |
-
-Concrete model names are per-provider config (`Anthropic` / `OpenAi` / `Xai` options), validated against the pricing catalog at startup.
-
-### API Endpoints
-
-| Method | Route | Description |
-|--------|-------|-------------|
-| `GET` | `/api/providers` | Active and available AI providers |
-| `POST` | `/api/session` 🔒 | Create a coding interview session |
-| `POST` | `/api/session/stream` 🔒 | Same, NDJSON stream (description deltas + final session) |
-| `POST` | `/api/session/{id}/chat` 🔒 | Chat within a coding session |
-| `POST` | `/api/session/{id}/chat/stream` 🔒 | Chat NDJSON stream |
-| `POST` | `/api/session/{id}/run` | Execute code in the configured sandbox (not LLM-metered) |
-| `GET` | `/api/prompt-lab/challenges` | List Prompt Lab challenges |
-| `GET` | `/api/prompt-lab/challenges/{id}` | Get a single challenge |
-| `POST` | `/api/prompt-lab/sessions` 🔒 | Start a Prompt Lab session |
-| `POST` | `/api/prompt-lab/sessions/{id}/submit` 🔒 | Submit a prompt attempt for scoring |
-| `POST` | `/api/prompt-lab/sessions/{id}/chat` 🔒 | Guidance chat |
-| `POST` | `/api/prompt-lab/sessions/{id}/chat/stream` 🔒 | Guidance chat stream |
-| `GET` | `/api/system-lab/scenarios` | List System Lab scenarios |
-| `GET` | `/api/system-lab/scenarios/{id}` | Get a single scenario |
-| `POST` | `/api/system-lab/sessions` 🔒 | Start a System Lab session |
-| `POST` | `/api/system-lab/sessions/{id}/submit` 🔒 | Submit a justification for scoring |
-| `POST` | `/api/system-lab/sessions/{id}/chat` 🔒 | Guidance chat |
-| `POST` | `/api/system-lab/sessions/{id}/chat/stream` 🔒 | Guidance chat stream |
-| `POST` | `/api/billing/checkout` 🔐 | Create Stripe Checkout session (allow-listed priceId) |
-| `POST` | `/api/billing/webhook` | Stripe webhook — anonymous, signature-verified, raw body |
-| `GET` | `/api/billing/balance` 🔐 | Paid credit balance |
-| `GET` | `/api/billing/ledger` 🔐 | Recent ledger rows |
-| `GET` | `/api/billing/packs` 🔐 | Credit pack catalog (Stripe Price allow-list) |
-| `GET` | `/api/usage/quota` 🔐 | Free-token grant + IP constraint (`None`/`Limited`/`Exhausted`) |
-
-- **🔒** = `[MeteredAi]` — auth required; failures return 401 ProblemDetails (`login_required`). Exhausted quota/credits → 402.
-- **🔐** = `[Authorize]` (billing reads/checkout, usage quota) — auth required; stock 401 (not the metered login_required body).
-- SPA uses the `/stream` siblings; CLI still uses blocking JSON. Full contracts (including NDJSON chunk types) are in `context.md`.
-
-### Middleware Pipeline
-
-Requests pass through (in order):
-
-1. `UseExceptionHandler()` + `AppExceptionHandler` (declarative domain exception → ProblemDetails table)
-2. `UseRequestLogging()`
-3. Swagger (dev only)
-4. `UseForwardedHeaders()` (correct client IP behind proxies — load-bearing for rate limit + IP free cap)
-5. HTTPS Redirection
-6. `UseRateLimiter()` — 60 requests / minute per client IP (fixed window, 429 on excess)
-7. CORS
-8. Authentication / Authorization
-9. Controllers
-
-Quota enforcement (402) happens inside the usage decorator around LLM calls, not in middleware.
-
-### Security & Cost Protection
-
-- API keys and secrets are never committed. `appsettings.Development.json` is gitignored; use user-secrets / env / Key Vault in deploy.
-- Error responses never include stack traces.
-- Request logging never captures request or response bodies.
-- User code runs in a sandbox — **Piston** (local: isolated container) or **Azure Dynamic Sessions** (Hyper-V; egress disabled in the ops runbook). `LocalProcess` must never be used in any deployed environment.
-- LLM spend is protected by `IUsageEnforcer` using `ICurrentUser.ObjectId` (Entra or Development debug allow-list).
+Full API surface, NDJSON chunk contract, middleware pipeline, and per-operation model-tier policy live in **[`context.md`](context.md)**.
 
 ---
 
-## Development How-To
+## Not running at a loss
 
-### Prerequisites
+An AI product's costs scale with *usage*, not with *revenue*. A free tier plus a public URL is an open invoice unless every call is metered before it happens. So metering isn't a feature here — it's a decorator that every LLM call is forced through, and it can't be bypassed by adding a new endpoint.
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- [Node.js 20+](https://nodejs.org/)
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (for local Piston)
-- API keys for the provider(s) you will exercise (xAI and/or Anthropic and/or OpenAI)
-- Optional: SQL Server / LocalDB for usage, credits, and ledger
-- Optional: Entra External ID app registration values for real SPA sign-in (Development can use the debug header instead)
+```mermaid
+sequenceDiagram
+    participant SPA
+    participant API as API · MeteredAi
+    participant Enf as UsageEnforcingLlmService
+    participant DB as CreditBalance + Ledger
+    participant LLM as Provider · xAI / Anthropic / OpenAI
+
+    SPA->>API: POST /api/session/stream
+    API->>Enf: StreamAsync(prompt)
+    Enf->>DB: reserve(upper-bound estimate)
+    alt free grant + paid credits insufficient
+        DB-->>Enf: refuse
+        Enf-->>SPA: 402 Payment Required
+    else covered
+        Enf->>LLM: stream completion
+        alt provider succeeds
+            LLM-->>Enf: output + token usage
+            Enf->>DB: settle(actuals, free tokens first)
+            Enf-->>SPA: NDJSON deltas → final
+        else provider fails
+            Enf->>DB: release(hold reversed)
+            Enf-->>SPA: 502
+        end
+    end
+```
+
+The rules behind that diagram:
+
+- **One-time free grant.** 20,000 tokens per `objectId`, granted once. It never expires and never resets — once spent, the account is on paid credits. There is no rolling window to farm.
+- **Per-IP aggregate cap.** 60,000 free tokens per client IP across *all* objectIds, so signing up ten accounts from one machine buys nothing. `UseForwardedHeaders()` is load-bearing here — behind a proxy, the wrong client IP silently defeats both this cap and rate limiting.
+- **Reserve before, settle after.** An upper-bound hold is persisted *before* the provider call; success settles to real token counts, failure releases the hold. A crash mid-call can only ever over-charge the hold, never leak an unmetered call.
+- **Free-first deduction, then paid credits.** Paid charge is provider cost × markup, debited from `PaidCreditsBalance`.
+- **Hard fail, no courtesy call.** Insufficient budget returns **402** before any provider request. There is deliberately no "one last free call."
+- **Tier downgrade while free.** Expensive evaluation runs drop to the Fast model tier while the free grant covers them. Problem generation stays on Accurate — quality there is the product.
+
+On metered routes: **401** login required · **402** out of free grant and credits · **429** IP rate limit (60 req/min).
+
+Billing and enforcement are deliberately separate modules — **billing writes credits, enforcement debits them**. `StripeBillingService` never references `IUsageEnforcer`, and the Stripe webhook is idempotent through a dedup table, so a replayed event can't mint credits twice.
+
+### Sandboxing user code
+
+Submitted code never runs on the API host. Locally it goes to **Piston** in Docker; in Azure to the **Executor Container App** — internal-only ingress, non-root user, one run per container, capped replicas, and a system-assigned identity holding *only* `AcrPull` (never the backend identity, which can reach Key Vault and SQL). `LocalProcess` exists for the no-Docker dev case and must never be deployed.
 
 ---
 
-### One-Time Setup
-
-**1. Build the solution**
+## Running it locally
 
 ```powershell
 dotnet build CodeSmith.slnx
+docker compose up -d piston                                  # local sandbox
+dotnet run --project CodeSmith.Api --launch-profile https    # https://localhost:7111
+cd CodeSmith.Web ; npm run dev                               # https://localhost:5173
 ```
 
-**2. Configure keys and (for full features) the database**
-
-Create `CodeSmith.Api/appsettings.Development.json` (gitignored). Minimal example:
+Create `CodeSmith.Api/appsettings.Development.json` (gitignored) with at minimum a provider key:
 
 ```json
 {
-  "Logging": { "LogLevel": { "Default": "Information", "Microsoft.AspNetCore": "Warning" } },
   "Ai": { "ActiveProvider": "Xai" },
   "Xai": { "ApiKey": "your-xai-key" },
-  "Anthropic": { "ApiKey": "sk-ant-optional" },
-  "OpenAi": { "ApiKey": "sk-optional" },
-  "Usage": {
-    "AllowedDebugObjectIds": ["my-test-user-123"]
-  }
+  "Usage": { "AllowedDebugObjectIds": ["my-test-user-123"] }
 }
 ```
 
-`Ai:ActiveProvider` is **binding** (not advisory): omit `provider` on any LLM-creating endpoint and the server applies this value (`Anthropic` | `OpenAi` | `Xai`). A typo fails host start.
+`Ai:ActiveProvider` is binding, not advisory — omit `provider` on any LLM endpoint and the server applies it. A typo fails host start. In Development, sending `X-Debug-User-Id: my-test-user-123` stands in for MSAL sign-in; only allow-listed values are honored, and different values behave as different users for quota purposes.
 
-For quota, credits, and usage enforcement, also add:
+Quota, credits, and the ledger need `ConnectionStrings:CodeSmithDb` and EF migrations applied (the app does not auto-migrate). Without it the three surfaces still run; billing and quota reads don't.
 
-```json
-"ConnectionStrings": {
-  "CodeSmithDb": "Server=(localdb)\\MSSQLLocalDB;Database=CodeSmithDev;Trusted_Connection=True;TrustServerCertificate=True;"
-}
-```
-
-Apply EF migrations separately (the app does not auto-migrate). Or use environment variables / user secrets.
-
-**Debug users:** Set `X-Debug-User-Id: my-test-user-123` (only values listed in `AllowedDebugObjectIds` are honored). Different values act as different users for quota tracking. This path is Development-only.
-
-**3. Start Piston and install language runtimes**
-
-Start the container:
+**Tests**
 
 ```powershell
-docker compose up -d piston
+dotnet test CodeSmith.slnx           # backend
+cd CodeSmith.Web ; npm test          # frontend unit
+cd CodeSmith.Web ; npx playwright test   # E2E — needs API + web running
 ```
 
-Install the 7 language packages (one-time — persisted in the `piston-data` Docker volume). Rust and Java are the slowest; expect a few minutes total:
-
-```powershell
-$available = Invoke-RestMethod http://localhost:2000/api/v2/packages
-foreach ($lang in @('python','typescript','go','rust','java','c++','mono')) {
-    $pkg = $available | Where-Object { $_.language -eq $lang } | Select-Object -First 1
-    if (-not $pkg) { Write-Warning "No package for $lang"; continue }
-    Write-Host "Installing $($pkg.language) $($pkg.language_version)..."
-    Invoke-RestMethod -Method Post -Uri http://localhost:2000/api/v2/packages `
-        -ContentType 'application/json' `
-        -Body (@{ language = $pkg.language; version = $pkg.language_version } | ConvertTo-Json)
-}
-```
-
-Verify all 7 runtimes are present:
-
-```powershell
-Invoke-RestMethod http://localhost:2000/api/v2/runtimes | Select-Object language, version
-```
-
-> Piston's `ppman` CLI only exists when running from a cloned repo — not in the `ghcr.io/engineer-man/piston` image. Use the HTTP API above to manage packages.
+First-run Piston language-package installation, the no-Docker fallback, container management, and deploy workflows are in **[`Docs/development.md`](Docs/development.md)**.
 
 ---
 
-### Day-to-Day: Running Locally
+## Documentation
 
-Three things need to be up: **Piston**, **the API**, and **the Web frontend**.
-
-**Piston** (`restart: unless-stopped` in compose + Docker Desktop on login = usually already running):
-
-```powershell
-docker compose up -d piston
-```
-
-**API — Terminal 1:**
-
-```powershell
-dotnet run --project CodeSmith.Api --launch-profile https
-```
-
-Serves at `https://localhost:7111` (HTTPS) and `http://localhost:5175` (HTTP).  
-Swagger UI available at `https://localhost:7111/swagger` in Development.
-
-**Web frontend — Terminal 2:**
-
-```powershell
-cd CodeSmith.Web ; npm run dev
-```
-
-Frontend runs at `https://localhost:5173`. Proxies `/api/*` to the backend. Accept the self-signed cert warning on first visit.
-
-To test as different users or exercise quota without MSAL, use a browser extension to inject `X-Debug-User-Id` (value must be listed under `Usage:AllowedDebugObjectIds`).
-
-**CLI (optional):**
-
-```powershell
-dotnet run --project CodeSmith.CLI
-```
+| Doc | Contents |
+|---|---|
+| [`context.md`](context.md) | Ground-truth architecture reference — seams, lifetimes, full API contracts, streaming protocol, ubiquitous language |
+| [`Docs/development.md`](Docs/development.md) | Full local setup, Piston management, dev fallbacks, deployment workflows |
+| [`Docs/general/`](Docs/general/) | Azure runbooks — Executor Container App, Dynamic Sessions, Entra External ID, Cloudflare/SWA custom domain, Stripe live cutover |
+| [`Docs/Recaps/`](Docs/Recaps/) | Dated design and implementation records |
 
 ---
 
-### Tests
+## License
 
-| Scope | Command |
-|-------|---------|
-| All backend tests | `dotnet test CodeSmith.slnx` |
-| Backend verbose | `dotnet test CodeSmith.slnx --verbosity normal` |
-| Frontend unit tests | `cd CodeSmith.Web ; npm test` |
-| Frontend watch mode | `cd CodeSmith.Web ; npm run test:watch` |
-| Playwright E2E | `cd CodeSmith.Web ; npx playwright test` |
+[PolyForm Noncommercial 1.0.0](LICENSE). Read it, fork it, learn from it, build on it for anything noncommercial. Running it as a commercial service is not granted — that's what [code-smith.cc](https://www.code-smith.cc) is.
 
-Playwright requires both the API and frontend running.
-
-### Additional Documentation
-
-- `context.md` — Ground-truth architecture reference (seams, lifetimes, API contracts, ubiquitous language).
-- `USER_TESTING.md` — Manual / user-based end-to-end testing guide.
-- `Docs/Recaps/` — Historical design and implementation recaps.
-- `Docs/general/dynamic-sessions-azure-setup.md` — Azure Dynamic Sessions pool / MI / config runbook.
-- `Docs/general/entra-external-id-azure-setup.md` — Entra External ID wiring notes.
-
----
-
-### Piston Management
-
-| Command | Purpose |
-|---------|---------|
-| `docker compose up -d piston` | Start (no-op if already running) |
-| `docker compose stop piston` | Stop, preserve state |
-| `docker compose down` | Stop and remove container (volume kept) |
-| `docker compose down -v` | Full reset — deletes installed language packages |
-| `docker compose logs -f piston` | Tail logs |
-| `Invoke-RestMethod http://localhost:2000/api/v2/runtimes` | List installed runtimes |
-
----
-
-### Dev Fallback: Skip Piston
-
-To run without Docker (e.g. before initial setup), add to `CodeSmith.Api/appsettings.Development.json`:
-
-```json
-"CodeExecution": { "Backend": "LocalProcess" }
-```
-
-This executes submitted code as host subprocesses. Requires `python`, `npx`/`tsx`, `g++`, `rustc`, `javac`/`java`, `go`, and `dotnet-script` on PATH. **Never use in a deployed environment.**
-
----
-
-### Deployment & Production
-
-Manual GitHub Actions deploy seams (all `workflow_dispatch` — nothing auto-deploys on push):
-
-| Workflow | Target |
-|----------|--------|
-| `.github/workflows/deploy-azure.yml` | API image → ACR → Azure Container Apps |
-| `.github/workflows/deploy-swa.yml` | SPA → Azure Static Web Apps (bakes `VITE_*` at build) |
-| `.github/workflows/deploy-executor.yml` | `CodeSmith.Executor` multi-lang image → ACR (Dynamic Sessions pool) |
-
-**Code execution in Azure:** Piston needs privileged containers; ACA does not allow that. Production uses **custom Dynamic Sessions** + the executor image. One-time pool, role assignment, and `CodeExecution__Backend=DynamicSessions` + pool endpoint on the API app are documented in `Docs/general/dynamic-sessions-azure-setup.md`. Repo code is implemented; pool wiring is an ops step.
-
-**Telemetry:** set `APPLICATIONINSIGHTS_CONNECTION_STRING` on the API Container App to enable OpenTelemetry → App Insights (local without it runs telemetry-off).
-
-**Usage DB:** provide `ConnectionStrings:CodeSmithDb` and apply EF migrations. Tables cover credit balances, IP free usage, usage ledger, and Stripe event dedup.
-
-Do not commit secrets. Stripe keys, provider API keys, webhook secrets, and Azure credentials live in Key Vault / GitHub secrets / user-secrets — never in this README.
+Secrets are never committed. Provider keys, Stripe keys, webhook secrets, and Azure credentials live in user-secrets, GitHub secrets, or Key Vault.

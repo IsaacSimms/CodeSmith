@@ -9,10 +9,10 @@ AI-powered interview practice tool with three independent surfaces: **Tutoring**
 | Layer         | Technology                     |
 |---------------|--------------------------------|
 | Backend       | .NET 8, ASP.NET Core Web API   |
-| AI            | Anthropic, OpenAI, and xAI/Grok SDKs (provider chosen per session; xAI default) |
+| AI            | Anthropic SDK + OpenAI SDK (the latter also drives xAI/Grok via its OpenAI-compatible endpoint; provider chosen per session; xAI default) |
 | Payments      | Stripe.net (prepaid credit top-ups) |
 | Auth          | Entra External ID (CIAM) + MSAL SPA; Development `X-Debug-User-Id` allow-list |
-| Code sandbox  | Piston (local Docker default), LocalProcess (dev host), Executor (scale-to-zero Azure Container App), DynamicSessions (retained) |
+| Code sandbox  | Piston (local Docker default), Executor (scale-to-zero Azure Container App — **the production backend**), LocalProcess (dev host only), DynamicSessions (retained upgrade path; a custom pool cannot scale to zero) |
 | Telemetry     | OpenTelemetry → App Insights when `APPLICATIONINSIGHTS_CONNECTION_STRING` is set |
 | Frontend      | React 19, TypeScript, Vite 6   |
 | Styling       | Tailwind CSS v4                |
