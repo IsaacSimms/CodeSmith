@@ -9,7 +9,7 @@
 
 Three practice surfaces (coding interviews, prompt engineering, infrastructure architecture) run over one provider-agnostic LLM layer. Every single token is reserved before the call, settled against actuals after it, and debited free-grant-first — so the service cannot run at a loss, even under abuse.
 
-### zzsLive at [code-smith.cc](https://www.code-smith.cc)** · Sign in with email or Google.
+### Live at [code-smith.cc](https://www.code-smith.cc) · Sign in with email or Google.
 
 ![CodeSmith tutoring — split-screen editor with a streaming AI pair programmer](Docs/images/tutoring.png)
 
@@ -19,7 +19,7 @@ Three practice surfaces (coding interviews, prompt engineering, infrastructure a
 
 Static tutorials and multiple-choice quizzes don't build intuition — closed feedback loops do. Each surface is a loop: do the work, get evaluated on it, iterate.
 
-### Tutoring — coding interview practice
+### Build programming expertise with a paired programming feel.
 
 Pick a language and difficulty; the AI generates a problem with starter code in a split-screen Monaco editor, then acts as a Socratic pair programmer that **always has your current editor contents in context**. The problem description and every chat reply stream token-by-token over NDJSON. A **Test Code** button executes your code in a sandbox and pipes stdout/stderr back to an in-page terminal.
 
